@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://den.com/schema/me.schema.json",
+  "title": "Den me.json",
+  "description": "A personal site's identity and graph edges on the Den protocol.",
+  "type": "object",
+  "required": ["version", "id", "name"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "description": "Spec version. Always 'den/v1' for this schema.",
+      "const": "den/v1"
+    },
+    "id": {
+      "description": "Permanent identifier. Issued by den.com; never changes.",
+      "type": "string",
+      "pattern": "^den:[a-z0-9]{8,}$"
+    },
+    "handle": {
+      "description": "Human-readable name. No dot => Den handle (maya -> maya.den.io). Has a dot => domain.",
+      "type": "string",
+      "maxLength": 253
+    },
+    "name": {
+      "description": "Display name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "avatar": {
+      "description": "Square avatar image URL.",
+      "type": "string",
+      "format": "uri"
+    },
+    "bio": {
+      "description": "Short bio.",
+      "type": "string",
+      "maxLength": 280
+    },
+    "url": {
+      "description": "Canonical home page.",
+      "type": "string",
+      "format": "uri"
+    },
+    "created": {
+      "description": "ISO 8601 date the profile was created.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "links": {
+      "description": "Graph edges to other Den members. Only `id` is authoritative.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/link" }
+    },
+    "feed": {
+      "description": "URL of a feed.json containing this person's posts.",
+      "type": "string",
+      "format": "uri"
+    },
+    "posts": {
+      "description": "Inline posts, if not using a separate `feed`.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/post" }
+    },
+    "proof": {
+      "description": "Optional detached signature for self-custody / trustless verification.",
+      "$ref": "#/$defs/proof"
+    }
+  },
+  "$defs": {
+    "link": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "pattern": "^den:[a-z0-9]{8,}$" },
+        "handle": { "type": "string", "maxLength": 253 },
+        "name": { "type": "string", "maxLength": 80 },
+        "rel": {
+          "description": "Relationship. Open vocabulary; defaults to 'follow'.",
+          "type": "string",
+          "default": "follow"
+        },
+        "url": { "type": "string", "format": "uri" }
+      }
+    },
+    "post": {
+      "type": "object",
+      "required": ["id", "created"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": {
+          "description": "Open vocabulary: note | photo | video | link | artifact | ...",
+          "type": "string",
+          "default": "note"
+        },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string" },
+        "media": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "url": { "type": "string", "format": "uri" },
+        "created": { "type": "string", "format": "date-time" }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "required": ["alg", "key", "sig"],
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "type": "string", "enum": ["ed25519"] },
+        "key": { "type": "string", "description": "Public key (base64url)." },
+        "sig": { "type": "string", "description": "Signature over canonicalized me.json minus this field (base64url)." }
+      }
+    }
+  }
+}

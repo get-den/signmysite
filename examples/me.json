@@ -1,0 +1,35 @@
+{
+  "version": "den/v1",
+  "id": "den:7f3a9c2e8b1d4f6a",
+  "handle": "maya",
+  "name": "Maya",
+  "avatar": "https://maya.com/me.jpg",
+  "bio": "13. i draw dinosaurs and build little games.",
+  "url": "https://maya.com",
+  "created": "2026-05-31T00:00:00Z",
+  "links": [
+    { "id": "den:1a2b3c4d5e6f7a8b", "handle": "leo", "rel": "friend" },
+    { "id": "den:9f8e7d6c5b4a3210", "handle": "priya.com", "name": "Priya", "rel": "friend" },
+    { "id": "den:abcdef0123456789", "handle": "mr-rivera", "rel": "follow" }
+  ],
+  "feed": "https://maya.com/feed.json",
+  "posts": [
+    {
+      "id": "p_2026_05_31_dino",
+      "type": "photo",
+      "title": "new drawing",
+      "content": "spent all weekend on this stegosaurus",
+      "media": ["https://maya.com/img/stego.jpg"],
+      "url": "https://maya.com/posts/stego",
+      "created": "2026-05-31T18:02:00Z"
+    },
+    {
+      "id": "p_2026_05_20_game",
+      "type": "artifact",
+      "title": "lava jump (v2)",
+      "content": "made the jumps less impossible. try it!",
+      "url": "https://maya.com/games/lava-jump",
+      "created": "2026-05-20T21:40:00Z"
+    }
+  ]
+}

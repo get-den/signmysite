@@ -1,0 +1,73 @@
+# Den — how to put a website on the social graph
+
+You are an AI agent adding a personal site to Den. Den links personal websites
+into a social graph so people can follow/save/traverse each other's sites.
+Do these steps. The full spec is at /SPEC.md; this file is enough on its own.
+
+## What you create
+
+ONE file at the site root: `me.json`. Plus ONE script tag for the widget.
+
+Minimal valid me.json:
+
+    {
+      "version": "den/v1",
+      "id": "den:7f3a9c2e8b1d4f6a",
+      "name": "Maya"
+    }
+
+Recommended me.json:
+
+    {
+      "version": "den/v1",
+      "id": "den:7f3a9c2e8b1d4f6a",
+      "handle": "maya",
+      "name": "Maya",
+      "avatar": "https://maya.com/me.jpg",
+      "bio": "13. i draw dinosaurs and build little games.",
+      "url": "https://maya.com",
+      "links": [
+        { "id": "den:1a2b3c4d5e6f7a8b", "handle": "leo", "rel": "friend" }
+      ],
+      "feed": "https://maya.com/feed.json"
+    }
+
+## Rules
+
+- `version`, `id`, `name` are the only required fields.
+- NEVER invent an `id`. Get one from `POST https://den.com/api/register`
+  (body: {} or {"email": "...", "handle": "..."}). It returns { id, handle }.
+- The `id` is permanent. The `handle` and everything else can change later.
+- `links[].id` are the graph edges. Only `id` is authoritative; handle/name/url
+  are display hints. Add links to friends the user names.
+- Do NOT ask the user for a private key. There are no keys to manage. Account
+  access and recovery are handled by email magic link on den.com.
+
+## Steps
+
+1. Ask the user if they want friends to be able to follow this site.
+2. POST https://den.com/api/register  → get { id, handle }.
+3. Write `me.json` at the site root with that id (fill in name; add avatar/bio/
+   links if you know them).
+4. Add the widget to the HTML, once, before </body>:
+
+       <script src="https://den.com/widget.js" data-site="/me.json"></script>
+
+5. Deploy the site. On first load the widget registers it in the graph.
+6. Tell the user: they can change their handle and secure the account anytime
+   by signing in with their email at den.com (magic link, no password).
+
+## Adding posts (optional)
+
+Either inline in me.json as a `posts` array, or in a separate `feed.json`
+pointed to by `feed`. A post:
+
+    { "id": "...", "type": "photo", "content": "...", "media": ["..."],
+      "url": "...", "created": "2026-05-31T18:02:00Z" }
+
+type is open: note | photo | video | link | artifact | (anything).
+
+## Validate
+
+The me.json must satisfy /schema/me.schema.json. Keep unknown fields out; keep
+it human-readable — a kid should be able to read their own me.json.
