@@ -15,10 +15,15 @@
   var script = document.currentScript;
   if (!script) return;
 
+  // Default the API origin to wherever this script was served from
+  // (den.com in production, localhost in dev) — so no config is needed.
+  var srcOrigin = "";
+  try { srcOrigin = new URL(script.src).origin; } catch (e) {}
+
   var cfg = {
     site: script.getAttribute("data-site") || "/me.json",
     id: script.getAttribute("data-id") || null,
-    api: (script.getAttribute("data-api") || "https://den.com").replace(/\/$/, ""),
+    api: (script.getAttribute("data-api") || srcOrigin || "https://den.com").replace(/\/$/, ""),
     theme: script.getAttribute("data-theme") || "auto", // auto | light | dark
     position: script.getAttribute("data-position") || "bottom-right",
   };
@@ -43,12 +48,19 @@
       state.me = cfg.id ? { id: cfg.id } : await fetchJSON(cfg.site);
       paintIdentity();
     } catch (e) {
-      // No me.json reachable — hide quietly rather than break the page.
+      // No me.json reachable — warn (so devs can debug) and hide, rather than
+      // leave a broken badge on the page.
+      console.warn("[den] could not load profile from " + cfg.site, e);
       host.remove();
       return;
     }
     refreshStats();
   }
+
+  // A sign-in popup messages us when it completes — refresh live state.
+  window.addEventListener("message", function (e) {
+    if (e && e.data && e.data.den === "signed-in") refreshStats();
+  });
 
   async function refreshStats() {
     if (!state.me || !state.me.id) return;

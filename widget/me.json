@@ -1,0 +1,13 @@
+{
+  "version": "den/v1",
+  "id": "den:7f3a9c2e8b1d4f6a",
+  "handle": "maya",
+  "name": "Maya",
+  "bio": "13. i draw dinosaurs and build little games.",
+  "url": "https://maya.com",
+  "links": [
+    { "id": "den:1a2b3c4d5e6f7a8b", "handle": "leo", "rel": "friend" },
+    { "id": "den:9f8e7d6c5b4a3210", "handle": "priya.com", "rel": "friend" },
+    { "id": "den:abcdef0123456789", "handle": "mr-rivera", "rel": "follow" }
+  ]
+}

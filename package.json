@@ -1,0 +1,21 @@
+{
+  "name": "den",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node --no-warnings server/index.ts",
+    "dev": "node --no-warnings --watch server/index.ts",
+    "db:create": "createdb den 2>/dev/null || true"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0"
+  }
+}
