@@ -28,13 +28,14 @@
   <p>more soon. — m</p>
 
   <div class="note">
-    👉 The floating badge in the bottom-right is the Den widget. Hover or tap it.
-    Identity is read from <code>me.json</code>; the widget calls the API on the
-    same origin it was loaded from. Run <code>npm start</code> and open this page
-    at <code>http://localhost:8787</code> to see live follower counts.
+    👉 The floating badge in the bottom-right is the Den widget — and the line
+    below is <em>everything</em> a site adds, on any platform. The member id
+    rides in the URL (<code>/w/&lt;id&gt;.js</code>); identity and live counts
+    come from the Den API. No hosted file required, so it works even where you
+    can't upload one (Squarespace, Wix).
   </div>
 
-  <!-- The one line a site adds. API origin is inferred from this script's URL. -->
-  <script src="./widget.js" data-site="me.json" data-theme="auto" data-position="bottom-right"></script>
+  <!-- The one line a site pastes. The id is in the URL; nothing else needed. -->
+  <script src="/w/7f3a9c2e8b1d4f6a.js"></script>
 </body>
 </html>

@@ -1,92 +1,117 @@
 /*
  * Den widget — a floating "follow this person" badge for any personal site.
  *
- * Usage (one line, works in any framework):
- *   <script src="https://den.com/widget.js" data-site="/me.json"></script>
+ * Paste ONE line, anywhere (footer, header, HTML block). Works on Squarespace,
+ * WordPress, Wix, Jekyll/Hexo, Lovable, hand-written HTML — static or live —
+ * because a <script> tag is the only thing every platform allows.
  *
- * It mounts itself in a shadow DOM so it cannot clash with the host site's CSS.
- * Identity (name/avatar/handle) comes from the static me.json.
- * Live state (follower counts, whether you follow) comes from the Den API.
+ *   <script src="https://den.com/w/7f3a9c2e8b1d4f6a.js"></script>
+ *
+ * Everything the widget needs rides in on that one URL:
+ *   • the code            (the file itself)
+ *   • the API origin       (where it was served from → den.com)
+ *   • whose badge this is  (the id in the path → den:7f3a9c2e8b1d4f6a)
+ *
+ * It mounts in a shadow DOM, so it can't clash with the host site's CSS.
+ * Identity + live counts come from the Den API, keyed by that id. The widget
+ * never depends on a hosted file — that's what makes it universal.
  * Zero dependencies.
  */
 (function () {
   "use strict";
 
-  var script = document.currentScript;
+  // Run once even if the tag is pasted twice.
+  if (window.__denWidget) return;
+  window.__denWidget = true;
+
+  // currentScript is set during initial execution; fall back to a match.
+  var script = document.currentScript ||
+    (function () {
+      var all = document.querySelectorAll('script[data-id],script[src*="/w/"]');
+      return all[all.length - 1] || null;
+    })();
   if (!script) return;
 
-  // Default the API origin to wherever this script was served from
-  // (den.com in production, localhost in dev) — so no config is needed.
+  // API origin = wherever this script was served from (den.com in prod,
+  // localhost in dev). No configuration needed.
   var srcOrigin = "";
   try { srcOrigin = new URL(script.src).origin; } catch (e) {}
 
   var cfg = {
-    site: script.getAttribute("data-site") || "/me.json",
-    id: script.getAttribute("data-id") || null,
+    id: resolveId(script),
     api: (script.getAttribute("data-api") || srcOrigin || "https://den.com").replace(/\/$/, ""),
-    theme: script.getAttribute("data-theme") || "auto", // auto | light | dark
+    theme: script.getAttribute("data-theme") || "auto",      // auto | light | dark
     position: script.getAttribute("data-position") || "bottom-right",
   };
 
-  // ---- mount ---------------------------------------------------------------
-  var host = document.createElement("div");
-  host.setAttribute("data-den-widget", "");
-  var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
-  document.body.appendChild(host);
+  if (!cfg.id) {
+    console.warn("[den] no id found — use <script src='https://den.com/w/<id>.js'> or data-id='den:...'");
+    return;
+  }
 
-  root.appendChild(makeStyle());
-  var el = render();
-  root.appendChild(el.wrap);
+  var el, state = { me: null, stats: null, expanded: false, busy: false };
 
-  // ---- state ---------------------------------------------------------------
-  var state = { me: null, stats: null, expanded: false, busy: false };
+  // Identity rides in the tag, so wait only for <body> to exist (the tag may
+  // sit in <head> on some platforms), then mount.
+  if (document.body) start();
+  else document.addEventListener("DOMContentLoaded", start);
 
-  load();
+  function start() {
+    var host = document.createElement("div");
+    host.setAttribute("data-den-widget", "");
+    var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+    document.body.appendChild(host);
+    root.appendChild(makeStyle());
+    el = render();
+    root.appendChild(el.wrap);
+    el.removeHost = function () { host.remove(); };
 
+    // A sign-in popup messages us when it completes — refresh live state.
+    window.addEventListener("message", function (e) {
+      if (e && e.data && e.data.den === "signed-in") refreshStats();
+    });
+
+    load();
+  }
+
+  // ---- data ----------------------------------------------------------------
   async function load() {
     try {
-      state.me = cfg.id ? { id: cfg.id } : await fetchJSON(cfg.site);
+      state.me = await fetchJSON(cfg.api + "/api/profile/" + encodeURIComponent(cfg.id));
       paintIdentity();
     } catch (e) {
-      // No me.json reachable — warn (so devs can debug) and hide, rather than
-      // leave a broken badge on the page.
-      console.warn("[den] could not load profile from " + cfg.site, e);
-      host.remove();
+      // Unknown / unreachable id — warn and remove, rather than leave a broken badge.
+      console.warn("[den] could not load profile " + cfg.id, e);
+      el.removeHost();
       return;
     }
     refreshStats();
   }
 
-  // A sign-in popup messages us when it completes — refresh live state.
-  window.addEventListener("message", function (e) {
-    if (e && e.data && e.data.den === "signed-in") refreshStats();
-  });
-
   async function refreshStats() {
-    if (!state.me || !state.me.id) return;
     try {
       state.stats = await fetchJSON(
-        cfg.api + "/api/profile/" + encodeURIComponent(state.me.id) + "/stats",
+        cfg.api + "/api/profile/" + encodeURIComponent(cfg.id) + "/stats",
         { credentials: "include" }
       );
     } catch (e) {
-      state.stats = null; // offline / no backend yet — show dashes.
+      state.stats = null; // offline — show dashes rather than fail.
     }
     paintStats();
   }
 
   // ---- actions -------------------------------------------------------------
   async function act(kind) {
-    if (state.busy || !state.me) return;
+    if (state.busy) return;
     state.busy = true;
     try {
       var res = await fetch(cfg.api + "/api/" + kind, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: state.me.id }),
+        body: JSON.stringify({ id: cfg.id }),
       });
-      if (res.status === 401) return signIn(); // not a member yet
+      if (res.status === 401) return signIn(); // viewer isn't signed in yet
       if (!res.ok) throw new Error(String(res.status));
       state.stats = await res.json();
       paintStats();
@@ -99,11 +124,7 @@
 
   function signIn() {
     var ret = encodeURIComponent(location.href);
-    window.open(
-      cfg.api + "/auth?return=" + ret,
-      "den-auth",
-      "width=420,height=560"
-    );
+    window.open(cfg.api + "/auth?return=" + ret, "den-auth", "width=420,height=560");
   }
 
   // ---- painting ------------------------------------------------------------
@@ -139,14 +160,11 @@
   function render() {
     var wrap = h("div", "den den-" + cfg.position + " den-theme-" + cfg.theme);
 
-    // collapsed pill
     var pill = h("button", "den-pill");
     pill.setAttribute("aria-label", "Open Den profile");
     var pillAvatar = h("span", "den-pill-avatar");
-    var pillMark = h("span", "den-mark", denMark());
-    pill.append(pillAvatar, pillMark);
+    pill.append(pillAvatar, h("span", "den-mark", "den"));
 
-    // expanded card
     var card = h("div", "den-card");
     card.setAttribute("role", "dialog");
 
@@ -156,13 +174,12 @@
     var name = h("div", "den-name");
     var handle = h("div", "den-handle");
     who.append(name, handle);
-    var brand = h("span", "den-brand", denMark());
-    head.append(avatar, who, brand);
+    head.append(avatar, who, h("span", "den-brand", "den"));
 
-    var stats = h("div", "den-stats");
+    var statsRow = h("div", "den-stats");
     var followers = h("strong", "", "–");
     var following = h("strong", "", "–");
-    stats.append(stat(followers, "followers"), stat(following, "following"));
+    statsRow.append(stat(followers, "followers"), stat(following, "following"));
 
     var actions = h("div", "den-actions");
     var follow = h("button", "den-btn den-primary", "Follow");
@@ -171,23 +188,19 @@
     save.onclick = function () { act("save"); };
     actions.append(follow, save);
 
-    card.append(head, stats, actions);
+    card.append(head, statsRow, actions);
     wrap.append(card, pill);
 
-    // open/close: hover on desktop, click everywhere
-    var open = function () { toggle(true); };
-    var close = function () { toggle(false); };
+    // hover on desktop, click everywhere
     pill.addEventListener("click", function () { toggle(); });
-    wrap.addEventListener("mouseenter", open);
-    wrap.addEventListener("mouseleave", close);
-    wrap.addEventListener("focusin", open);
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") close();
-    });
+    wrap.addEventListener("mouseenter", function () { toggle(true); });
+    wrap.addEventListener("mouseleave", function () { toggle(false); });
+    wrap.addEventListener("focusin", function () { toggle(true); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggle(false); });
 
-    return { wrap: wrap, pill: pill, pillAvatar: pillAvatar, card: card,
-      avatar: avatar, name: name, handle: handle,
-      followers: followers, following: following, follow: follow, save: save };
+    return { wrap: wrap, pill: pill, pillAvatar: pillAvatar, avatar: avatar,
+      name: name, handle: handle, followers: followers, following: following,
+      follow: follow, save: save };
 
     function stat(valueEl, label) {
       var box = h("div", "den-stat");
@@ -203,6 +216,15 @@
   }
 
   // ---- helpers -------------------------------------------------------------
+  function resolveId(s) {
+    var attr = s.getAttribute("data-id");
+    if (attr) return attr.indexOf("den:") === 0 ? attr : "den:" + attr;
+    try {
+      var m = new URL(s.src).pathname.match(/\/w\/([a-z0-9]+)(?:\.js)?$/i);
+      if (m) return "den:" + m[1];
+    } catch (e) {}
+    return null;
+  }
   function h(tag, cls, text) {
     var n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -226,10 +248,6 @@
     btn.textContent = msg;
     setTimeout(function () { btn.textContent = old; }, 1400);
   }
-  function denMark() {
-    // tiny inline "den" wordmark
-    return "den";
-  }
 
   function makeStyle() {
     var s = document.createElement("style");
@@ -244,7 +262,6 @@
       ".den-bottom-left{left:18px;bottom:18px}",
       ".den-top-right{right:18px;top:18px}",
       ".den-top-left{left:18px;top:18px}",
-      // pill
       ".den-pill{display:flex;align-items:center;gap:8px;cursor:pointer;",
         "background:var(--bg);color:var(--fg);border:1px solid var(--line);",
         "border-radius:999px;padding:6px 12px 6px 6px;",
@@ -253,7 +270,6 @@
       ".den-pill-avatar{width:26px;height:26px;border-radius:50%;background:#ddd center/cover no-repeat;",
         "display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#555}",
       ".den-mark{font-weight:700;font-size:13px;letter-spacing:-.02em}",
-      // card
       ".den-card{position:absolute;width:248px;background:var(--bg);color:var(--fg);",
         "border:1px solid var(--line);border-radius:16px;padding:16px;",
         "box-shadow:0 12px 40px rgba(0,0,0,.18);opacity:0;transform:translateY(8px) scale(.98);",
