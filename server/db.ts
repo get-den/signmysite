@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS magic_links (
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL || "postgres:///den" });
 await pool.query(SCHEMA);
 
+// Wipe all data — for local dev / tests / seeding a clean slate.
+export async function reset(): Promise<void> {
+  await pool.query("TRUNCATE members, edges, saves, sessions, magic_links");
+}
+
 export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
   url: string | null; avatar: string | null; bio: string | null; created: string;

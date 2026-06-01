@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node --no-warnings server/index.ts",
     "dev": "node --no-warnings --watch server/index.ts",
+    "seed": "node --no-warnings server/seed.ts",
     "db:create": "createdb den 2>/dev/null || true"
   },
   "dependencies": {
