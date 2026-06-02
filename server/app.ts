@@ -281,6 +281,24 @@ app.post("/api/profile/:id/view", async (c) => {
   return c.json({ views });
 });
 
+// ---- widget card ---------------------------------------------------------
+// Everything the widget needs in ONE request: identity, stats, who's viewing
+// (for owner mode), and notes. Fewer round-trips = faster on slow third-party
+// pages, and the widget's loader collapses to a single fetch.
+app.get("/api/profile/:id/card", async (c) => {
+  const id = c.req.param("id");
+  const m = await db.getMember(id);
+  if (!m) return c.json({ error: "not found" }, 404);
+  const viewer = await viewerOf(c);
+  const [s, comments] = await Promise.all([db.stats(id, viewer?.id), db.listComments(id)]);
+  return c.json({
+    profile: publicMember(m),
+    stats: s,
+    viewer: viewer ? { id: viewer.id, handle: viewer.handle, name: viewer.name } : null,
+    comments: shapeComments(comments, id, viewer?.id),
+  });
+});
+
 // ---- comments / notes ----------------------------------------------------
 // Redaction happens here, server-side: a private note's body + author are only
 // returned to the site owner (the target) or the note's own author. Everyone

@@ -2,7 +2,7 @@
  * Den widget — a floating profile + follow + notes badge for any personal site.
  *
  * Paste ONE line, anywhere (footer, header, HTML block). Works on Squarespace,
- * WordPress, Wix, Substack, Jekyll/Hexo, Lovable, Framer, hand-written HTML —
+ * WordPress, Wix, Substack, Ghost, Jekyll, Lovable, Framer, hand-written HTML —
  * static or live — because a <script> tag is the only thing every platform
  * allows.
  *
@@ -11,10 +11,8 @@
  * Everything it needs rides in on that one URL: the code, the API origin, and
  * whose badge this is (the id in the path). data-id="den:..." also works.
  *
- * Collapsed: a small pill. Expanded: avatar, name, Views + Followers, Follow,
- * and a notes feed where each note links back to its author's blog. Leaving a
- * note can be public (default) or private. Owners see private notes on their
- * own site. Mounts in a shadow DOM (no CSS clash). Zero deps.
+ * Vanilla, zero dependencies, ~7KB gzipped. Mounts in a shadow DOM so it never
+ * touches the host page's CSS. The whole card loads in ONE request (/card).
  */
 (function () {
   "use strict";
@@ -43,169 +41,123 @@
     return;
   }
 
-  var DRAFT_KEY = "den_draft_" + cfg.id;  // survives a full page navigation
-  var TOKEN_KEY = "den_token";            // first-party session token (see below)
-  var el, state = {
-    me: null, viewer: null, stats: null, comments: null,
-    expanded: false, busy: false, viewed: false, isPrivate: false, isOwner: false,
-  };
-
-  // Session token lives in the HOST site's own localStorage, sent as a Bearer
-  // header — because third-party cookies (den.com's cookie on someone else's
-  // site) are blocked by Safari and deprecated in Chrome. This makes Follow,
-  // notes, and owner-mode work everywhere, not just where 3rd-party cookies do.
-  function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
-  function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
+  var DRAFT_KEY = "den_draft_" + cfg.id;  // a note survives a full page navigation
+  var TOKEN_KEY = "den_token";            // first-party session token (see authHeaders)
+  var el, card = null;                    // card = latest {profile,stats,viewer,comments}
+  var isPrivate = false, busy = false, viewed = false;
 
   if (document.body) start();
   else document.addEventListener("DOMContentLoaded", start);
 
   function start() {
-    var hostEl = document.createElement("div");
-    hostEl.setAttribute("data-den-widget", "");
-    var root = hostEl.attachShadow ? hostEl.attachShadow({ mode: "open" }) : hostEl;
-    document.body.appendChild(hostEl);
-    root.appendChild(makeStyle());
+    var host = document.createElement("div");
+    host.setAttribute("data-den-widget", "");
+    var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+    document.body.appendChild(host);
+    root.appendChild(style());
     el = render();
     root.appendChild(el.wrap);
-    el.removeHost = function () { hostEl.remove(); };
+    el.remove = function () { host.remove(); };
 
-    // A sign-in popup messages us when it completes → store the token (so we
-    // can auth cross-site without cookies), refresh, then post the preserved note.
+    // The sign-in popup messages us when done → store token, reload the card,
+    // then auto-post the note the visitor was writing before we sent them off.
     window.addEventListener("message", function (e) {
       if (e && e.data && e.data.den === "signed-in") {
-        if (e.data.token) setToken(e.data.token);
-        onSignedIn();
+        setStore(TOKEN_KEY, e.data.token || "");
+        load().then(postPendingDraft);
       }
     });
     restoreDraft();
     load();
   }
 
-  // ---- data ----------------------------------------------------------------
+  // ---- data: one request loads everything ----------------------------------
   async function load() {
+    var data;
     try {
-      state.me = await getJSON("/api/profile/" + enc(cfg.id));
+      data = await getJSON("/api/profile/" + enc(cfg.id) + "/card");
     } catch (e) {
-      if (e.status === 404) {
-        try {
-          await postJSON("/api/sites/claim", { id: cfg.id, url: location.origin, name: document.title || "" });
-          state.me = await getJSON("/api/profile/" + enc(cfg.id));
-        } catch (e2) { return fail(e2); }
-      } else { return fail(e); }
+      if (e.status !== 404) { console.warn("[den] load failed", e); return el.remove(); }
+      // Unknown id (a self-minted tag) → claim it, then retry once.
+      try {
+        await postJSON("/api/sites/claim", { id: cfg.id, url: location.origin, name: document.title || "" });
+        data = await getJSON("/api/profile/" + enc(cfg.id) + "/card");
+      } catch (e2) { console.warn("[den] claim failed", e2); return el.remove(); }
     }
-    paintIdentity();
+    card = data;
+    paint();
     countView();
-    await refreshViewer();   // determines owner mode before painting actions
-    refreshStats();
-    loadComments();
   }
-  function fail(e) { console.warn("[den] could not load profile " + cfg.id, e); el.removeHost(); }
 
-  async function refreshViewer() {
-    try { state.viewer = await getJSON("/api/viewer"); }
-    catch (e) { state.viewer = null; }
-    state.isOwner = !!(state.viewer && state.viewer.id === cfg.id);
-    paintMode();
-  }
-  async function refreshStats() {
-    try { state.stats = await getJSON("/api/profile/" + enc(cfg.id) + "/stats"); }
-    catch (e) { state.stats = null; }
-    paintStats();
-  }
   async function countView() {
-    if (state.viewed) return;
-    state.viewed = true;
+    if (viewed) return;
+    viewed = true;
     try { await postJSON("/api/profile/" + enc(cfg.id) + "/view", {}); } catch (e) {}
-  }
-  async function loadComments() {
-    try { state.comments = await getJSON("/api/profile/" + enc(cfg.id) + "/comments"); }
-    catch (e) { state.comments = []; }
-    paintComments();
   }
 
   // ---- actions -------------------------------------------------------------
   async function toggleFollow() {
-    if (state.busy) return;
-    state.busy = true;
+    if (busy) return;
+    busy = true;
     try {
-      var res = await fetch(cfg.api + "/api/follow", post({ id: cfg.id }));
-      if (res.status === 401) { state.busy = false; return signIn(); }
-      if (!res.ok) throw new Error(res.status);
-      state.stats = await res.json();
-      paintStats();
-    } catch (e) { flash(el.follow, "try again"); }
-    finally { state.busy = false; }
+      var s = await postJSON("/api/follow", { id: cfg.id });
+      card.stats = s; paintStats();
+    } catch (e) {
+      if (e.status === 401) signIn(); else flash(el.follow, "try again");
+    } finally { busy = false; }
   }
 
-  // Send a note. If the visitor isn't signed in, we PRESERVE the draft and
-  // route them through auth; onSignedIn() auto-posts it afterward.
+  // Send a note. If not signed in, the draft is saved first, then auth opens —
+  // postPendingDraft() finishes the job when the popup reports back.
   async function submitNote() {
     var text = el.input.value.trim();
-    if (!text || state.busy) return;
-    saveDraft(text, state.isPrivate); // belt: persists before anything can fail
-    if (!state.viewer) return signIn(); // suspenders: popup keeps this page alive too
-    await postNote(text, state.isPrivate);
+    if (!text || busy) return;
+    saveDraft(text);
+    if (!card || !card.viewer) return signIn();
+    await postNote(text, isPrivate);
   }
-
-  async function postNote(text, isPrivate) {
-    state.busy = true;
+  async function postNote(text, priv) {
+    busy = true;
     try {
-      var res = await fetch(
-        cfg.api + "/api/profile/" + enc(cfg.id) + "/comments",
-        post({ body: text, visibility: isPrivate ? "private" : "public" })
-      );
-      if (res.status === 401) { state.busy = false; return signIn(); } // draft still saved
-      if (!res.ok) throw new Error(res.status);
-      state.comments = await res.json();
-      clearDraft();
-      el.input.value = "";
-      closeComposer();
-      paintComments();
-    } catch (e) { flash(el.send, "!"); }
-    finally { state.busy = false; }
+      card.comments = await postJSON("/api/profile/" + enc(cfg.id) + "/comments",
+        { body: text, visibility: priv ? "private" : "public" });
+      clearDraft(); el.input.value = ""; closeComposer(); paintComments();
+    } catch (e) {
+      if (e.status === 401) signIn(); else flash(el.send, "!");
+    } finally { busy = false; }
   }
-
-  async function onSignedIn() {
-    await refreshViewer();
-    refreshStats();
+  async function postPendingDraft() {
     var d = readDraft();
-    if (d && d.text && state.viewer) await postNote(d.text, d.priv);
-    else loadComments();
+    if (d && d.text && card && card.viewer) await postNote(d.text, d.priv);
   }
 
   function signIn() {
-    var ret = encodeURIComponent(location.href);
-    window.open(cfg.api + "/auth?popup=1&return=" + ret, "den-auth", "width=420,height=560");
+    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href),
+      "den-auth", "width=420,height=560");
   }
 
   // ---- draft persistence ---------------------------------------------------
-  function saveDraft(text, priv) {
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ text: text, priv: !!priv })); } catch (e) {}
-  }
-  function readDraft() {
-    try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { return null; }
-  }
-  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+  function saveDraft(text) { setStore(DRAFT_KEY, JSON.stringify({ text: text, priv: isPrivate })); }
+  function readDraft() { try { return JSON.parse(getStore(DRAFT_KEY) || "null"); } catch (e) { return null; } }
+  function clearDraft() { setStore(DRAFT_KEY, ""); }
   function restoreDraft() {
     var d = readDraft();
-    if (d && d.text) { el.input.value = d.text; state.isPrivate = !!d.priv; openComposer(); paintToggle(); }
+    if (d && d.text) { el.input.value = d.text; isPrivate = !!d.priv; openComposer(); paintToggle(); }
   }
 
-  // ---- painting ------------------------------------------------------------
-  function paintIdentity() {
-    var m = state.me || {};
-    el.name.textContent = m.name || m.handle || "Someone";
-    setAvatar(el.avatar, m);
-    setAvatar(el.pillAvatar, m);
-  }
-  function paintMode() {
-    // Owner viewing their own site: no Follow button (you can't follow yourself).
-    el.follow.style.display = state.isOwner ? "none" : "";
-    el.wrap.classList.toggle("den-owner", state.isOwner);
+  // ---- paint ---------------------------------------------------------------
+  function paint() {
+    var p = (card && card.profile) || {};
+    el.name.textContent = p.name || p.handle || "Someone";
+    setAvatar(el.avatar, p);
+    setAvatar(el.pillAvatar, p);
+    var isOwner = !!(card && card.viewer && card.viewer.id === cfg.id);
+    el.follow.style.display = isOwner ? "none" : "";
+    paintStats();
+    paintComments();
   }
   function paintStats() {
-    var s = state.stats;
+    var s = card && card.stats;
     el.views.textContent = s ? compact(s.views) : "–";
     el.followers.textContent = s ? compact(s.followers) : "–";
     var following = !!(s && s.viewerFollows);
@@ -215,129 +167,103 @@
   function paintComments() {
     var list = el.comments;
     clear(list);
-    var items = state.comments || [];
-    if (!items.length) { list.append(h("div", "den-empty", "No notes yet — leave one.")); return; }
-    items.forEach(function (c) {
-      var row = h("div", "den-comment");
-      var head = h("div", "den-chead");
-      if (c.redacted) {
-        // A private note the current viewer isn't allowed to read.
-        var lock = h("span", "den-cavatar den-lock", "✉");
-        var who = h("span", "den-cwho");
-        who.append(h("b", "", "Someone"), document.createTextNode(" left a private note"));
-        head.append(lock, who);
-        row.append(head);
-      } else {
-        var a = c.author || {};
-        var av = h("span", "den-cavatar"); setAvatar(av, a);
-        var who2 = h("span", "den-cwho");
-        who2.append(h("b", "", a.name || "Someone"));
-        if (a.url) {
-          var link = h("a", "den-cblog", "(" + hostOf(a.url) + ")");
-          link.href = a.url; link.target = "_blank"; link.rel = "noopener";
-          who2.append(" ", link);
-        } else if (a.handle) {
-          who2.append(h("span", "den-cblog", " @" + a.handle));
-        }
-        if (c.visibility === "private") who2.append(h("span", "den-badge", "private"));
-        head.append(av, who2);
-        row.append(head);
-        if (c.body) row.append(h("div", "den-cbody", c.body));
-      }
-      list.append(row);
-    });
+    var items = (card && card.comments) || [];
+    if (!items.length) return list.append(h("div", "den-empty", "No notes yet — leave one."));
+    items.forEach(function (c) { list.append(noteEl(c)); });
+  }
+  function noteEl(c) {
+    var row = h("div", "den-note");
+    var head = h("div", "den-nhead");
+    var a = c.redacted ? null : (c.author || {});
+    var av = h("span", "den-navatar" + (c.redacted ? " den-lock" : ""), c.redacted ? "✉" : null);
+    if (!c.redacted) setAvatar(av, a);
+    var who = h("span", "den-nwho");
+    if (c.redacted) {
+      who.append(h("b", "", "Someone"), document.createTextNode(" left a private note"));
+    } else {
+      who.append(h("b", "", a.name || "Someone"));
+      if (a.url) who.append(" ", link("(" + hostOf(a.url) + ")", a.url));
+      else if (a.handle) who.append(h("span", "den-nblog", " @" + a.handle));
+      if (c.visibility === "private") who.append(h("span", "den-badge", "private"));
+    }
+    head.append(av, who);
+    row.append(head);
+    if (!c.redacted && c.body) row.append(h("div", "den-nbody", c.body));
+    return row;
   }
   function paintToggle() {
-    el.toggle.classList.toggle("den-on", state.isPrivate);
-    el.toggleLabel.textContent = state.isPrivate ? "Private" : "Public";
-    el.input.setAttribute("placeholder", state.isPrivate ? "Leave a private note…" : "Leave a note…");
+    el.toggle.classList.toggle("on", isPrivate);
+    el.toggleLabel.textContent = isPrivate ? "Private" : "Public";
+    el.input.setAttribute("placeholder", isPrivate ? "Leave a private note…" : "Leave a note…");
   }
 
-  // ---- composer open/close (slide-out privacy toggle) ----------------------
   function openComposer() { el.wrap.classList.add("den-compose"); }
   function closeComposer() { el.wrap.classList.remove("den-compose"); }
+  function open(o) {
+    el.wrap.classList.toggle("den-open", o);
+    el.pill.setAttribute("aria-expanded", String(o));
+    if (!o) closeComposer();
+  }
 
   // ---- DOM -----------------------------------------------------------------
   function render() {
-    var wrap = h("div", "den den-" + cfg.position + " den-theme-" + cfg.theme);
+    var wrap = h("div", "den den-" + cfg.position + " den-" + cfg.theme);
 
     var pill = h("button", "den-pill");
     pill.setAttribute("aria-label", "Open Den profile");
-    var pillAvatar = h("span", "den-pill-avatar");
+    var pillAvatar = h("span", "den-pill-av");
     pill.append(pillAvatar, h("span", "den-mark", "den"));
 
     var card = h("div", "den-card");
     card.setAttribute("role", "dialog");
 
     var top = h("div", "den-top");
-    var avatar = h("div", "den-avatar");
+    var avatar = h("div", "den-av");
     var follow = h("button", "den-follow", "Follow");
     follow.onclick = toggleFollow;
     top.append(avatar, follow);
 
-    var name = h("div", "den-name", "");
-    var statsRow = h("div", "den-stats");
-    var views = h("b", "", "–");
-    var followers = h("b", "", "–");
-    statsRow.append(stat(views, "Views"), stat(followers, "Followers"));
+    var name = h("div", "den-name");
+    var stats = h("div", "den-stats");
+    var views = h("b"), followers = h("b");
+    stats.append(stat(views, "Views"), stat(followers, "Followers"));
 
-    var cTitle = h("div", "den-ctitle", "Comments");
-    var comments = h("div", "den-comments");
+    var comments = h("div", "den-notes");
 
-    // composer with a slide-out public/private toggle
     var composer = h("div", "den-composer");
-    var toggleRow = h("div", "den-toggle-row");
-    var toggle = h("button", "den-toggle");
-    toggle.setAttribute("type", "button");
-    toggle.setAttribute("role", "switch");
-    var knob = h("span", "den-knob");
-    toggle.append(knob);
-    var toggleLabel = h("span", "den-toggle-label", "Public");
-    toggle.onclick = function () { state.isPrivate = !state.isPrivate; paintToggle(); el.input.focus(); };
-    var hint = h("span", "den-toggle-hint", "Only the owner sees private notes");
-    toggleRow.append(toggle, toggleLabel, hint);
+    var toggleRow = h("div", "den-trow");
+    var toggle = h("button", "den-toggle"); toggle.type = "button"; toggle.setAttribute("role", "switch");
+    toggle.append(h("span", "den-knob"));
+    var toggleLabel = h("span", "den-tlabel", "Public");
+    toggle.onclick = function () { isPrivate = !isPrivate; paintToggle(); el.input.focus(); };
+    toggleRow.append(toggle, toggleLabel, h("span", "den-thint", "Only the owner sees private notes"));
 
-    var inputRow = h("div", "den-input-row");
+    var inputRow = h("div", "den-irow");
     var input = h("input", "den-input");
     input.setAttribute("placeholder", "Leave a note…");
     input.setAttribute("aria-label", "Leave a note");
     input.addEventListener("focus", openComposer);
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") submitNote(); });
-    var send = h("button", "den-send", "→");
-    send.setAttribute("aria-label", "Send note");
+    var send = h("button", "den-send", "→"); send.setAttribute("aria-label", "Send note");
     send.onclick = submitNote;
     inputRow.append(input, send);
-
     composer.append(toggleRow, inputRow);
-    card.append(top, name, statsRow, cTitle, comments, composer);
 
-    var close = h("button", "den-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.onclick = function () { toggle_(false); };
-    card.append(close);
+    var close = h("button", "den-x", "×"); close.setAttribute("aria-label", "Close");
+    close.onclick = function () { open(false); };
 
+    card.append(close, top, name, stats, h("div", "den-ntitle", "Notes"), comments, composer);
     wrap.append(card, pill);
 
-    pill.addEventListener("click", function () { toggle_(true); });
-    wrap.addEventListener("mouseleave", function () { if (!el.input.value) toggle_(false); });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggle_(false); });
+    pill.addEventListener("click", function () { open(true); });
+    wrap.addEventListener("mouseleave", function () { if (!input.value) open(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
 
     return { wrap: wrap, pill: pill, pillAvatar: pillAvatar, avatar: avatar, follow: follow,
       name: name, views: views, followers: followers, comments: comments,
       input: input, send: send, toggle: toggle, toggleLabel: toggleLabel };
 
-    function stat(valueEl, label) {
-      var box = h("span", "den-stat");
-      box.append(valueEl, " ", h("span", "den-stat-l", label));
-      return box;
-    }
-  }
-
-  function toggle_(open) {
-    state.expanded = open;
-    el.wrap.classList.toggle("den-open", open);
-    el.pill.setAttribute("aria-expanded", String(open));
-    if (!open) closeComposer();
+    function stat(v, label) { return h("span", "den-stat", null, [v, " ", h("span", "den-stat-l", label)]); }
   }
 
   // ---- helpers -------------------------------------------------------------
@@ -351,42 +277,42 @@
     return null;
   }
   function enc(s) { return encodeURIComponent(s); }
-  // Bearer token (works cross-site) + credentials (works first-party on den.com).
-  function authHeaders(base) {
-    var h = base || {};
-    var t = getToken();
-    if (t) h["authorization"] = "Bearer " + t;
-    return h;
-  }
-  function post(bodyObj) {
-    return { method: "POST", headers: authHeaders({ "content-type": "application/json" }),
-      credentials: "include", body: JSON.stringify(bodyObj) };
+  function getStore(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+  function setStore(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} }
+  // Bearer token works cross-site (3rd-party cookies are blocked); credentials
+  // cover first-party use on den.com itself.
+  function opts(method, bodyObj) {
+    var headers = {};
+    var t = getStore(TOKEN_KEY);
+    if (t) headers["authorization"] = "Bearer " + t;
+    if (bodyObj !== undefined) headers["content-type"] = "application/json";
+    return { method: method, headers: headers, credentials: "include",
+      body: bodyObj !== undefined ? JSON.stringify(bodyObj) : undefined };
   }
   async function getJSON(path) {
-    var r = await fetch(cfg.api + path, { credentials: "include", headers: authHeaders() });
+    var r = await fetch(cfg.api + path, opts("GET"));
     if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
     return r.json();
   }
   async function postJSON(path, bodyObj) {
-    var r = await fetch(cfg.api + path, post(bodyObj));
+    var r = await fetch(cfg.api + path, opts("POST", bodyObj || {}));
     if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
     return r.json();
   }
-  function h(tag, cls, text) {
+  function h(tag, cls, text, kids) {
     var n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text != null) n.textContent = text;
+    (kids || []).forEach(function (k) { n.append(k.nodeType ? k : String(k)); });
     return n;
+  }
+  function link(text, href) {
+    var a = h("a", "den-nblog", text); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a;
   }
   function clear(p) { while (p.firstChild) p.removeChild(p.firstChild); }
   function setAvatar(node, m) {
-    if (m && m.avatar) {
-      node.style.backgroundImage = "url(" + JSON.stringify(String(m.avatar)) + ")";
-      node.textContent = "";
-    } else {
-      node.style.backgroundImage = "";
-      node.textContent = ((m && (m.name || m.handle)) || "?").trim().charAt(0).toUpperCase();
-    }
+    if (m && m.avatar) { node.style.backgroundImage = "url(" + JSON.stringify(String(m.avatar)) + ")"; node.textContent = ""; }
+    else { node.style.backgroundImage = ""; node.textContent = ((m && (m.name || m.handle)) || "?").trim().charAt(0).toUpperCase(); }
   }
   function compact(n) {
     n = Number(n) || 0;
@@ -394,88 +320,91 @@
     if (n < 1e6) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K";
     return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
   }
-  function hostOf(u) { try { return new URL(u).host; } catch (e) { return String(u); } }
-  function flash(node, msg) {
-    var old = node.textContent; node.textContent = msg;
-    setTimeout(function () { node.textContent = old; }, 1200);
-  }
+  function hostOf(u) { try { return new URL(u).host.replace(/^www\./, ""); } catch (e) { return String(u); } }
+  function flash(node, msg) { var old = node.textContent; node.textContent = msg; setTimeout(function () { node.textContent = old; }, 1200); }
 
-  function makeStyle() {
+  // ---- styles (Den design system, scoped to the shadow root) ---------------
+  function style() {
     var s = document.createElement("style");
     s.textContent = [
       ":host{all:initial}",
       ".den{position:fixed;z-index:2147483000;",
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
-        "--bg:#fff;--fg:#0b0b0c;--muted:#8a9099;--line:#eceef0;--accent:#0b0b0c;--on-accent:#fff;--soft:#f3f4f6}",
-      ".den-theme-dark{--bg:#161618;--fg:#f4f4f5;--muted:#9aa0a6;--line:#2a2a2e;--accent:#f4f4f5;--on-accent:#161618;--soft:#222226}",
-      "@media (prefers-color-scheme:dark){.den-theme-auto{--bg:#161618;--fg:#f4f4f5;--muted:#9aa0a6;--line:#2a2a2e;--accent:#f4f4f5;--on-accent:#161618;--soft:#222226}}",
-      ".den-bottom-right{right:18px;bottom:18px}.den-bottom-left{left:18px;bottom:18px}",
-      ".den-top-right{right:18px;top:18px}.den-top-left{left:18px;top:18px}",
+        "font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
+        "--bg:#fff;--title:#282a30;--base:#3c4149;--muted:#6c6a63;--faint:#918e87;",
+        "--line:#e0e1e5;--sub:#f2f0ed;--accent:#6f79d9;--accent-h:#5c68c9;--on-accent:#fff;",
+        "--shadow:0 12px 40px rgba(0,0,0,.16),0 1px 2px rgba(0,0,0,.06)}",
+      ".den-dark{--bg:#1c1c1f;--title:#e6e7eb;--base:#c8c9cf;--muted:#9a9ba3;--faint:#7c7d85;",
+        "--line:#3f3f45;--sub:#2a2a2d;--accent:#6f79d9;--accent-h:#8892e2;--on-accent:#fff;",
+        "--shadow:0 12px 40px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4)}",
+      "@media (prefers-color-scheme:dark){.den-auto{--bg:#1c1c1f;--title:#e6e7eb;--base:#c8c9cf;--muted:#9a9ba3;--faint:#7c7d85;",
+        "--line:#3f3f45;--sub:#2a2a2d;--accent:#6f79d9;--accent-h:#8892e2;--on-accent:#fff;",
+        "--shadow:0 12px 40px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4)}}",
+      ".den-bottom-right{right:20px;bottom:20px}.den-bottom-left{left:20px;bottom:20px}",
+      ".den-top-right{right:20px;top:20px}.den-top-left{left:20px;top:20px}",
       // pill
-      ".den-pill{display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg);color:var(--fg);",
-        "border:1px solid var(--line);border-radius:999px;padding:6px 14px 6px 6px;",
-        "box-shadow:0 6px 24px rgba(0,0,0,.12);transition:transform .15s ease,opacity .15s}",
+      ".den-pill{display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg);color:var(--title);",
+        "border:.5px solid var(--line);border-radius:999px;padding:5px 14px 5px 5px;",
+        "box-shadow:var(--shadow);transition:transform .12s ease,opacity .12s}",
       ".den-pill:hover{transform:translateY(-1px)}",
-      ".den-pill-avatar{width:26px;height:26px;border-radius:50%;background:#ddd center/cover no-repeat;",
-        "display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#777}",
-      ".den-mark{font-weight:800;font-size:13px;letter-spacing:-.02em}",
+      ".den-pill-av{width:26px;height:26px;border-radius:50%;background:#e8e6fb center/cover no-repeat;",
+        "display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent)}",
+      ".den-mark{font-weight:700;font-size:13px;letter-spacing:-.02em}",
       // card
-      ".den-card{position:absolute;width:340px;max-width:86vw;max-height:80vh;display:flex;flex-direction:column;",
-        "background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:22px;padding:20px;",
-        "box-shadow:0 18px 60px rgba(0,0,0,.22);opacity:0;transform:translateY(10px) scale(.98);",
-        "transform-origin:bottom right;pointer-events:none;transition:opacity .18s ease,transform .18s ease}",
+      ".den-card{position:absolute;width:340px;max-width:88vw;max-height:78vh;display:flex;flex-direction:column;",
+        "background:var(--bg);color:var(--base);border:.5px solid var(--line);border-radius:18px;padding:20px;",
+        "box-shadow:var(--shadow);opacity:0;transform:translateY(8px) scale(.98);transform-origin:bottom right;",
+        "pointer-events:none;transition:opacity .16s ease,transform .16s ease}",
       ".den-bottom-right .den-card,.den-bottom-left .den-card{bottom:0}",
       ".den-top-right .den-card,.den-top-left .den-card{top:0}",
       ".den-bottom-right .den-card,.den-top-right .den-card{right:0}",
       ".den-bottom-left .den-card,.den-top-left .den-card{left:0}",
       ".den-open .den-card{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}",
       ".den-open .den-pill{opacity:0;pointer-events:none}",
-      ".den-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-right:26px}",
-      ".den-avatar{width:64px;height:64px;border-radius:50%;background:#e7e7ea center/cover no-repeat;",
-        "display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600;color:#9aa0a6}",
-      ".den-follow{cursor:pointer;border:0;background:var(--accent);color:var(--on-accent);font-weight:600;",
-        "font-size:15px;padding:9px 22px;border-radius:999px;transition:transform .1s,opacity .12s}",
-      ".den-follow:active{transform:scale(.97)}.den-follow.on{background:var(--soft);color:var(--fg)}",
-      ".den-name{font-size:24px;font-weight:700;letter-spacing:-.01em;margin:14px 0 8px}",
-      ".den-stats{display:flex;gap:22px;margin-bottom:6px}",
-      ".den-stat b{font-size:16px;font-weight:700}.den-stat-l{color:var(--muted);font-weight:400}",
-      ".den-ctitle{font-weight:700;font-size:16px;margin:18px 0 10px}",
-      ".den-comments{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:40px}",
-      ".den-comment{margin-bottom:14px}",
-      ".den-chead{display:flex;align-items:center;gap:10px}",
-      ".den-cavatar{width:34px;height:34px;border-radius:50%;background:#e7e7ea center/cover no-repeat;flex:0 0 auto;",
-        "display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#9aa0a6}",
-      ".den-lock{background:var(--soft)}",
-      ".den-cwho{font-size:14px;min-width:0}.den-cwho b{font-weight:700}",
-      ".den-cblog{color:var(--muted);text-decoration:none}.den-cblog:hover{text-decoration:underline}",
-      ".den-badge{margin-left:8px;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px}",
-      ".den-cbody{margin:6px 0 0 44px;font-size:14px;line-height:1.45}",
-      ".den-empty{color:var(--muted);font-size:14px;padding:4px 0 10px}",
+      // top
+      ".den-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}",
+      ".den-av{width:60px;height:60px;border-radius:50%;background:#e8e6fb center/cover no-repeat;",
+        "display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;color:var(--accent)}",
+      ".den-follow{cursor:pointer;border:.5px solid var(--accent);background:var(--accent);color:var(--on-accent);",
+        "font-weight:500;font-size:14px;padding:8px 18px;border-radius:999px;transition:background .12s,transform .1s}",
+      ".den-follow:hover{background:var(--accent-h)}.den-follow:active{transform:scale(.97)}",
+      ".den-follow.on{background:var(--sub);color:var(--base);border-color:var(--line)}",
+      ".den-name{font-size:21px;font-weight:600;letter-spacing:-.01em;color:var(--title);margin:14px 0 8px}",
+      // stats
+      ".den-stats{display:flex;gap:20px}",
+      ".den-stat{font-size:14px;color:var(--muted)}.den-stat b{font-size:15px;font-weight:600;color:var(--title)}",
+      // notes
+      ".den-ntitle{font-weight:600;font-size:13px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 12px}",
+      ".den-notes{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:36px;",
+        "scrollbar-width:thin;scrollbar-color:var(--line) transparent}",
+      ".den-note{margin-bottom:14px}",
+      ".den-nhead{display:flex;align-items:center;gap:10px}",
+      ".den-navatar{width:32px;height:32px;border-radius:50%;background:#e8e6fb center/cover no-repeat;flex:0 0 auto;",
+        "display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--accent)}",
+      ".den-lock{background:var(--sub);color:var(--faint)}",
+      ".den-nwho{font-size:14px;color:var(--title);min-width:0}.den-nwho b{font-weight:600}",
+      ".den-nblog{color:var(--muted);text-decoration:none}.den-nblog:hover{text-decoration:underline}",
+      ".den-badge{margin-left:7px;font-size:11px;color:var(--muted);border:.5px solid var(--line);border-radius:4px;padding:0 6px}",
+      ".den-nbody{margin:5px 0 0 42px;font-size:14px;line-height:1.45;color:var(--base)}",
+      ".den-empty{color:var(--faint);font-size:14px;padding:2px 0 8px}",
       // composer
-      ".den-composer{margin-top:10px;padding-top:14px;border-top:1px solid var(--line)}",
-      // slide-out toggle: hidden until composing
-      ".den-toggle-row{display:flex;align-items:center;gap:10px;max-height:0;opacity:0;overflow:hidden;",
-        "transition:max-height .2s ease,opacity .2s ease,margin .2s ease}",
-      ".den-compose .den-toggle-row{max-height:40px;opacity:1;margin-bottom:10px}",
-      ".den-toggle{position:relative;width:42px;height:24px;border-radius:999px;border:0;cursor:pointer;",
-        "background:var(--soft);flex:0 0 auto;transition:background .15s}",
-      ".den-toggle.den-on{background:var(--accent)}",
-      ".den-knob{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;",
-        "box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}",
-      ".den-toggle.den-on .den-knob{transform:translateX(18px)}",
-      ".den-toggle-label{font-size:13px;font-weight:600}",
-      ".den-toggle-hint{font-size:11px;color:var(--muted);margin-left:auto}",
-      ".den-input-row{display:flex;align-items:center;gap:8px}",
-      ".den-input{flex:1;font:inherit;font-size:14px;padding:10px 14px;border:0;border-radius:999px;",
-        "background:var(--soft);color:var(--fg);outline:none}",
-      ".den-input::placeholder{color:var(--muted)}",
-      ".den-send{cursor:pointer;border:0;width:38px;height:38px;border-radius:50%;flex:0 0 auto;",
-        "background:var(--accent);color:var(--on-accent);font-size:17px;line-height:1;transition:transform .1s}",
-      ".den-send:active{transform:scale(.94)}",
-      ".den-close{position:absolute;top:14px;right:16px;display:none;cursor:pointer;border:0;background:transparent;",
-        "color:var(--muted);font-size:22px;line-height:1;padding:4px}",
-      ".den-open .den-close{display:block}",
-      "@media (prefers-reduced-motion:reduce){.den-card,.den-pill,.den-follow,.den-send,.den-toggle-row,.den-knob,.den-toggle{transition:none}}",
+      ".den-composer{margin-top:8px;padding-top:14px;border-top:.5px solid var(--line)}",
+      ".den-trow{display:flex;align-items:center;gap:10px;max-height:0;opacity:0;overflow:hidden;transition:max-height .2s ease,opacity .2s ease,margin .2s ease}",
+      ".den-compose .den-trow{max-height:40px;opacity:1;margin-bottom:10px}",
+      ".den-toggle{position:relative;width:40px;height:23px;border-radius:999px;border:0;cursor:pointer;background:var(--sub);flex:0 0 auto;transition:background .15s}",
+      ".den-toggle.on{background:var(--accent)}",
+      ".den-knob{position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}",
+      ".den-toggle.on .den-knob{transform:translateX(17px)}",
+      ".den-tlabel{font-size:13px;font-weight:600;color:var(--title)}",
+      ".den-thint{font-size:11px;color:var(--faint);margin-left:auto}",
+      ".den-irow{display:flex;align-items:center;gap:8px}",
+      ".den-input{flex:1;font:inherit;font-size:14px;padding:10px 14px;border:.5px solid var(--line);border-radius:999px;background:var(--bg);color:var(--title);outline:none;transition:border-color .12s,box-shadow .12s}",
+      ".den-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}",
+      ".den-input::placeholder{color:var(--faint)}",
+      ".den-send{cursor:pointer;border:0;width:38px;height:38px;border-radius:50%;flex:0 0 auto;background:var(--accent);color:var(--on-accent);font-size:17px;line-height:1;transition:background .12s,transform .1s}",
+      ".den-send:hover{background:var(--accent-h)}.den-send:active{transform:scale(.94)}",
+      ".den-x{position:absolute;top:14px;right:16px;cursor:pointer;border:0;background:transparent;color:var(--faint);font-size:20px;line-height:1;padding:4px}",
+      ".den-x:hover{color:var(--base)}",
+      "@media (prefers-reduced-motion:reduce){.den-card,.den-pill,.den-follow,.den-send,.den-trow,.den-knob,.den-toggle{transition:none}}",
     ].join("");
     return s;
   }
