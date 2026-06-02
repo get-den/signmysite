@@ -1,29 +1,40 @@
 /*
- * The Den API — the table from SPEC.md §8, on Hono.
+ * The Den API, on Hono.
  *
- *   POST /api/register          mint an id + handle
- *   POST /api/auth/magic-link   email a sign-in / recovery link (no passwords, no keys)
- *   GET  /api/auth/verify       consume a link, start a session
- *   GET  /auth                  the sign-in popup page
- *   GET  /api/profile/:id       public profile
- *   GET  /api/profile/:id/stats followers / following / viewer state
- *   POST /api/follow            follow or unfollow (toggle)
- *   POST /api/save              save or unsave (toggle)
- *   POST /api/discover          fetch + index a site's me.json
- *   GET  /api/viewer            the signed-in member, or null
+ *   GET  /api/auth/google        start Sign in with Google (redirect)
+ *   GET  /api/auth/google/callback   finish Google sign-in, set session
+ *   POST /api/auth/magic-link    email a sign-in / recovery link (fallback)
+ *   GET  /api/auth/verify        consume a magic link, start a session
+ *   GET  /auth                   the sign-in popup page (Google + email)
+ *   POST /api/logout             end the session
+ *   GET  /api/viewer             the signed-in member, or null
+ *   PATCH /api/profile           edit your own profile
+ *   GET  /api/profile/:id        public profile
+ *   GET  /api/profile/:id/stats  views / followers / following / viewer state
+ *   POST /api/profile/:id/view   increment view count (widget impression)
+ *   GET  /api/profile/:id/comments   list comments (with author blog links)
+ *   POST /api/profile/:id/comments   add a comment (members only)
+ *   GET  /api/following          blogs the signed-in member follows
+ *   POST /api/follow             follow or unfollow (toggle)
+ *   POST /api/save               save or unsave (toggle)
+ *   POST /api/register           mint an id + handle (agent-assisted onboarding)
+ *   POST /api/sites/claim        widget self-registers a site by id (zero-fetch onboarding)
+ *   POST /api/discover           fetch + index a site's me.json
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
-import { getCookie, setCookie } from "hono/cookie";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, escapeHtml } from "./util.ts";
+import { newId, newHandle, token, escapeHtml } from "./util.ts";
+import * as auth from "./auth.ts";
 
 export const PORT = Number(process.env.PORT || 8787);
 export const BASE = (process.env.DEN_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const SECURE = BASE.startsWith("https://");
 const COOKIE = "den_session";
 const HAS_MAILER = process.env.DEN_EMAIL === "smtp"; // not wired in the reference impl
+const oauthStates = new Set<string>();               // CSRF state for the OAuth dance
 
 export const app = new Hono();
 
@@ -35,7 +46,9 @@ app.use("/api/*", cors({
   allowHeaders: ["content-type"],
 }));
 
-const publicMember = (m: db.Member) => ({ id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio });
+const publicMember = (m: db.Member) => ({
+  id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio, views: m.views,
+});
 const viewerOf = (c: Context) => db.getSessionMember(getCookie(c, COOKIE));
 const body = (c: Context) => c.req.json().catch(() => ({} as any));
 
@@ -52,6 +65,50 @@ function setSession(c: Context, tok: string): void {
     sameSite: SECURE ? "None" : "Lax", secure: SECURE,
   });
 }
+const GOOGLE_REDIRECT = BASE + "/api/auth/google/callback";
+
+// ---- Sign in with Google -------------------------------------------------
+app.get("/api/auth/google", async (c) => {
+  const ret = c.req.query("return") || "/";
+  const state = token(12);
+  oauthStates.add(state);
+  // Stash where to return after sign-in, keyed by state, in a short cookie.
+  setCookie(c, "den_ret", JSON.stringify({ state, ret }), {
+    httpOnly: true, path: "/", maxAge: 600, sameSite: "Lax", secure: SECURE,
+  });
+
+  if (!auth.GOOGLE_LIVE) {
+    // Dev stub: no real Google — bounce straight to the callback with the state.
+    return c.redirect(`/api/auth/google/callback?state=${state}&stub=1`);
+  }
+  return c.redirect(auth.googleAuthUrl(GOOGLE_REDIRECT, state));
+});
+
+app.get("/api/auth/google/callback", async (c) => {
+  const stash = JSON.parse(getCookie(c, "den_ret") || "{}");
+  const ret = typeof stash.ret === "string" ? stash.ret : "/";
+  const state = c.req.query("state") || "";
+  if (!state || state !== stash.state) return c.text("bad state", 400);
+  oauthStates.delete(state);
+  deleteCookie(c, "den_ret", { path: "/" });
+
+  try {
+    const profile = auth.GOOGLE_LIVE
+      ? await auth.exchangeGoogleCode(c.req.query("code") || "", GOOGLE_REDIRECT)
+      : auth.stubProfile(c.req.query("email") || undefined);
+    await auth.signInWithGoogle(c, profile, { cookie: COOKIE, secure: SECURE });
+  } catch (e: any) {
+    return c.text("sign-in failed: " + String(e?.message || e), 400);
+  }
+  return c.redirect(ret);
+});
+
+app.post("/api/logout", (c) => {
+  const t = getCookie(c, COOKIE);
+  if (t) db.deleteSession(t);
+  deleteCookie(c, COOKIE, { path: "/" });
+  return c.json({ ok: true });
+});
 
 // ---- identity ------------------------------------------------------------
 app.post("/api/register", async (c) => {
@@ -72,6 +129,25 @@ app.post("/api/register", async (c) => {
   const name = b?.name ? String(b.name) : (b?.handle ? String(b.handle) : "New member");
   const m = await db.createMember({ id, handle, name, email, url: b?.url || null });
   return c.json({ id: m.id, handle: m.handle, url: m.url });
+});
+
+// Zero-fetch onboarding: the agent pastes a tag with a self-minted id and never
+// calls us; the widget claims that id here on first page load. Idempotent — a
+// known id just no-ops. The site stays unclaimed until someone signs in and
+// links it (see /api/profile editing + the main site).
+app.post("/api/sites/claim", async (c) => {
+  const b = await body(c);
+  const id = String(b?.id || "");
+  if (!/^den:[a-z0-9]{8,}$/.test(id)) return c.json({ error: "valid id required" }, 400);
+  const existing = await db.getMember(id);
+  if (existing) return c.json({ id: existing.id, handle: existing.handle, claimed: true });
+  const handle = await uniqueHandle();
+  const m = await db.createMember({
+    id, handle,
+    name: b?.name ? String(b.name).slice(0, 80) : "New blog",
+    url: b?.url ? String(b.url) : null,
+  });
+  return c.json({ id: m.id, handle: m.handle, claimed: false });
 });
 
 // ---- discovery / indexing ------------------------------------------------
@@ -150,6 +226,63 @@ app.get("/api/viewer", async (c) => {
   return c.json(viewer ? publicMember(viewer) : null);
 });
 
+// ---- profile editing -----------------------------------------------------
+app.patch("/api/profile", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const b = await body(c);
+  const patch: Partial<db.Member> = {};
+  if (typeof b.name === "string" && b.name.trim()) patch.name = b.name.trim().slice(0, 80);
+  if (typeof b.bio === "string") patch.bio = b.bio.slice(0, 280);
+  if (typeof b.url === "string") patch.url = b.url.trim() || null;
+  if (typeof b.avatar === "string") patch.avatar = b.avatar.trim() || null;
+  if (typeof b.handle === "string" && b.handle.trim()) {
+    const h = b.handle.trim().toLowerCase();
+    const owner = await db.getMemberByHandle(h);
+    if (owner && owner.id !== viewer.id) return c.json({ error: "handle taken" }, 409);
+    patch.handle = h;
+  }
+  const updated = await db.updateMember(viewer.id, patch);
+  return c.json(publicMember(updated!));
+});
+
+// ---- views ---------------------------------------------------------------
+app.post("/api/profile/:id/view", async (c) => {
+  const views = await db.addView(c.req.param("id"));
+  return c.json({ views });
+});
+
+// ---- comments ------------------------------------------------------------
+app.get("/api/profile/:id/comments", async (c) => {
+  const rows = await db.listComments(c.req.param("id"));
+  return c.json(rows.map((r) => ({
+    id: r.id, body: r.body, created: r.created,
+    author: { id: r.author_id, name: r.author_name, handle: r.author_handle, avatar: r.author_avatar, url: r.author_url },
+  })));
+});
+
+app.post("/api/profile/:id/comments", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401); // members-only (your call)
+  const targetId = c.req.param("id");
+  if (!(await db.getMember(targetId))) return c.json({ error: "not found" }, 404);
+  const text = String((await body(c))?.body || "").trim();
+  if (!text) return c.json({ error: "empty comment" }, 400);
+  await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: text.slice(0, 1000) });
+  const rows = await db.listComments(targetId);
+  return c.json(rows.map((r) => ({
+    id: r.id, body: r.body, created: r.created,
+    author: { id: r.author_id, name: r.author_name, handle: r.author_handle, avatar: r.author_avatar, url: r.author_url },
+  })));
+});
+
+// ---- following list ------------------------------------------------------
+app.get("/api/following", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return c.json((await db.listFollowing(viewer.id)).map(publicMember));
+});
+
 // ---- auth (email magic link — the only thing a human ever does) ----------
 app.post("/api/auth/magic-link", async (c) => {
   const b = await body(c);
@@ -182,15 +315,21 @@ app.get("/api/auth/verify", async (c) => {
 });
 
 app.get("/auth", (c) => {
-  const ret = c.req.query("return") || "";
+  const ret = c.req.query("return") || "/";
+  const stub = auth.GOOGLE_LIVE ? "" : " (dev stub — no real Google needed)";
   return c.html(page("Sign in to Den", `
     <h1>Sign in to Den</h1>
-    <p>Enter your email — we'll send a magic link. No password, no keys.</p>
+    <a class="google" href="/api/auth/google?return=${encodeURIComponent(ret)}">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.5z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.6-2.1 15.5-5.6l-7.1-5.5c-2 1.4-4.6 2.2-8.4 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
+      Continue with Google${stub}
+    </a>
+    <div class="or">or</div>
     <form id="f">
-      <input id="e" type="email" placeholder="you@example.com" required autofocus />
-      <button type="submit">Send link</button>
+      <input id="e" type="email" placeholder="you@example.com" required />
+      <button type="submit">Email me a link</button>
     </form>
     <div id="out"></div>
+    <p class="fine">No passwords. No keys. We never see your Google password.</p>
     <script>
       var ret = ${JSON.stringify(ret)};
       document.getElementById("f").addEventListener("submit", async function (ev) {
@@ -212,10 +351,17 @@ function page(title: string, inner: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <style>
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:420px;margin:80px auto;padding:0 20px;line-height:1.5;color:#111}
-  input{font-size:16px;padding:9px 10px;width:100%;box-sizing:border-box;margin:10px 0;border:1px solid #ccc;border-radius:8px}
-  button{font-size:15px;font-weight:600;padding:9px 14px;border:0;border-radius:8px;background:#0b0b0c;color:#fff;cursor:pointer}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:380px;margin:80px auto;padding:0 24px;line-height:1.5;color:#0b0b0c}
+  h1{font-size:24px;margin:0 0 20px}
+  input{font-size:16px;padding:10px 12px;width:100%;box-sizing:border-box;margin:0 0 10px;border:1px solid #d7d7db;border-radius:10px}
+  button{font-size:15px;font-weight:600;padding:10px 14px;width:100%;border:0;border-radius:10px;background:#0b0b0c;color:#fff;cursor:pointer}
   a{color:#0b57d0}
+  .google{display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;
+    color:#0b0b0c;font-weight:600;font-size:15px;padding:11px 14px;border:1px solid #d7d7db;border-radius:10px}
+  .google:hover{background:#fafafa}
+  .or{display:flex;align-items:center;gap:10px;color:#9aa0a6;font-size:13px;margin:16px 0}
+  .or:before,.or:after{content:"";flex:1;height:1px;background:#ececef}
+  .fine{color:#9aa0a6;font-size:12px;margin-top:18px;text-align:center}
 </style>
 ${inner}`;
 }

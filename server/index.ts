@@ -17,9 +17,11 @@ app.get("/w/:file{.+\\.js}", (c) => {
   return c.body(WIDGET);
 });
 
-// Serve the repo's static files (widget/, examples/, schema/, SPEC.md) from the
-// same origin, so the widget talks to its own API with no config. Root -> demo.
-app.get("/", (c) => c.redirect("/widget/demo.html"));
+// The main site (den.com) is the root SPA.
+app.get("/", (c) => c.redirect("/site/index.html"));
+
+// Serve the repo's static files (site/, widget/, examples/, schema/, SPEC.md,
+// skill.md) from the same origin, so everything is one origin with no config.
 app.use("/*", serveStatic({ root: "./" }));
 
 serve({ fetch: app.fetch, port: PORT }, () => {

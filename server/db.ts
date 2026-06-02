@@ -9,15 +9,21 @@ import { now, token } from "./util.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS members (
-  id      TEXT PRIMARY KEY,
-  handle  TEXT UNIQUE,
-  name    TEXT NOT NULL,
-  email   TEXT UNIQUE,
-  url     TEXT,
-  avatar  TEXT,
-  bio     TEXT,
-  created TEXT NOT NULL
+  id         TEXT PRIMARY KEY,
+  handle     TEXT UNIQUE,
+  name       TEXT NOT NULL,
+  email      TEXT UNIQUE,
+  google_sub TEXT UNIQUE,
+  url        TEXT,
+  avatar     TEXT,
+  bio        TEXT,
+  views      INTEGER NOT NULL DEFAULT 0,
+  created    TEXT NOT NULL
 );
+-- migrate older installs in place (idempotent)
+ALTER TABLE members ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS edges (
   follower_id TEXT NOT NULL,
   target_id   TEXT NOT NULL,
@@ -32,6 +38,14 @@ CREATE TABLE IF NOT EXISTS saves (
   created   TEXT NOT NULL,
   PRIMARY KEY (member_id, target_id)
 );
+CREATE TABLE IF NOT EXISTS comments (
+  id        TEXT PRIMARY KEY,
+  target_id TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  body      TEXT NOT NULL,
+  created   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created);
 CREATE TABLE IF NOT EXISTS sessions (
   token     TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,
@@ -54,14 +68,21 @@ await pool.query(SCHEMA);
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, edges, saves, sessions, magic_links");
+  await pool.query("TRUNCATE members, edges, saves, comments, sessions, magic_links");
 }
 
 export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
-  url: string | null; avatar: string | null; bio: string | null; created: string;
+  google_sub: string | null; url: string | null; avatar: string | null;
+  bio: string | null; views: number; created: string;
 };
-export type Stats = { followers: number; following: number; viewerFollows: boolean; viewerSaved: boolean };
+export type Stats = {
+  views: number; followers: number; following: number;
+  viewerFollows: boolean; viewerSaved: boolean;
+};
+export type Comment = {
+  id: string; target_id: string; author_id: string; body: string; created: string;
+};
 
 // ---- members -------------------------------------------------------------
 export async function getMember(id: string): Promise<Member | undefined> {
@@ -73,14 +94,18 @@ export async function getMemberByEmail(email: string): Promise<Member | undefine
 export async function getMemberByHandle(handle: string): Promise<Member | undefined> {
   return (await pool.query("SELECT * FROM members WHERE handle = $1", [handle])).rows[0];
 }
+export async function getMemberByGoogleSub(sub: string): Promise<Member | undefined> {
+  return (await pool.query("SELECT * FROM members WHERE google_sub = $1", [sub])).rows[0];
+}
 export async function createMember(m: {
   id: string; name: string; handle?: string | null; email?: string | null;
-  url?: string | null; avatar?: string | null; bio?: string | null;
+  google_sub?: string | null; url?: string | null; avatar?: string | null; bio?: string | null;
 }): Promise<Member> {
   const r = await pool.query(
-    `INSERT INTO members (id, handle, name, email, url, avatar, bio, created)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [m.id, m.handle ?? null, m.name, m.email ?? null, m.url ?? null, m.avatar ?? null, m.bio ?? null, now()]
+    `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, bio, created)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [m.id, m.handle ?? null, m.name, m.email ?? null, m.google_sub ?? null,
+     m.url ?? null, m.avatar ?? null, m.bio ?? null, now()]
   );
   return r.rows[0];
 }
@@ -125,14 +150,62 @@ export async function hasSave(member: string, target: string): Promise<boolean> 
 
 // ---- stats ---------------------------------------------------------------
 export async function stats(id: string, viewerId?: string): Promise<Stats> {
+  const m = (await pool.query("SELECT views FROM members WHERE id = $1", [id])).rows[0];
   const followers = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE target_id = $1", [id])).rows[0].c;
   const following = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE follower_id = $1", [id])).rows[0].c;
   return {
+    views: m?.views ?? 0,
     followers,
     following,
     viewerFollows: viewerId ? await hasEdge(viewerId, id) : false,
     viewerSaved: viewerId ? await hasSave(viewerId, id) : false,
   };
+}
+
+// ---- views ---------------------------------------------------------------
+export async function addView(id: string): Promise<number> {
+  const r = await pool.query("UPDATE members SET views = views + 1 WHERE id = $1 RETURNING views", [id]);
+  return r.rows[0]?.views ?? 0;
+}
+
+// ---- comments ------------------------------------------------------------
+export type CommentWithAuthor = db_CommentRow;
+type db_CommentRow = {
+  id: string; body: string; created: string;
+  author_id: string; author_name: string; author_handle: string | null;
+  author_avatar: string | null; author_url: string | null;
+};
+export async function addComment(c: { id: string; target_id: string; author_id: string; body: string }): Promise<void> {
+  await pool.query(
+    "INSERT INTO comments (id, target_id, author_id, body, created) VALUES ($1, $2, $3, $4, $5)",
+    [c.id, c.target_id, c.author_id, c.body, now()]
+  );
+}
+// Comments joined with their author's public identity — so each comment can
+// link back to the commenter's own blog (the traversal hook).
+export async function listComments(targetId: string, limit = 100): Promise<db_CommentRow[]> {
+  const r = await pool.query(
+    `SELECT c.id, c.body, c.created,
+            m.id AS author_id, m.name AS author_name, m.handle AS author_handle,
+            m.avatar AS author_avatar, m.url AS author_url
+       FROM comments c JOIN members m ON m.id = c.author_id
+      WHERE c.target_id = $1
+      ORDER BY c.created ASC
+      LIMIT $2`,
+    [targetId, limit]
+  );
+  return r.rows;
+}
+
+// ---- following list ------------------------------------------------------
+// The members someone follows, with public identity — powers "blogs you follow".
+export async function listFollowing(memberId: string): Promise<Member[]> {
+  const r = await pool.query(
+    `SELECT m.* FROM edges e JOIN members m ON m.id = e.target_id
+      WHERE e.follower_id = $1 ORDER BY e.created DESC`,
+    [memberId]
+  );
+  return r.rows;
 }
 
 // ---- sessions ------------------------------------------------------------
