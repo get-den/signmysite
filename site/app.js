@@ -56,6 +56,7 @@
     if (me) {
       nav.append(
         el("a", { class: "who", href: "#/" }, ["@" + (me.handle || "you")]),
+        el("a", { class: "btn sm", href: "#/inbox" }, ["Pigeon box"]),
         el("a", { class: "btn sm", href: "#/embed" }, ["Get widget"]),
         el("button", { class: "btn sm", onclick: logout }, ["Sign out"])
       );
@@ -191,6 +192,33 @@
     ]);
   }
 
+  // Pigeon box — every note left on your site(s), public + private.
+  async function viewInbox() {
+    if (!me) return go("#/");
+    var notes = await api("/api/inbox").catch(function () { return []; });
+    var rows = notes.length
+      ? notes.map(noteRow)
+      : [el("div", { class: "empty" }, ["No notes yet. When someone leaves a note on your site, it lands here."])];
+    render([
+      el("h2", { class: "section" }, ["Pigeon box"]),
+      el("p", { class: "muted-p" }, ["Notes people left on your site. Private notes are only visible to you."]),
+      el("div", {}, rows),
+    ]);
+  }
+
+  function noteRow(n) {
+    var a = n.author || {};
+    var meta = el("div", { class: "meta" }, [
+      el("div", { class: "bn" }, [
+        a.name || "Someone",
+        a.url ? el("a", { class: "bh", href: a.url, target: "_blank", rel: "noopener" }, [" (" + host(a.url) + ")"]) : null,
+        n.visibility === "private" ? el("span", { class: "tag" }, ["private"]) : null,
+      ]),
+      el("div", {}, [n.body || ""]),
+    ]);
+    return el("div", { class: "blog note" }, [avatar(a), meta]);
+  }
+
   // ---- form field builders -------------------------------------------------
   function inputField(label, name, value, ph) {
     var input = el("input", { name: name, value: value, placeholder: ph || "" });
@@ -205,7 +233,7 @@
   function render(nodes) { clear(app); nodes.forEach(function (n) { if (n) app.append(n); }); }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
 
-  var routes = { "#/": viewHome, "#/edit": viewEdit, "#/embed": viewEmbed };
+  var routes = { "#/": viewHome, "#/edit": viewEdit, "#/embed": viewEmbed, "#/inbox": viewInbox };
   async function route() {
     var view = routes[location.hash] || viewHome;
     app.innerHTML = '<div class="loading">…</div>';

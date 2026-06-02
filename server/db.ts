@@ -39,13 +39,15 @@ CREATE TABLE IF NOT EXISTS saves (
   PRIMARY KEY (member_id, target_id)
 );
 CREATE TABLE IF NOT EXISTS comments (
-  id        TEXT PRIMARY KEY,
-  target_id TEXT NOT NULL,
-  author_id TEXT NOT NULL,
-  body      TEXT NOT NULL,
-  created   TEXT NOT NULL
+  id         TEXT PRIMARY KEY,
+  target_id  TEXT NOT NULL,
+  author_id  TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'public',  -- 'public' | 'private'
+  created    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created);
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 CREATE TABLE IF NOT EXISTS sessions (
   token     TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,
@@ -168,24 +170,29 @@ export async function addView(id: string): Promise<number> {
   return r.rows[0]?.views ?? 0;
 }
 
-// ---- comments ------------------------------------------------------------
-export type CommentWithAuthor = db_CommentRow;
+// ---- comments / notes ----------------------------------------------------
+export type Visibility = "public" | "private";
 type db_CommentRow = {
-  id: string; body: string; created: string;
+  id: string; body: string; visibility: Visibility; created: string;
   author_id: string; author_name: string; author_handle: string | null;
   author_avatar: string | null; author_url: string | null;
 };
-export async function addComment(c: { id: string; target_id: string; author_id: string; body: string }): Promise<void> {
+type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
+
+export async function addComment(c: {
+  id: string; target_id: string; author_id: string; body: string; visibility?: Visibility;
+}): Promise<void> {
   await pool.query(
-    "INSERT INTO comments (id, target_id, author_id, body, created) VALUES ($1, $2, $3, $4, $5)",
-    [c.id, c.target_id, c.author_id, c.body, now()]
+    "INSERT INTO comments (id, target_id, author_id, body, visibility, created) VALUES ($1, $2, $3, $4, $5, $6)",
+    [c.id, c.target_id, c.author_id, c.body, c.visibility === "private" ? "private" : "public", now()]
   );
 }
 // Comments joined with their author's public identity — so each comment can
-// link back to the commenter's own blog (the traversal hook).
-export async function listComments(targetId: string, limit = 100): Promise<db_CommentRow[]> {
+// link back to the commenter's own blog (the traversal hook). Returns ALL rows
+// incl. private; the API layer decides what to redact for the viewer.
+export async function listComments(targetId: string, limit = 200): Promise<db_CommentRow[]> {
   const r = await pool.query(
-    `SELECT c.id, c.body, c.created,
+    `SELECT c.id, c.body, c.visibility, c.created,
             m.id AS author_id, m.name AS author_name, m.handle AS author_handle,
             m.avatar AS author_avatar, m.url AS author_url
        FROM comments c JOIN members m ON m.id = c.author_id
@@ -193,6 +200,24 @@ export async function listComments(targetId: string, limit = 100): Promise<db_Co
       ORDER BY c.created ASC
       LIMIT $2`,
     [targetId, limit]
+  );
+  return r.rows;
+}
+// Every note left on the given member's site (public + private), for the owner's
+// pigeon box. Includes which site each was left on (a member may own several).
+export async function listInbox(ownerId: string, limit = 500): Promise<db_InboxRow[]> {
+  const r = await pool.query(
+    `SELECT c.id, c.body, c.visibility, c.created,
+            m.id AS author_id, m.name AS author_name, m.handle AS author_handle,
+            m.avatar AS author_avatar, m.url AS author_url,
+            t.handle AS target_handle, t.name AS target_name
+       FROM comments c
+       JOIN members m ON m.id = c.author_id
+       JOIN members t ON t.id = c.target_id
+      WHERE c.target_id = $1
+      ORDER BY c.created DESC
+      LIMIT $2`,
+    [ownerId, limit]
   );
   return r.rows;
 }

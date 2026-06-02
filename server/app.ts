@@ -12,8 +12,9 @@
  *   GET  /api/profile/:id        public profile
  *   GET  /api/profile/:id/stats  views / followers / following / viewer state
  *   POST /api/profile/:id/view   increment view count (widget impression)
- *   GET  /api/profile/:id/comments   list comments (with author blog links)
- *   POST /api/profile/:id/comments   add a comment (members only)
+ *   GET  /api/profile/:id/comments   list notes (private ones redacted unless owner/author)
+ *   POST /api/profile/:id/comments   leave a note (members only; public|private)
+ *   GET  /api/inbox              pigeon box: every note left on your site(s)
  *   GET  /api/following          blogs the signed-in member follows
  *   POST /api/follow             follow or unfollow (toggle)
  *   POST /api/save               save or unsave (toggle)
@@ -71,10 +72,11 @@ const GOOGLE_REDIRECT = BASE + "/api/auth/google/callback";
 // ---- Sign in with Google -------------------------------------------------
 app.get("/api/auth/google", async (c) => {
   const ret = c.req.query("return") || "/";
+  const popup = c.req.query("popup") === "1";
   const state = token(12);
   oauthStates.add(state);
-  // Stash where to return after sign-in, keyed by state, in a short cookie.
-  setCookie(c, "den_ret", JSON.stringify({ state, ret }), {
+  // Stash return target + popup mode, keyed by state, in a short cookie.
+  setCookie(c, "den_ret", JSON.stringify({ state, ret, popup }), {
     httpOnly: true, path: "/", maxAge: 600, sameSite: "Lax", secure: SECURE,
   });
 
@@ -101,8 +103,21 @@ app.get("/api/auth/google/callback", async (c) => {
   } catch (e: any) {
     return c.text("sign-in failed: " + String(e?.message || e), 400);
   }
-  return c.redirect(ret);
+  return stash.popup ? c.html(popupFinish()) : c.redirect(ret);
 });
+
+// Shown inside the auth popup the widget opens. It tells the opener (the
+// personal site) that sign-in succeeded — which triggers auto-posting the
+// preserved note — then closes itself. The host page never navigates.
+function popupFinish(): string {
+  return `<!doctype html><meta charset="utf-8"><title>Signed in</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;padding:40px;text-align:center;color:#0b0b0c">
+<p>Signed in. You can close this window.</p>
+<script>
+  try { if (window.opener) window.opener.postMessage({ den: "signed-in" }, "*"); } catch (e) {}
+  setTimeout(function(){ try { window.close(); } catch (e) {} }, 300);
+</script>`;
+}
 
 app.post("/api/logout", (c) => {
   const t = getCookie(c, COOKIE);
@@ -253,13 +268,29 @@ app.post("/api/profile/:id/view", async (c) => {
   return c.json({ views });
 });
 
-// ---- comments ------------------------------------------------------------
+// ---- comments / notes ----------------------------------------------------
+// Redaction happens here, server-side: a private note's body + author are only
+// returned to the site owner (the target) or the note's own author. Everyone
+// else gets a placeholder, so private content never leaves the server.
+function shapeComments(rows: Awaited<ReturnType<typeof db.listComments>>, targetId: string, viewerId?: string) {
+  const isOwner = !!viewerId && viewerId === targetId;
+  return rows.map((r) => {
+    const canSee = r.visibility === "public" || isOwner || r.author_id === viewerId;
+    if (canSee) {
+      return {
+        id: r.id, body: r.body, visibility: r.visibility, created: r.created, redacted: false,
+        author: { id: r.author_id, name: r.author_name, handle: r.author_handle, avatar: r.author_avatar, url: r.author_url },
+      };
+    }
+    return { id: r.id, visibility: "private", created: r.created, redacted: true, body: null, author: null };
+  });
+}
+
 app.get("/api/profile/:id/comments", async (c) => {
-  const rows = await db.listComments(c.req.param("id"));
-  return c.json(rows.map((r) => ({
-    id: r.id, body: r.body, created: r.created,
-    author: { id: r.author_id, name: r.author_name, handle: r.author_handle, avatar: r.author_avatar, url: r.author_url },
-  })));
+  const targetId = c.req.param("id");
+  const viewer = await viewerOf(c);
+  const rows = await db.listComments(targetId);
+  return c.json(shapeComments(rows, targetId, viewer?.id));
 });
 
 app.post("/api/profile/:id/comments", async (c) => {
@@ -267,13 +298,24 @@ app.post("/api/profile/:id/comments", async (c) => {
   if (!viewer) return c.json({ error: "sign in" }, 401); // members-only (your call)
   const targetId = c.req.param("id");
   if (!(await db.getMember(targetId))) return c.json({ error: "not found" }, 404);
-  const text = String((await body(c))?.body || "").trim();
+  const b = await body(c);
+  const text = String(b?.body || "").trim();
   if (!text) return c.json({ error: "empty comment" }, 400);
-  await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: text.slice(0, 1000) });
+  const visibility = b?.visibility === "private" ? "private" : "public";
+  await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: text.slice(0, 1000), visibility });
   const rows = await db.listComments(targetId);
+  return c.json(shapeComments(rows, targetId, viewer.id));
+});
+
+// Pigeon box: every note left on YOUR site(s), public + private.
+app.get("/api/inbox", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const rows = await db.listInbox(viewer.id);
   return c.json(rows.map((r) => ({
-    id: r.id, body: r.body, created: r.created,
+    id: r.id, body: r.body, visibility: r.visibility, created: r.created,
     author: { id: r.author_id, name: r.author_name, handle: r.author_handle, avatar: r.author_avatar, url: r.author_url },
+    site: { handle: r.target_handle, name: r.target_name },
   })));
 });
 
@@ -290,8 +332,9 @@ app.post("/api/auth/magic-link", async (c) => {
   const email = String(b?.email || "").trim().toLowerCase();
   if (!email.includes("@")) return c.json({ error: "valid email required" }, 400);
   const ret = b?.return ? String(b.return) : "";
+  const popup = b?.popup ? "&popup=1" : "";
   const tok = await db.createMagicLink(email);
-  const link = `${BASE}/api/auth/verify?token=${tok}${ret ? `&return=${encodeURIComponent(ret)}` : ""}`;
+  const link = `${BASE}/api/auth/verify?token=${tok}${ret ? `&return=${encodeURIComponent(ret)}` : ""}${popup}`;
   console.log(`\n[magic-link] ${email}\n  ${link}\n`);
   // No mailer in the reference impl: hand the link back so dev/demo can finish.
   return c.json(HAS_MAILER ? { ok: true } : { ok: true, dev_link: link });
@@ -305,22 +348,18 @@ app.get("/api/auth/verify", async (c) => {
   if (!m) m = await db.createMember({ id: newId(), handle: await uniqueHandle(), name: email.split("@")[0], email });
   setSession(c, await db.createSession(m.id));
 
-  const ret = c.req.query("return") || "";
-  return c.html(page("Signed in", `
-    <p>Signed in as <b>${escapeHtml(m.handle || m.name)}</b>. You can close this window.</p>
-    <script>
-      try { if (window.opener) window.opener.postMessage({ den: "signed-in" }, "*"); } catch (e) {}
-      ${ret ? `setTimeout(function(){ location.replace(${JSON.stringify(ret)}); }, 500);`
-            : `setTimeout(function(){ window.close(); }, 400);`}
-    </script>`));
+  if (c.req.query("popup")) return c.html(popupFinish());
+  return c.redirect(c.req.query("return") || "/");
 });
 
 app.get("/auth", (c) => {
   const ret = c.req.query("return") || "/";
+  const popup = c.req.query("popup") === "1";
+  const gHref = `/api/auth/google?return=${encodeURIComponent(ret)}${popup ? "&popup=1" : ""}`;
   const stub = auth.GOOGLE_LIVE ? "" : " (dev stub — no real Google needed)";
   return c.html(page("Sign in to Den", `
     <h1>Sign in to Den</h1>
-    <a class="google" href="/api/auth/google?return=${encodeURIComponent(ret)}">
+    <a class="google" href="${gHref}">
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.5z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.6-2.1 15.5-5.6l-7.1-5.5c-2 1.4-4.6 2.2-8.4 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
       Continue with Google${stub}
     </a>
@@ -332,12 +371,12 @@ app.get("/auth", (c) => {
     <div id="out"></div>
     <p class="fine">No passwords. No keys. We never see your Google password.</p>
     <script>
-      var ret = ${JSON.stringify(ret)};
+      var ret = ${JSON.stringify(ret)}, popup = ${popup ? "true" : "false"};
       document.getElementById("f").addEventListener("submit", async function (ev) {
         ev.preventDefault();
         var r = await fetch("/api/auth/magic-link", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: document.getElementById("e").value, return: ret })
+          body: JSON.stringify({ email: document.getElementById("e").value, return: ret, popup: popup })
         });
         var j = await r.json();
         document.getElementById("out").innerHTML = j.dev_link
@@ -377,12 +416,14 @@ app.get("/:at{@.+}", async (c) => {
         <div class="bh">${escapeHtml(b.url ? hostOf(b.url) : "@" + (b.handle || ""))}</div></div></a>`).join("")
     : `<div class="empty">Not following anyone yet.</div>`;
 
-  const commentsHtml = comments.length
-    ? comments.map((cm) => `<div class="blog" style="border:0;padding:6px 0">
+  // This page is public + crawlable, so only public notes are shown here.
+  const publicComments = comments.filter((cm) => cm.visibility === "public");
+  const commentsHtml = publicComments.length
+    ? publicComments.map((cm) => `<div class="blog" style="border:0;padding:6px 0">
         ${av({ avatar: cm.author_avatar, name: cm.author_name, handle: cm.author_handle }, "")}
         <div class="meta"><div class="bn">${escapeHtml(cm.author_name)}${cm.author_url ? ` <a class="bh" href="${escapeHtml(cm.author_url)}" target="_blank" rel="noopener">(${escapeHtml(hostOf(cm.author_url))})</a>` : ""}</div>
         <div>${escapeHtml(cm.body)}</div></div></div>`).join("")
-    : `<div class="empty">No comments yet.</div>`;
+    : `<div class="empty">No notes yet.</div>`;
 
   const desc = m.bio || `${m.name} on Den`;
   const inner = `
