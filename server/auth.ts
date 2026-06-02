@@ -21,9 +21,11 @@ export const GOOGLE_LIVE = !!(CLIENT_ID && CLIENT_SECRET);
 type GoogleProfile = { sub: string; email?: string; name?: string; picture?: string };
 
 // Find or create the member behind a Google profile, then session them.
+// Returns the member AND the raw session token, so the popup can also hand the
+// token to the widget via postMessage (first-party auth for cross-site embeds).
 export async function signInWithGoogle(c: Context, p: GoogleProfile, opts: {
   cookie: string; secure: boolean;
-}): Promise<db.Member> {
+}): Promise<{ member: db.Member; token: string }> {
   let m =
     (await db.getMemberByGoogleSub(p.sub)) ||
     (p.email ? await db.getMemberByEmail(p.email.toLowerCase()) : undefined);
@@ -50,7 +52,7 @@ export async function signInWithGoogle(c: Context, p: GoogleProfile, opts: {
     httpOnly: true, path: "/", maxAge: 60 * 60 * 24 * 30,
     sameSite: opts.secure ? "None" : "Lax", secure: opts.secure,
   });
-  return m;
+  return { member: m, token: tok };
 }
 
 async function uniqueHandle(): Promise<string> {

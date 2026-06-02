@@ -40,18 +40,29 @@ const oauthStates = new Set<string>();               // CSRF state for the OAuth
 
 export const app = new Hono();
 
-// Allow credentialed cross-origin calls from any personal site hosting the widget.
+// Allow cross-origin calls from any personal site hosting the widget.
+// We accept a Bearer token (first-party localStorage on the host site) because
+// third-party cookies are blocked by Safari and deprecated in Chrome — the
+// cookie path still works first-party on den.com itself.
 app.use("/api/*", cors({
   origin: (o) => o || "*",
   credentials: true,
-  allowMethods: ["GET", "POST", "OPTIONS"],
-  allowHeaders: ["content-type"],
+  allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
+  allowHeaders: ["content-type", "authorization"],
 }));
 
 const publicMember = (m: db.Member) => ({
   id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio, views: m.views,
 });
-const viewerOf = (c: Context) => db.getSessionMember(getCookie(c, COOKIE));
+// The session token comes from the first-party cookie (on den.com) OR a Bearer
+// header (the widget, embedded cross-site, where cookies are blocked). Same
+// token either way — sessions are token-keyed in the DB.
+function sessionToken(c: Context): string | undefined {
+  const auth = c.req.header("authorization");
+  if (auth && auth.slice(0, 7).toLowerCase() === "bearer ") return auth.slice(7).trim();
+  return getCookie(c, COOKIE);
+}
+const viewerOf = (c: Context) => db.getSessionMember(sessionToken(c));
 const body = (c: Context) => c.req.json().catch(() => ({} as any));
 
 async function uniqueHandle(): Promise<string> {
@@ -95,26 +106,28 @@ app.get("/api/auth/google/callback", async (c) => {
   oauthStates.delete(state);
   deleteCookie(c, "den_ret", { path: "/" });
 
+  let token: string;
   try {
     const profile = auth.GOOGLE_LIVE
       ? await auth.exchangeGoogleCode(c.req.query("code") || "", GOOGLE_REDIRECT)
       : auth.stubProfile(c.req.query("email") || undefined);
-    await auth.signInWithGoogle(c, profile, { cookie: COOKIE, secure: SECURE });
+    token = (await auth.signInWithGoogle(c, profile, { cookie: COOKIE, secure: SECURE })).token;
   } catch (e: any) {
     return c.text("sign-in failed: " + String(e?.message || e), 400);
   }
-  return stash.popup ? c.html(popupFinish()) : c.redirect(ret);
+  return stash.popup ? c.html(popupFinish(token)) : c.redirect(ret);
 });
 
-// Shown inside the auth popup the widget opens. It tells the opener (the
-// personal site) that sign-in succeeded — which triggers auto-posting the
-// preserved note — then closes itself. The host page never navigates.
-function popupFinish(): string {
+// Shown inside the auth popup the widget opens. It hands the opener (the
+// personal site) the session token — so the widget can authenticate without a
+// third-party cookie (Safari blocks those) — which also triggers auto-posting
+// the preserved note, then closes itself. The host page never navigates.
+function popupFinish(token: string): string {
   return `<!doctype html><meta charset="utf-8"><title>Signed in</title>
 <body style="font-family:-apple-system,system-ui,sans-serif;padding:40px;text-align:center;color:#0b0b0c">
 <p>Signed in. You can close this window.</p>
 <script>
-  try { if (window.opener) window.opener.postMessage({ den: "signed-in" }, "*"); } catch (e) {}
+  try { if (window.opener) window.opener.postMessage({ den: "signed-in", token: ${JSON.stringify(token)} }, "*"); } catch (e) {}
   setTimeout(function(){ try { window.close(); } catch (e) {} }, 300);
 </script>`;
 }
@@ -346,9 +359,10 @@ app.get("/api/auth/verify", async (c) => {
 
   let m = await db.getMemberByEmail(email);
   if (!m) m = await db.createMember({ id: newId(), handle: await uniqueHandle(), name: email.split("@")[0], email });
-  setSession(c, await db.createSession(m.id));
+  const tok = await db.createSession(m.id);
+  setSession(c, tok);
 
-  if (c.req.query("popup")) return c.html(popupFinish());
+  if (c.req.query("popup")) return c.html(popupFinish(tok));
   return c.redirect(c.req.query("return") || "/");
 });
 

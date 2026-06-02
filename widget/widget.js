@@ -43,11 +43,19 @@
     return;
   }
 
-  var DRAFT_KEY = "den_draft_" + cfg.id; // survives a full page navigation
+  var DRAFT_KEY = "den_draft_" + cfg.id;  // survives a full page navigation
+  var TOKEN_KEY = "den_token";            // first-party session token (see below)
   var el, state = {
     me: null, viewer: null, stats: null, comments: null,
     expanded: false, busy: false, viewed: false, isPrivate: false, isOwner: false,
   };
+
+  // Session token lives in the HOST site's own localStorage, sent as a Bearer
+  // header — because third-party cookies (den.com's cookie on someone else's
+  // site) are blocked by Safari and deprecated in Chrome. This makes Follow,
+  // notes, and owner-mode work everywhere, not just where 3rd-party cookies do.
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
 
   if (document.body) start();
   else document.addEventListener("DOMContentLoaded", start);
@@ -62,10 +70,13 @@
     root.appendChild(el.wrap);
     el.removeHost = function () { hostEl.remove(); };
 
-    // A sign-in popup messages us when it completes → refresh, then post the
-    // note the visitor was writing before we sent them to auth.
+    // A sign-in popup messages us when it completes → store the token (so we
+    // can auth cross-site without cookies), refresh, then post the preserved note.
     window.addEventListener("message", function (e) {
-      if (e && e.data && e.data.den === "signed-in") onSignedIn();
+      if (e && e.data && e.data.den === "signed-in") {
+        if (e.data.token) setToken(e.data.token);
+        onSignedIn();
+      }
     });
     restoreDraft();
     load();
@@ -340,12 +351,19 @@
     return null;
   }
   function enc(s) { return encodeURIComponent(s); }
+  // Bearer token (works cross-site) + credentials (works first-party on den.com).
+  function authHeaders(base) {
+    var h = base || {};
+    var t = getToken();
+    if (t) h["authorization"] = "Bearer " + t;
+    return h;
+  }
   function post(bodyObj) {
-    return { method: "POST", headers: { "content-type": "application/json" },
+    return { method: "POST", headers: authHeaders({ "content-type": "application/json" }),
       credentials: "include", body: JSON.stringify(bodyObj) };
   }
   async function getJSON(path) {
-    var r = await fetch(cfg.api + path, { credentials: "include" });
+    var r = await fetch(cfg.api + path, { credentials: "include", headers: authHeaders() });
     if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
     return r.json();
   }
