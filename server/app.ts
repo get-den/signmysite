@@ -20,6 +20,7 @@
  *   POST /api/register           mint an id + handle (agent-assisted onboarding)
  *   POST /api/sites/claim        widget self-registers a site by id (zero-fetch onboarding)
  *   POST /api/discover           fetch + index a site's me.json
+ *   GET  /@:handle               public profile page (server-rendered, shareable)
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -345,6 +346,93 @@ app.get("/auth", (c) => {
       });
     </script>`));
 });
+
+// ---- public profile page (den.com/@handle) ------------------------------
+// Server-rendered so it's shareable + crawlable (link previews, instant load).
+// Reuses site/app.css — no new styles. Embeds the widget so visitors can
+// follow/comment right here, exactly as they would on the member's own site.
+app.get("/:at{@.+}", async (c) => {
+  const handle = c.req.param("at").slice(1).toLowerCase();
+  const m = await db.getMemberByHandle(handle);
+  if (!m) return c.html(notFoundPage(handle), 404);
+
+  const [s, following, comments] = await Promise.all([
+    db.stats(m.id),
+    db.listFollowing(m.id),
+    db.listComments(m.id),
+  ]);
+  const idShort = m.id.replace(/^den:/, "");
+
+  const av = (x: { avatar: string | null; name: string; handle: string | null }, cls: string) =>
+    x.avatar
+      ? `<div class="avatar ${cls}" style="background-image:url(${escapeHtml(JSON.stringify(x.avatar))})"></div>`
+      : `<div class="avatar ${cls}">${escapeHtml((x.name || x.handle || "?").charAt(0).toUpperCase())}</div>`;
+  const num = (n: number) => (n < 1000 ? String(n) : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K" : (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M");
+  const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
+
+  const followingHtml = following.length
+    ? following.map((b) => `<a class="blog" href="${b.url ? escapeHtml(b.url) : "/@" + escapeHtml(b.handle || "")}"${b.url ? ' target="_blank" rel="noopener"' : ""}>
+        ${av(b, "")}
+        <div class="meta"><div class="bn">${escapeHtml(b.name || "—")}</div>
+        <div class="bh">${escapeHtml(b.url ? hostOf(b.url) : "@" + (b.handle || ""))}</div></div></a>`).join("")
+    : `<div class="empty">Not following anyone yet.</div>`;
+
+  const commentsHtml = comments.length
+    ? comments.map((cm) => `<div class="blog" style="border:0;padding:6px 0">
+        ${av({ avatar: cm.author_avatar, name: cm.author_name, handle: cm.author_handle }, "")}
+        <div class="meta"><div class="bn">${escapeHtml(cm.author_name)}${cm.author_url ? ` <a class="bh" href="${escapeHtml(cm.author_url)}" target="_blank" rel="noopener">(${escapeHtml(hostOf(cm.author_url))})</a>` : ""}</div>
+        <div>${escapeHtml(cm.body)}</div></div></div>`).join("")
+    : `<div class="empty">No comments yet.</div>`;
+
+  const desc = m.bio || `${m.name} on Den`;
+  const inner = `
+  <div class="phead">
+    ${av(m, "")}
+    <div>
+      <div class="pname">${escapeHtml(m.name)}</div>
+      <div class="phandle">@${escapeHtml(m.handle || "")}</div>
+      ${m.url ? `<div class="purl"><a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(m.url))}</a></div>` : ""}
+    </div>
+  </div>
+  ${m.bio ? `<p class="pbio">${escapeHtml(m.bio)}</p>` : ""}
+  <div class="pstats">
+    <div><span class="n">${num(s.views)}</span> <span class="l">Views</span></div>
+    <div><span class="n">${num(s.followers)}</span> <span class="l">Followers</span></div>
+    <div><span class="n">${num(s.following)}</span> <span class="l">Following</span></div>
+  </div>
+  <div class="section"><h2>Blogs they follow</h2>${followingHtml}</div>
+  <div class="section"><h2>Comments</h2>${commentsHtml}</div>
+  <script src="/w/${escapeHtml(idShort)}.js" data-position="bottom-right"></script>`;
+
+  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner));
+});
+
+function notFoundPage(handle: string): string {
+  return sitePage("Not on Den", "", null, `
+    <div class="hero"><h1>@${escapeHtml(handle)} isn't on Den yet.</h1>
+    <p>Den links personal websites into one social graph.</p>
+    <a class="btn primary" href="/">Get your own</a></div>`);
+}
+
+// A page that wears the main site's chrome + stylesheet (so profiles match the
+// app exactly with no duplicated CSS), plus Open Graph tags for link previews.
+function sitePage(title: string, desc: string, image: string | null, inner: string): string {
+  return `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<meta name="description" content="${desc}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${desc}">
+<meta property="og:type" content="profile">
+${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="/site/app.css">
+</head><body>
+<header class="top"><a class="brand" href="/">den</a><nav><a class="btn sm" href="/">Home</a></nav></header>
+<main>${inner}</main>
+<footer class="foot"><span>Den is an open protocol.</span><a href="/SPEC.md">Spec</a><a href="/skill.md">For agents</a></footer>
+</body></html>`;
+}
 
 function page(title: string, inner: string): string {
   return `<!doctype html><meta charset="utf-8">

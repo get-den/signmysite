@@ -87,6 +87,7 @@
     var actions = el("div", { class: "row" }, [
       el("a", { class: "btn", href: "#/edit" }, ["Edit profile"]),
       el("a", { class: "btn", href: "#/embed" }, ["Get your widget"]),
+      me.handle ? el("a", { class: "btn", href: "/@" + me.handle, target: "_blank" }, ["View public page ↗"]) : null,
     ]);
 
     var follows = el("div", { class: "section" }, [
