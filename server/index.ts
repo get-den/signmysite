@@ -17,11 +17,26 @@ app.get("/w/:file{.+\\.js}", (c) => {
   return c.body(WIDGET);
 });
 
-// The main site (den.com) is the root SPA.
-app.get("/", (c) => c.redirect("/site/index.html"));
+// The main site (den.com) is the React SPA built by Vite into web/dist.
+// Its hashed JS/CSS live under /assets; index.html is the SPA shell at /.
+app.use("/assets/*", serveStatic({ root: "./web/dist" }));
 
-// Serve the repo's static files (site/, widget/, examples/, schema/, SPEC.md,
-// skill.md) from the same origin, so everything is one origin with no config.
+const INDEX = (() => {
+  try {
+    return readFileSync(new URL("../web/dist/index.html", import.meta.url), "utf8");
+  } catch {
+    // Not built yet — point the developer at the right command instead of 500ing.
+    return `<!doctype html><meta charset="utf-8"><title>Den</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;max-width:540px;margin:80px auto;padding:0 24px;line-height:1.55;color:#3c4149">
+<h1 style="color:#282a30">Den</h1>
+<p>The web app isn't built yet. Run <code>npm run build</code> for production, or <code>npm run dev:web</code> for a dev server with hot reload.</p>`;
+  }
+})();
+app.get("/", (c) => c.html(INDEX));
+
+// Serve the repo's other static files (widget/, examples/, schema/, SPEC.md,
+// skill.md, and site/app.css — still linked by the server-rendered @handle
+// pages) from the same origin, so everything is one origin with no config.
 app.use("/*", serveStatic({ root: "./" }));
 
 serve({ fetch: app.fetch, port: PORT }, () => {
