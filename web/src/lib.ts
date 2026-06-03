@@ -22,7 +22,12 @@ export function host(url: string): string {
   }
 }
 
-/** Where "Sign in" sends the browser: Google OAuth, returning to the current page. */
+/** The Google OAuth start URL, returning to the current page (the Landing CTA). */
 export function signinUrl(): string {
   return "/api/auth/google?return=" + encodeURIComponent(location.href);
+}
+
+/** The combined sign-in page (Google + email magic link), returning here after. */
+export function authUrl(): string {
+  return "/auth?return=" + encodeURIComponent(location.href);
 }

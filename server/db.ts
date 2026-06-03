@@ -91,7 +91,20 @@ CREATE TABLE IF NOT EXISTS magic_links (
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
 // on a Homebrew Postgres. Override with DATABASE_URL in production.
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL || "postgres:///den" });
+const connectionString = process.env.DATABASE_URL || "postgres:///den";
+// Managed Postgres (Render, Neon, Supabase, Heroku, RDS…) requires TLS; a local
+// socket or localhost host does not. So default SSL on for a remote DATABASE_URL
+// and off locally — override either way with DATABASE_SSL=1/0. rejectUnauthorized
+// is false because most managed providers present an intermediate/self-signed chain.
+const isLocalDb =
+  !process.env.DATABASE_URL ||
+  /^postgres(ql)?:\/\/\/|@(localhost|127\.0\.0\.1)([:/]|$)/.test(connectionString);
+const sslEnv = process.env.DATABASE_SSL;
+const useSsl = sslEnv != null ? /^(1|true|require|on|yes)$/i.test(sslEnv) : !isLocalDb;
+const pool = new pg.Pool({
+  connectionString,
+  ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+});
 await pool.query(SCHEMA);
 
 export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;

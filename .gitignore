@@ -5,4 +5,5 @@ web/dist/
 *.db-shm
 .env
 .env.*
+!.env.example
 .DS_Store

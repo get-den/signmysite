@@ -45,6 +45,7 @@
     ui.save.onclick = function () { act("/api/save", "viewerSaved"); };
     ui.react.onclick = function () { toggleTray(); };
     ui.send.onclick = submit;
+    ui.obCopy.onclick = copyTag;
     ui.input.oninput = function () { store(draftKey, ui.input.value.trim()); paintSend(); };
     ui.input.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); submit(); } };
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") { toggleTray(false); open(false); } });
@@ -156,23 +157,33 @@
 
   function paint() {
     var p = card.profile || {};
-    var owner = card.viewer && card.viewer.id === cfg.id;
-    var href = p.url || profileUrl(p);
+    var signedIn = !!card.viewer;
+    var owner = signedIn && card.viewer.id === cfg.id;
+
+    // Launcher branding is shown in every state.
+    if (ui.pillName) ui.pillName.textContent = p.name || p.handle || "Den";
+    avatar(ui.pillAvatar, p);
+
+    // The generic /w.js tag is the front door: when the site is unclaimed (no
+    // profile id) or has just been claimed by the person signing in, the card
+    // becomes a self-contained onboarding flow instead of a profile view.
+    var onboarding = cfg.generic && (!p.id || (signedIn && card.viewer.id === p.id));
+    ui.panel.classList.toggle("onboarding", onboarding);
+    if (onboarding) { paintOnboard(signedIn, p); return; }
+
+    // Always the Den profile — never the visitor's own personal site.
+    var prof = profileUrl(p);
 
     ui.name.textContent = p.name || p.handle || "Someone";
-    ui.name.href = href;
+    ui.name.href = prof;
     ui.name.target = "_blank";
     ui.name.rel = "noopener";
-    if (ui.pillName) ui.pillName.textContent = p.name || p.handle || "Den";
+    if (ui.avatar.tagName === "A") { ui.avatar.href = prof; ui.avatar.target = "_blank"; ui.avatar.rel = "noopener"; }
     avatar(ui.avatar, p);
-    avatar(ui.pillAvatar, p);
     ui.follow.hidden = owner;
     ui.save.hidden = owner;
-    ui.status.textContent = cfg.generic
-      ? card.viewer
-        ? "Connected. Permanent tag: " + card.script
-        : "Generic tag active. Sign in to personalize."
-      : "";
+    // The generic-tag messaging now lives in the onboarding view (see paintOnboard).
+    ui.status.textContent = "";
     if (ui.stats) ui.stats.hidden = !SHOW_STATS;
     if (SHOW_STATS) paintStats();
     paintActions();
@@ -231,7 +242,7 @@
     var all = card.comments || [];
     var items = all.slice(-3).reverse();
     paintCount();
-    if (!items.length) return ui.notes.append(node("div", "empty", "Be the first to leave a note."));
+    if (!items.length) return;
     items.forEach(function (n) { ui.notes.append(note(n)); });
     // More than fits here → a tappable link to the full profile on Den.
     if (all.length > 3) {
@@ -280,6 +291,45 @@
     return link;
   }
 
+  // The /w.js onboarding view. Two states share one layout:
+  //  • signed out → explain Den, with a button that opens the auth popup. Sign-in
+  //    IS sign-up here (a new Google/email account is created on the spot), so a
+  //    visitor goes from "never heard of Den" to a live account without leaving.
+  //  • signed in  → success + the permanent /w/<id>.js tag to copy, so the owner
+  //    (or their agent) can swap the generic line for their stable one.
+  function paintOnboard(signedIn, p) {
+    toggleTray(false);
+    if (signedIn) {
+      ui.obTitle.textContent = "You're on Den" + (p.name ? ", " + firstName(p.name) : "") + " 🎉";
+      ui.obBody.textContent = "Your account is live and this site is now yours. To lock it in, replace the line on your site with your permanent tag — it keeps your followers attached even if your domain ever changes.";
+      ui.obCta.textContent = "Open your dashboard";
+      ui.obCta.onclick = function () { openTab(cfg.api + "/"); };
+      ui.obAlt.hidden = true;
+      ui.obCode.textContent = tagLine(card.script);
+      ui.obTag.hidden = false;
+    } else {
+      ui.obTitle.textContent = "Welcome to Den";
+      ui.obBody.textContent = "Den connects personal sites into one network — followers, notes, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
+      ui.obCta.textContent = "Create your account";
+      ui.obCta.onclick = signIn;
+      ui.obAlt.textContent = "I already have an account";
+      ui.obAlt.onclick = signIn;
+      ui.obAlt.hidden = false;
+      ui.obTag.hidden = true;
+    }
+  }
+  // Copy the full <script> line (not just the URL) so it can be pasted as-is.
+  function copyTag() {
+    var text = tagLine(card && card.script);
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {}); } catch (_) {}
+    var old = ui.obCopy.textContent;
+    ui.obCopy.textContent = "Copied";
+    setTimeout(function () { ui.obCopy.textContent = old; }, 1400);
+  }
+  // Split "script" so the string is inert even if the widget is ever inlined.
+  function tagLine(src) { return '<scr' + 'ipt src="' + (src || cfg.api + "/w.js") + '"></scr' + 'ipt>'; }
+  function firstName(n) { return String(n).trim().split(/\s+/)[0]; }
+
   function paintSend() {
     ui.send.classList.toggle("ready", !!ui.input.value.trim());
   }
@@ -315,8 +365,20 @@
     ui.status.textContent = "Couldn’t load Den.";
   }
   function open(on) {
-    ui.wrap.classList.toggle("open", on);
-    ui.open.setAttribute("aria-expanded", String(on));
+    var w = ui.wrap;
+    if (on) {
+      w.classList.remove("closing");
+      w.classList.add("open");
+    } else if (w.classList.contains("open")) {
+      // Play the open animation in reverse, then fully hide on completion.
+      w.classList.remove("open");
+      w.classList.add("closing");
+      var t;
+      var done = function () { clearTimeout(t); w.classList.remove("closing"); ui.panel.removeEventListener("animationend", done); };
+      t = setTimeout(done, 320); // fallback if animationend never fires (e.g. reduced motion)
+      ui.panel.addEventListener("animationend", done);
+    }
+    ui.open.setAttribute("aria-expanded", String(!!on));
   }
 
   function api(path, body) {
@@ -339,7 +401,7 @@
     return '<div class="den ' + c.position + ' ' + c.theme + ' launcher-' + c.launcher + '">' +
       '<section class="card" role="dialog" aria-label="Den profile card">' +
         '<header class="top">' +
-          '<span class="avatar"></span>' +
+          '<a class="avatar" aria-label="View profile"></a>' +
           '<div class="actions">' +
             '<button class="save" aria-label="Save this site">' + icon("bookmark") + '</button>' +
             '<button class="follow">Follow</button>' +
@@ -353,6 +415,14 @@
           '<input class="input" aria-label="Leave a note" placeholder="Leave a note…">' +
           '<button class="react" aria-label="React with an emoji">' + icon("smile-plus") + '</button>' +
           '<button class="send" aria-label="Write a note">' + icon("arrow-up") + '</button>' +
+        '</div>' +
+        '<div class="onboard">' +
+          '<div class="ob-mark"><span class="logo">den</span></div>' +
+          '<h2 class="ob-title"></h2>' +
+          '<p class="ob-body"></p>' +
+          '<button class="ob-cta"></button>' +
+          '<button class="ob-alt" hidden></button>' +
+          '<div class="ob-tag" hidden><code class="ob-code"></code><button class="ob-copy">Copy</button></div>' +
         '</div>' +
       "</section>" + launcher(c.launcher) + "</div>";
   }
@@ -380,12 +450,15 @@
   function map(root) {
     var q = function (s) { return root.querySelector(s); };
     return {
-      wrap: q(".den"), open: q(".launcher"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
+      wrap: q(".den"), panel: q(".card"), open: q(".launcher"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
       pillName: q(".pill-name"), count: q(".notif"), save: q(".save"), follow: q(".follow"), name: q(".name"),
       pins: q(".pins"), notes: q(".notes"), status: q(".status"), input: q(".input"),
       react: q(".react"), send: q(".send"), tray: q(".tray"),
       stats: q(".stats"), views: q(".views"), followers: q(".followers"),
       viewsLink: q(".views-link"), followersLink: q(".followers-link"),
+      onboard: q(".onboard"), obTitle: q(".ob-title"), obBody: q(".ob-body"),
+      obCta: q(".ob-cta"), obAlt: q(".ob-alt"), obTag: q(".ob-tag"),
+      obCode: q(".ob-code"), obCopy: q(".ob-copy"),
     };
   }
 
@@ -432,9 +505,9 @@
       '.top-right{right:max(16px,env(safe-area-inset-right));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse}' +
       '.top-left{left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse;align-items:flex-start}' +
       '.card{width:392px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:30px;box-shadow:var(--shadow);padding:26px 24px}' +
-      '.den:not(.open) .card{display:none}.open .card{animation:denPop .2s cubic-bezier(.2,.7,.3,1)}@keyframes denPop{from{opacity:0;transform:translateY(10px) scale(.97)}}' +
+      '.den:not(.open):not(.closing) .card{display:none}.open .card{animation:denPop .2s cubic-bezier(.2,.7,.3,1)}.closing .card{animation:denPopOut .17s cubic-bezier(.4,0,.7,.3) forwards;pointer-events:none}@keyframes denPop{from{opacity:0;transform:translateY(10px) scale(.97)}}@keyframes denPopOut{to{opacity:0;transform:translateY(10px) scale(.97)}}' +
       '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}' +
-      '.avatar{width:92px;height:92px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 32px/1 var(--ff);flex:0 0 auto}' +
+      '.avatar{width:92px;height:92px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 32px/1 var(--ff);flex:0 0 auto;text-decoration:none;cursor:pointer}' +
       '.actions{display:flex;align-items:center;gap:10px}' +
       '.save{width:50px;height:50px;border-radius:50%;background:var(--soft);color:var(--ink);font-size:21px;display:grid;place-items:center}.save:hover{background:var(--line)}.save.on{background:var(--accent);color:var(--bg)}' +
       '.follow{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:50px;padding:0 26px;border-radius:999px;background:var(--accent);color:var(--bg);font:600 17px/1 var(--ff)}.follow:hover{opacity:.9}.follow.on{background:var(--soft);color:var(--ink)}' +
@@ -453,7 +526,7 @@
       '.badge{margin-left:7px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;color:var(--muted)}.empty{color:var(--muted);font-size:14px}.see-all{justify-self:start;display:inline-flex;align-items:center;min-height:44px;margin-top:2px;padding:0 20px;border:1px solid var(--line);border-radius:999px;color:var(--ink);text-decoration:none;font:600 14px/1 var(--ff)}.see-all:hover{background:var(--soft);text-decoration:none}' +
       '.status{color:var(--muted);font-size:13px;margin-top:10px;overflow-wrap:anywhere}.status:empty{display:none}' +
       '.composer{display:flex;align-items:center;gap:4px;margin-top:24px;padding:6px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.composer:focus-within{border-color:var(--muted)}' +
-      '.input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:600 16px/1 var(--ff);padding:12px 8px 12px 14px;outline:none}.input::placeholder{color:var(--muted)}' +
+      '.input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:400 16px/1 var(--ff);padding:12px 8px 12px 14px;outline:none}.input::placeholder{color:var(--muted);font-weight:400}' +
       '.react{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;display:grid;place-items:center}.react:hover{background:var(--soft);color:var(--ink)}.react.on{background:var(--soft);color:var(--ink)}' +
       '.tray{display:flex;flex-wrap:wrap;gap:4px;margin-top:14px;padding:6px;border:1px solid var(--line);border-radius:20px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}' +
       '.emoji{flex:1 0 auto;min-width:44px;height:44px;border-radius:14px;background:transparent;font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .12s ease,background .12s ease}.emoji:hover{background:var(--soft);transform:translateY(-2px)}.emoji:active{transform:scale(.9)}' +

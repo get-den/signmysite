@@ -103,6 +103,13 @@ function jsonBody(body: unknown): RequestInit {
 /** Resolve to a fallback if the request fails (e.g. an endpoint not yet live). */
 export const orEmpty = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => []);
 
+/** Email a magic sign-in link. In dev (no mailer) the link comes back as dev_link. */
+export const requestMagicLink = (email: string, returnTo?: string) =>
+  req<{ ok?: true; dev_link?: string }>("/api/auth/magic-link", {
+    method: "POST",
+    ...jsonBody({ email, return: returnTo }),
+  });
+
 export const getViewer = () => req<Member | null>("/api/viewer");
 export const getProfile = (id: string) =>
   req<Member>(`/api/profile/${encodeURIComponent(id)}`);

@@ -19,7 +19,7 @@ createRoot(document.getElementById("root")!).render(
           style: {
             background: "#0a0a0a",
             color: "#ffffff",
-            fontWeight: 700,
+            fontWeight: 600,
             fontSize: "14px",
             fontFamily: "'Sohne', system-ui, sans-serif",
             borderRadius: "999px",

@@ -31,10 +31,14 @@ use `/w/<id>.js`. Launcher variants are visible at `/widget/launcher-gallery.htm
 
 ## Config (env)
 
+See [`.env.example`](../.env.example) for a copy-pasteable production template
+(`cp .env.example .env`, then `node --env-file=.env server/index.ts`).
+
 | Var | Default | Notes |
 |---|---|---|
 | `PORT` | `8787` | |
 | `DATABASE_URL` | `postgres:///den` | Local unix socket (peer auth). Set for production. |
+| `DATABASE_SSL` | _(auto)_ | TLS for Postgres. Auto-on for a remote `DATABASE_URL`, off for a local socket/host. Managed DBs (Render/Neon/Supabase/Heroku/RDS) need it; force with `1`/`0` if detection is wrong. |
 | `DEN_BASE_URL` | `http://localhost:$PORT` | Public origin. Drives the Google redirect URI **and** cookie security — over `https`, session cookies become `SameSite=None; Secure`. Must be set in prod (e.g. `https://agentcommune.com`). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(unset)_ | Real Sign in with Google. Absent ⇒ a dev stub signs in a fake account. Register `${DEN_BASE_URL}/api/auth/google/callback` as the authorized redirect URI. |
 | `RESEND_API_KEY` | _(unset)_ | Enables email magic-link via [Resend](https://resend.com). Absent ⇒ the link is logged + returned as `dev_link` for local dev. |

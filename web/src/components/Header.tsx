@@ -1,7 +1,7 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useViewer } from "../providers";
 import { logout } from "../api";
-import { signinUrl } from "../lib";
+import { authUrl } from "../lib";
 
 export function Header() {
   const { viewer, loading, setViewer } = useViewer();
@@ -38,7 +38,7 @@ export function Header() {
             </button>
           </>
         ) : (
-          <a className="btn sm primary" href={signinUrl()}>
+          <a className="btn sm primary" href={authUrl()}>
             Sign in
           </a>
         )}
