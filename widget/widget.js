@@ -300,18 +300,23 @@
   function paintOnboard(signedIn, p) {
     toggleTray(false);
     if (signedIn) {
-      ui.obTitle.textContent = "You're on Den" + (p.name ? ", " + firstName(p.name) : "") + " 🎉";
-      ui.obBody.textContent = "Your account is live and this site is now yours. To lock it in, replace the line on your site with your permanent tag — it keeps your followers attached even if your domain ever changes.";
-      ui.obCta.textContent = "Open your dashboard";
-      ui.obCta.onclick = function () { openTab(cfg.api + "/"); };
-      ui.obAlt.hidden = true;
+      // Tag-first: whether they just signed up or already had an account, the
+      // reason they authenticated from this site's widget is to get the permanent
+      // tag to paste in. So it's the hero; the dashboard is a secondary link.
+      ui.obTitle.textContent = "You're in" + (p.name ? ", " + firstName(p.name) : "") + " 🎉";
+      ui.obBody.textContent = "Paste this line on your site to finish — it replaces the generic tag and keeps your followers attached even if your domain changes.";
       ui.obCode.textContent = tagLine(card.script);
       ui.obTag.hidden = false;
+      ui.obCta.hidden = true;
+      ui.obAlt.textContent = "Open your dashboard";
+      ui.obAlt.onclick = function () { openTab(cfg.api + "/"); };
+      ui.obAlt.hidden = false;
     } else {
       ui.obTitle.textContent = "Welcome to Den";
       ui.obBody.textContent = "Den connects personal sites into one network — followers, notes, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
       ui.obCta.textContent = "Create your account";
       ui.obCta.onclick = signIn;
+      ui.obCta.hidden = false;
       ui.obAlt.textContent = "I already have an account";
       ui.obAlt.onclick = signIn;
       ui.obAlt.hidden = false;
@@ -420,9 +425,9 @@
           '<div class="ob-mark"><span class="logo">den</span></div>' +
           '<h2 class="ob-title"></h2>' +
           '<p class="ob-body"></p>' +
+          '<div class="ob-tag" hidden><code class="ob-code"></code><button class="ob-copy">Copy</button></div>' +
           '<button class="ob-cta"></button>' +
           '<button class="ob-alt" hidden></button>' +
-          '<div class="ob-tag" hidden><code class="ob-code"></code><button class="ob-copy">Copy</button></div>' +
         '</div>' +
       "</section>" + launcher(c.launcher) + "</div>";
   }
@@ -531,6 +536,18 @@
       '.tray{display:flex;flex-wrap:wrap;gap:4px;margin-top:14px;padding:6px;border:1px solid var(--line);border-radius:20px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}' +
       '.emoji{flex:1 0 auto;min-width:44px;height:44px;border-radius:14px;background:transparent;font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .12s ease,background .12s ease}.emoji:hover{background:var(--soft);transform:translateY(-2px)}.emoji:active{transform:scale(.9)}' +
       '.send{width:42px;height:42px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:22px;display:grid;place-items:center;transition:background .15s ease,color .15s ease}.send.ready{background:var(--accent);color:var(--bg)}.send:hover{color:var(--ink)}.send.ready:hover{color:var(--bg);opacity:.9}' +
+      // Onboarding view (the generic /w.js front door). When .onboarding is on the
+      // card, the profile chrome is hidden and this self-contained flow shows.
+      '.onboard{display:none;text-align:center;padding:6px 2px 2px}.card.onboarding .onboard{display:block}' +
+      '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer{display:none!important}' +
+      '.ob-mark{width:56px;height:56px;margin:8px auto 18px;border-radius:50%;background:var(--accent);color:var(--bg);display:grid;place-items:center}.ob-mark .logo{font:950 16px/1 var(--ff);letter-spacing:-.03em}' +
+      '.ob-title{margin:0 0 10px;font:600 22px/1.2 var(--ff);letter-spacing:-.02em;color:var(--ink)}' +
+      '.ob-body{margin:0 auto 22px;max-width:34ch;font:400 15px/1.55 var(--ff);color:var(--muted)}' +
+      '.ob-cta{display:block;width:100%;height:52px;border-radius:999px;background:var(--accent);color:var(--bg);font:600 16px/1 var(--ff)}.ob-cta:hover{opacity:.9}.ob-cta[hidden]{display:none}' +
+      '.ob-alt{display:block;width:100%;margin-top:10px;height:42px;background:transparent;color:var(--muted);font:600 14px/1 var(--ff)}.ob-alt:hover{color:var(--ink)}.ob-alt[hidden]{display:none}' +
+      '.ob-tag{display:flex;align-items:center;gap:8px;margin-top:18px;padding:8px 8px 8px 14px;border:1px solid var(--line);border-radius:14px;background:var(--soft);text-align:left}.ob-tag[hidden]{display:none}' +
+      '.ob-code{flex:1;min-width:0;overflow:auto;white-space:nowrap;font:500 12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink)}' +
+      '.ob-copy{flex:0 0 auto;height:36px;padding:0 16px;border-radius:999px;background:var(--accent);color:var(--bg);font:600 13px/1 var(--ff)}.ob-copy:hover{opacity:.9}' +
       '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:#fff;color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:var(--shadow);font:600 14px/1 var(--ff);transition:transform .16s ease}.launcher:hover{transform:translateY(-2px)}' +
       '.pill-avatar{width:30px;height:30px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font-weight:600;flex:0 0 auto}' +
       '.notif{position:absolute;top:-7px;right:-7px;min-width:22px;height:22px;padding:0 6px;border:2px solid #fff;border-radius:999px;background:#ff2d55;color:#fff;display:grid;place-items:center;font:900 11px/1 var(--ff)}.notif[hidden]{display:none}' +

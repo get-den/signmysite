@@ -32,6 +32,7 @@ import { newId, newHandle, token, escapeHtml, isReaction } from "./util.ts";
 import { inspectSite } from "./preview.ts";
 import { sendMagicLink, MAIL_LIVE } from "./mail.ts";
 import * as auth from "./auth.ts";
+import { renderProfileInner, profileBackHeader } from "./profile.ts";
 
 export const PORT = Number(process.env.PORT || 8787);
 export const BASE = (process.env.DEN_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
@@ -627,8 +628,9 @@ app.get("/auth", (c) => {
   const popup = c.req.query("popup") === "1";
   const gHref = `/api/auth/google?return=${encodeURIComponent(ret)}${popup ? "&popup=1" : ""}`;
   const stub = auth.GOOGLE_LIVE ? "" : " (dev stub — no real Google needed)";
-  return c.html(page("Sign in to Den", `
-    <h1>Sign in to Den</h1>
+  return c.html(page("Continue to Den", `
+    <h1>Sign in or create your account</h1>
+    <p class="sub">Den has no separate sign-up — continue with Google or email and your account is created if you're new.</p>
     <a class="google" href="${gHref}">
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.5z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.6-2.1 15.5-5.6l-7.1-5.5c-2 1.4-4.6 2.2-8.4 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
       Continue with Google${stub}
@@ -677,129 +679,27 @@ app.get("/auth", (c) => {
 
 // ---- public profile page (den.com/@handle) ------------------------------
 // Server-rendered so it's shareable + crawlable (link previews, instant load).
-// Reuses site/app.css — no new styles. Embeds the widget so visitors can
-// follow/comment right here, exactly as they would on the member's own site.
+// Reuses site/app.css — no new styles. The owner (signed in, on their own
+// profile) gets Edit profile + their widget; everyone else gets Follow/Save +
+// pinned blogs. See server/profile.ts for the components.
 app.get("/:at{@.+}", async (c) => {
   const handle = c.req.param("at").slice(1).toLowerCase();
   const m = await db.getMemberByHandle(handle);
   if (!m) return c.html(notFoundPage(handle), 404);
 
+  const viewer = await viewerOf(c);
+  const isOwner = viewer?.id === m.id;
+
   const [s, comments, pinned] = await Promise.all([
-    db.stats(m.id),
+    db.stats(m.id, viewer?.id),
     db.listComments(m.id),
     db.listPinned(m.id),
   ]);
 
-  const av = (x: { avatar: string | null; name: string; handle: string | null }, cls: string) =>
-    x.avatar
-      ? `<div class="avatar ${cls}" style="background-image:url(${escapeHtml(JSON.stringify(x.avatar))})"></div>`
-      : `<div class="avatar ${cls}">${escapeHtml((x.name || x.handle || "?").charAt(0).toUpperCase())}</div>`;
-  const num = (n: number) => (n < 1000 ? String(n) : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K" : (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M");
-  const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
-
-  // Pinned showcase: up to 3 sites this member points visitors to, each with the
-  // note/reaction they left on it bubbled underneath — the traversal hook.
-  const pinnedHtml = pinned.map((b) => `<a class="pin" href="${b.url ? escapeHtml(b.url) : "/@" + escapeHtml(b.handle || "")}"${b.url ? ' target="_blank" rel="noopener"' : ""}>
-      ${av(b, "")}
-      <div class="meta"><div class="bn">${escapeHtml(b.name || "—")}</div>
-      <div class="bh">${escapeHtml(b.url ? hostOf(b.url) : "@" + (b.handle || ""))}</div></div>
-      ${b.notes.length ? `<div class="pin-notes">${b.notes.map((n) => `<span class="pin-bubble">${escapeHtml(n.body)}</span>`).join("")}</div>` : ""}
-    </a>`).join("");
-
-  // This page is public + crawlable, so only public notes are shown here.
-  const publicComments = comments.filter((cm) => cm.visibility === "public");
-  const commentsHtml = publicComments.length
-    ? publicComments.map((cm) => `<div class="blog" style="border:0;padding:6px 0">
-        ${av({ avatar: cm.author_avatar, name: cm.author_name, handle: cm.author_handle }, "")}
-        <div class="meta"><div class="bn">${escapeHtml(cm.author_name)}${cm.author_url ? ` <a class="bh" href="${escapeHtml(cm.author_url)}" target="_blank" rel="noopener">(${escapeHtml(hostOf(cm.author_url))})</a>` : ""}</div>
-        <div>${escapeHtml(cm.body)}</div></div></div>`).join("")
-    : `<div class="empty">No notes yet.</div>`;
-
+  const inner = renderProfileInner({ m, s, pinned, comments, isOwner, base: BASE });
   const desc = m.bio || `${m.name} on Den`;
-
-  // A big preview of their actual site: the saved thumbnail if we have one, else
-  // a live (non-interactive) iframe of the site, else a quiet placeholder.
-  const preview = m.thumbnail
-    ? `<span class="psite" style="background-image:url(${escapeHtml(JSON.stringify(m.thumbnail))})"></span>`
-    : m.url
-      ? `<iframe class="psite psite-frame" src="${escapeHtml(m.url)}" loading="lazy" scrolling="no" tabindex="-1" sandbox="allow-scripts allow-same-origin" title="Preview of ${escapeHtml(m.name)}'s site"></iframe>`
-      : `<span class="psite psite-empty">No site linked yet</span>`;
-
-  const inner = `
-  <div class="profile">
-    <div class="phero">
-      <div class="pid">
-        ${av(m, "")}
-        <div>
-          <div class="pname">${escapeHtml(m.name)}</div>
-          ${m.url
-            ? `<div class="purl"><a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(m.url))}</a></div>`
-            : `<div class="phandle">@${escapeHtml(m.handle || "")}</div>`}
-        </div>
-      </div>
-      <button id="pfollow" class="btn primary pfollow" type="button">Follow</button>
-    </div>
-
-    <div class="pgrid">
-      <div class="pcol-main">
-        <a class="psite-wrap" href="${m.url ? escapeHtml(m.url) : "#"}"${m.url ? ' target="_blank" rel="noopener"' : ""} aria-label="View ${escapeHtml(m.name)}'s site">
-          ${preview}
-        </a>
-        <div class="pactions">
-          ${m.url ? `<a class="btn pview" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ↗</a>` : ""}
-          <button id="psave" class="btn psave" type="button">Save</button>
-          <span id="pcounts" class="pcounts">${num(s.views)} views · ${num(s.saved)} saved</span>
-        </div>
-        ${m.bio ? `<p class="pbio">${escapeHtml(m.bio)}</p>` : ""}
-      </div>
-
-      <aside class="pcol-side">
-        <h2 class="pside-head">${escapeHtml(m.name)}'s pinned blogs</h2>
-        ${pinned.length ? `<div class="pins pins-col">${pinnedHtml}</div>` : `<div class="empty">No pinned blogs yet.</div>`}
-      </aside>
-    </div>
-
-    <div class="section pcomments"><h2>Comments</h2>${commentsHtml}</div>
-  </div>
-  <script>${profileScript(m.id)}</script>`;
-
-  const backHeader = `<header class="top pback-bar"><a class="pback" href="/">(back)</a></header>`;
-  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner, backHeader));
+  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner, profileBackHeader));
 });
-
-// Hydrates the on-page Follow/Save buttons + view/save counts against the
-// first-party session. Not signed in → the click bounces through sign-in and
-// back. Viewing your own profile → the follow/save actions hide themselves.
-function profileScript(id: string): string {
-  return `
-(function(){
-  var id=${JSON.stringify(id)};
-  var followBtn=document.getElementById('pfollow');
-  var saveBtn=document.getElementById('psave');
-  var counts=document.getElementById('pcounts');
-  function num(n){n=Number(n)||0;return n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0).replace(/\\.0$/,'')+'K':(n/1e6).toFixed(1).replace(/\\.0$/,'')+'M';}
-  function renderCounts(s){if(counts)counts.textContent=num(s.views)+' views · '+num(s.saved)+' saved';}
-  function setFollow(on){if(followBtn){followBtn.textContent=on?'Following':'Follow';followBtn.classList.toggle('on',!!on);}}
-  function setSave(on){if(saveBtn){saveBtn.textContent=on?'Saved':'Save';saveBtn.classList.toggle('on',!!on);}}
-  function signin(){location.href='/api/auth/google?return='+encodeURIComponent(location.href);}
-  function toggle(path,apply){
-    fetch(path,{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})})
-      .then(function(r){if(r.status===401){signin();return null;}return r.json();})
-      .then(function(s){if(!s)return;apply(s);renderCounts(s);});
-  }
-  if(followBtn)followBtn.addEventListener('click',function(){toggle('/api/follow',function(s){setFollow(s.viewerFollows);});});
-  if(saveBtn)saveBtn.addEventListener('click',function(){toggle('/api/save',function(s){setSave(s.viewerSaved);});});
-  Promise.all([
-    fetch('/api/viewer',{credentials:'include'}).then(function(r){return r.json();}).catch(function(){return null;}),
-    fetch('/api/profile/'+encodeURIComponent(id)+'/stats',{credentials:'include'}).then(function(r){return r.json();}).catch(function(){return null;})
-  ]).then(function(res){
-    var me=res[0],s=res[1];
-    if(me&&me.id===id){if(followBtn)followBtn.style.display='none';if(saveBtn)saveBtn.style.display='none';}
-    if(s){setFollow(s.viewerFollows);setSave(s.viewerSaved);renderCounts(s);}
-  });
-})();
-`;
-}
 
 function notFoundPage(handle: string): string {
   return sitePage("Not on Den", "", null, `
@@ -834,7 +734,8 @@ function page(title: string, inner: string): string {
 <title>${escapeHtml(title)}</title>
 <style>
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:380px;margin:80px auto;padding:0 24px;line-height:1.5;color:#0b0b0c}
-  h1{font-size:24px;margin:0 0 20px}
+  h1{font-size:24px;margin:0 0 8px}
+  .sub{color:#5f6368;font-size:14px;margin:0 0 22px}
   input{font-size:16px;padding:10px 12px;width:100%;box-sizing:border-box;margin:0 0 10px;border:1px solid #d7d7db;border-radius:10px}
   button{font-size:15px;font-weight:600;padding:10px 14px;width:100%;border:0;border-radius:10px;background:#0b0b0c;color:#fff;cursor:pointer}
   a{color:#0b57d0}

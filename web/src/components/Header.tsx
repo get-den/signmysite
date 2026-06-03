@@ -27,9 +27,9 @@ export function Header() {
             <NavLink className="navlink" to="/" end>
               Home
             </NavLink>
-            <NavLink className="navlink" to="/site">
+            <a className="navlink" href={`/@${viewer.handle}`}>
               Your site
-            </NavLink>
+            </a>
             <NavLink className="navlink" to="/messages">
               Messages
             </NavLink>

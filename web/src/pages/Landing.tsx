@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { GoogleIcon } from "../ui";
+import { CopyField, GoogleIcon } from "../ui";
 import { signinUrl } from "../lib";
 import { requestMagicLink } from "../api";
 import { useToast } from "../providers";
@@ -29,10 +29,6 @@ export function Landing() {
     <>
       <div className="hero">
         <h1>Your corner of the internet — connected.</h1>
-        <p>
-          Den links personal websites into one social graph you can follow, save, and explore. Keep
-          your own site. Add one line. Be discoverable.
-        </p>
 
         <div className="signin">
           <a className="google" href={signinUrl()}>
@@ -60,15 +56,11 @@ export function Landing() {
               </button>
             </form>
           )}
-          <p className="signin-fine">No passwords, no keys — just Google or a one-time email link.</p>
         </div>
       </div>
       <div className="section">
-        <h2>How it works</h2>
-        <div className="note">
-          Sign in, then paste one line into your site (any platform). A small badge appears so
-          visitors can follow you — and you show up in everyone's graph.
-        </div>
+        <h2>One line on your site</h2>
+        <CopyField text={`<script src="${location.origin}/w/you.js"></script>`} />
       </div>
     </>
   );

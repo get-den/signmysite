@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { ApiError, updateProfile } from "../api";
 import { useToast, useViewer } from "../providers";
+
+// After saving (or cancelling) we return to your public profile at /@handle,
+// which is server-rendered — so it's a full navigation, not a router push.
+const profilePath = (handle: string | null) => `/@${handle ?? ""}`;
 
 export function Edit() {
   const { viewer, setViewer } = useViewer();
   const toast = useToast();
-  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     name: viewer?.name ?? "",
@@ -31,7 +33,7 @@ export function Edit() {
       const updated = await updateProfile(form);
       setViewer(updated);
       toast("Saved");
-      navigate("/site");
+      window.location.assign(profilePath(updated.handle));
     } catch (err) {
       setStatus(err instanceof ApiError && err.status === 409 ? "That handle is taken." : "Couldn't save.");
       setSaving(false);
@@ -54,9 +56,9 @@ export function Edit() {
           <button className="btn primary" type="submit" disabled={saving}>
             Save
           </button>
-          <Link className="btn" to="/site">
+          <a className="btn" href={profilePath(viewer.handle)}>
             Cancel
-          </Link>
+          </a>
           <span className="formerr">{status}</span>
         </div>
       </form>

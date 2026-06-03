@@ -1,8 +1,22 @@
 import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
-import { useViewer } from "./providers";
+import { useToast, useViewer } from "./providers";
 import { host, initials } from "./lib";
 import type { Site } from "./api";
+
+/** A code snippet with a rounded copy button in the corner. */
+export function CopyField({ text, label = "Copy" }: { text: string; label?: string }) {
+  const toast = useToast();
+  const copy = () => navigator.clipboard.writeText(text).then(() => toast("Copied"));
+  return (
+    <div className="snippet">
+      {text}
+      <button className="btn sm copy" onClick={copy}>
+        {label}
+      </button>
+    </div>
+  );
+}
 
 /** Round avatar — image if present, else the name/handle's first letter. */
 export function Avatar({

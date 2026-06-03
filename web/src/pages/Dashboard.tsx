@@ -16,7 +16,7 @@ import {
   type Site,
   type Stats,
 } from "../api";
-import { compact } from "../lib";
+import { compact, siteThumb } from "../lib";
 import { mockDiscovery, mockFollowing } from "../mockData";
 import { useToast } from "../providers";
 import { Avatar, EyeIcon, HeartIcon, PinIcon, SearchIcon } from "../ui";
@@ -240,7 +240,7 @@ function SiteCard({
         href={siteHref}
         target={external ? "_blank" : undefined}
         rel="noopener"
-        style={site.thumbnail ? { backgroundImage: `url(${JSON.stringify(site.thumbnail)})` } : undefined}
+        style={{ backgroundImage: `url(${JSON.stringify(siteThumb(site))})` }}
         aria-label={`Open ${site.name}`}
       >
         {site.isNew && <span className="shot-new">New</span>}
@@ -313,7 +313,7 @@ function InstallWidget({ viewer }: { viewer: Member }) {
     <div className="card dash-widget">
       <div className="card-head">
         <h3>Your widget</h3>
-        <Link to="/site">Setup</Link>
+        <a href={`/@${viewer.handle}`}>View on your site →</a>
       </div>
       <p>One line — works on any site builder.</p>
       <div className="snippet">{tag}</div>

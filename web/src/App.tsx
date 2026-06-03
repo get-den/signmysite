@@ -3,7 +3,6 @@ import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { Protected } from "./ui";
 import { Home } from "./pages/Home";
-import { YourSite } from "./pages/YourSite";
 import { Messages } from "./pages/Messages";
 import { Edit } from "./pages/Edit";
 import { Compose } from "./pages/Compose";
@@ -16,14 +15,6 @@ export function App() {
       <main>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route
-            path="/site"
-            element={
-              <Protected>
-                <YourSite />
-              </Protected>
-            }
-          />
           <Route
             path="/messages"
             element={
