@@ -52,7 +52,7 @@ export function Messages() {
   );
 }
 
-/** A note left on your site — links back to the commenter's blog. */
+/** A note left on your site — the commenter links to their Den profile. */
 function IncomingRow({ note }: { note: InboxNote }) {
   const a = note.author;
   const inner = (
@@ -65,8 +65,8 @@ function IncomingRow({ note }: { note: InboxNote }) {
       <div className="body">{note.body}</div>
     </div>
   );
-  return a.url ? (
-    <a className="cmt" href={a.url} target="_blank" rel="noopener">
+  return a.handle ? (
+    <a className="cmt" href={`/@${a.handle}`} rel="noopener">
       <Avatar of={a} />
       {inner}
     </a>
@@ -78,12 +78,12 @@ function IncomingRow({ note }: { note: InboxNote }) {
   );
 }
 
-/** A note you left elsewhere — links to the site you left it on. */
+/** A note you left elsewhere — links to that member's Den profile. */
 function OutgoingRow({ note }: { note: OutgoingNote }) {
   const s = note.site;
-  const href = s.url || (s.handle ? `/@${s.handle}` : "#");
+  const href = s.handle ? `/@${s.handle}` : s.url || "#";
   return (
-    <a className="cmt" href={href} target={s.url ? "_blank" : undefined} rel="noopener">
+    <a className="cmt" href={href} target={s.handle ? undefined : "_blank"} rel="noopener">
       <Avatar of={s} />
       <div className="meta">
         <div>

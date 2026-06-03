@@ -30,8 +30,15 @@ export type Stats = {
   followers: number;
   following: number;
   saved: number;
+  pinned: number;
   viewerFollows: boolean;
   viewerSaved: boolean;
+  viewerPinned: boolean;
+};
+
+/** A pinned site plus the public notes the pinner left on it (the bubble). */
+export type PinnedSite = Site & {
+  notes: Array<{ id: string; body: string; created: string }>;
 };
 
 export type Discovery = {
@@ -41,7 +48,7 @@ export type Discovery = {
 };
 
 export type NoteAuthor = {
-  id: string;
+  id: string | null;
   name: string | null;
   handle: string | null;
   avatar: string | null;
@@ -97,8 +104,23 @@ function jsonBody(body: unknown): RequestInit {
 export const orEmpty = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => []);
 
 export const getViewer = () => req<Member | null>("/api/viewer");
+export const getProfile = (id: string) =>
+  req<Member>(`/api/profile/${encodeURIComponent(id)}`);
 export const getStats = (id: string) =>
   req<Stats>(`/api/profile/${encodeURIComponent(id)}/stats`);
+
+/** Leave a written note (postcard) on someone's site. Members only. */
+export const postComment = (id: string, body: string, visibility: "public" | "private") =>
+  req<unknown>(`/api/profile/${encodeURIComponent(id)}/comments`, {
+    method: "POST",
+    ...jsonBody({ body, visibility }),
+  });
+
+/** Follow / save toggles — both return the target's refreshed stats. */
+export const follow = (id: string) =>
+  req<Stats>("/api/follow", { method: "POST", ...jsonBody({ id }) });
+export const save = (id: string) =>
+  req<Stats>("/api/save", { method: "POST", ...jsonBody({ id }) });
 export const getFollowing = () => req<Site[]>("/api/following");
 export const getInbox = () => req<InboxNote[]>("/api/inbox");
 export const updateProfile = (patch: ProfilePatch) =>
@@ -108,3 +130,10 @@ export const logout = () => req<{ ok: true }>("/api/logout", { method: "POST" })
 export const getSaved = () => req<Site[]>("/api/saved");
 export const getDiscovery = () => req<Discovery>("/api/discovery");
 export const getOutgoing = () => req<OutgoingNote[]>("/api/comments/outgoing");
+
+/** A member's public pin showcase (max 3); defaults to the signed-in viewer. */
+export const getPinned = (id?: string) =>
+  req<PinnedSite[]>(`/api/pinned${id ? `?id=${encodeURIComponent(id)}` : ""}`);
+/** Toggle a pin on/off. Throws ApiError(409) when the 3-pin limit is reached. */
+export const togglePin = (id: string) =>
+  req<Stats>("/api/pin", { method: "POST", ...jsonBody({ id }) });

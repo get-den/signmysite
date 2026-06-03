@@ -22,6 +22,19 @@ export function token(bytes = 24): string {
   return randomBytes(bytes).toString("base64url");
 }
 
+// A short emoji-only string is a "reaction" (a tap), as opposed to a written
+// note. Mirrors the widget's isReaction so the server can accept anonymous,
+// always-public reactions without trusting the client's classification.
+export function isReaction(s: string): boolean {
+  s = (s || "").trim();
+  if (!s || Array.from(s).length > 8) return false;
+  try {
+    return /^(?:\p{Extended_Pictographic}|️|‍|[\u{1F3FB}-\u{1F3FF}])+$/u.test(s);
+  } catch {
+    return /^[^\w\s.,!?'"()\-]+$/.test(s);
+  }
+}
+
 export function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string

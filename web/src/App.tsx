@@ -6,6 +6,8 @@ import { Home } from "./pages/Home";
 import { YourSite } from "./pages/YourSite";
 import { Messages } from "./pages/Messages";
 import { Edit } from "./pages/Edit";
+import { Compose } from "./pages/Compose";
+import { Reacted } from "./pages/Reacted";
 
 export function App() {
   return (
@@ -38,6 +40,8 @@ export function App() {
               </Protected>
             }
           />
+          <Route path="/compose" element={<Compose />} />
+          <Route path="/reacted" element={<Reacted />} />
           <Route path="*" element={<Home />} />
         </Routes>
       </main>

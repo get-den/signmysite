@@ -1,30 +1,50 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
+  ApiError,
   getDiscovery,
   getFollowing,
   getInbox,
+  getPinned,
   getStats,
   orEmpty,
+  togglePin,
   type Discovery,
   type InboxNote,
   type Member,
+  type PinnedSite,
   type Site,
   type Stats,
 } from "../api";
-import { compact, host } from "../lib";
+import { compact } from "../lib";
 import { mockDiscovery, mockFollowing } from "../mockData";
-import { Avatar } from "../ui";
+import { useToast } from "../providers";
+import { Avatar, EyeIcon, HeartIcon, PinIcon, SearchIcon } from "../ui";
 
-type Shelf = "following" | "recommended" | "saved";
-const tabs: Array<[Shelf, string]> = [["following", "Following"], ["recommended", "Recommended"], ["saved", "Most saved"]];
+const PIN_LIMIT = 3;
+
+type Shelf = "all" | "following" | "recommended" | "saved";
+const SHELVES: Array<[Shelf, string]> = [
+  ["all", "Explore"],
+  ["following", "Following"],
+  ["recommended", "For you"],
+  ["saved", "Most saved"],
+];
+
+function dedupe(sites: Site[]): Site[] {
+  const seen = new Set<string>();
+  return sites.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
+}
 
 export function Dashboard({ viewer }: { viewer: Member }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [notes, setNotes] = useState<InboxNote[]>([]);
-  const [following, setFollowing] = useState<Site[]>([]);
+  const [following, setFollowing] = useState<Site[]>(mockFollowing);
   const [discovery, setDiscovery] = useState<Discovery>(mockDiscovery);
-  const [shelf, setShelf] = useState<Shelf>("following");
+  const [shelf, setShelf] = useState<Shelf>("all");
+  const [query, setQuery] = useState("");
+  const [pinned, setPinned] = useState<PinnedSite[]>([]);
+  const toast = useToast();
 
   useEffect(() => {
     let alive = true;
@@ -33,143 +53,271 @@ export function Dashboard({ viewer }: { viewer: Member }) {
     orEmpty(getInbox()).then(keep(setNotes));
     orEmpty(getFollowing()).then((sites) => alive && setFollowing(sites.length ? sites : mockFollowing));
     getDiscovery().then(keep(setDiscovery)).catch(() => {});
+    orEmpty(getPinned()).then(keep(setPinned));
     return () => { alive = false; };
   }, [viewer.id]);
 
-  const sites =
+  const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned]);
+
+  // Toggle a pin, then re-sync the showcase from the server (authoritative order
+  // + the limit). A rejected 4th pin (409) surfaces as a gentle nudge.
+  const onPin = async (site: Site) => {
+    try {
+      await togglePin(site.id);
+      setPinned(await getPinned());
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409)
+        toast(`Pin up to ${PIN_LIMIT} — unpin one first.`);
+      else toast("Couldn't update pin.");
+    }
+  };
+
+  const allSites = useMemo(
+    () => dedupe([...following, ...discovery.recommended, ...discovery.mostSaved, ...discovery.saved]),
+    [following, discovery],
+  );
+
+  const base =
     shelf === "following" ? following :
-    shelf === "recommended" ? discovery.recommended || [] :
-    discovery.mostSaved || [];
-  const fallback = shelf === "following" ? mockFollowing : shelf === "recommended" ? mockDiscovery.recommended : mockDiscovery.mostSaved;
+    shelf === "recommended" ? discovery.recommended :
+    shelf === "saved" ? discovery.mostSaved :
+    allSites;
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((s) =>
+      (s.name || "").toLowerCase().includes(q) ||
+      (s.handle || "").toLowerCase().includes(q) ||
+      (s.reason || "").toLowerCase().includes(q) ||
+      (s.tags || []).some((t) => t.toLowerCase().includes(q)),
+    );
+  }, [base, query]);
 
   return (
     <div className="dash">
-      <section className="dash-hero">
-        <div className="hero-copy">
-          <p className="eyebrow">Your internet, collected</p>
-          <h1>Follow sites, save inspiration, and see what your people are building.</h1>
-          <div className="hero-actions">
-            <Link className="btn primary" to="/site">Get your widget</Link>
-            <Link className="btn" to="/messages">Read notes</Link>
-          </div>
-        </div>
-
-        <div className="profile-card">
+      <header className="dash-head">
+        <div className="dash-you">
           <Avatar of={viewer} />
           <div>
-            <div className="profile-name">{viewer.name || "You"}</div>
-            <div className="profile-handle">@{viewer.handle || "you"}</div>
-          </div>
-          <div className="mini-stats">
-            <Stat label="views" value={stats?.views} />
-            <Stat label="followers" value={stats?.followers} />
-            <Stat label="following" value={stats?.following} />
-            <Stat label="saved" value={stats?.saved} />
+            <h1 className="dash-name">{viewer.name || "You"}</h1>
+            <div className="dash-handle">@{viewer.handle || "you"}</div>
           </div>
         </div>
-      </section>
-
-      <section className="workspace">
-        <div className="feed-panel">
-          <div className="panel-head">
-            <div>
-              <p className="eyebrow">Discover</p>
-              <h2>Sites from your graph</h2>
-            </div>
-            <div className="tabs" role="tablist" aria-label="Discovery shelves">
-              {tabs.map(([id, label]) => (
-                <button key={id} className={"tab" + (shelf === id ? " on" : "")} onClick={() => setShelf(id)} type="button">
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <SiteGrid sites={sites.length ? sites : fallback} />
+        <div className="dash-head-actions">
+          <Link className="btn sm" to="/edit">Edit profile</Link>
+          {viewer.handle && <a className="btn sm primary" href={`/@${viewer.handle}`}>View profile</a>}
         </div>
+      </header>
 
-        <aside className="side-rail">
-          <Rail title="Saved for later">
-            {(discovery.saved.length ? discovery.saved : mockDiscovery.saved).slice(0, 3).map((site) => <MiniSite key={site.id} site={site} />)}
-          </Rail>
-          <Rail title="Recent notes" to="/messages">
-            {notes.length ? notes.slice(0, 3).map((note) => <NoteLine key={note.id} note={note} />) : <div className="empty">No notes yet. Your widget is ready for hellos.</div>}
-          </Rail>
-          <div className="widget-card">
-            <div className="ribbon-preview">⌑</div>
-            <div>
-              <h3>Install the fast widget</h3>
-              <p>Vanilla JS, rounded, and ready for any site builder.</p>
-              <Link className="btn sm primary" to="/site">Copy script</Link>
-            </div>
+      <div className="stat-row">
+        <Stat n={stats?.views} l="Views" />
+        <Stat n={stats?.followers} l="Followers" />
+        <Stat n={stats?.following} l="Following" />
+        <Stat n={stats?.saved} l="Saved" />
+      </div>
+
+      <div className="dash-grid">
+        <RecentNotes notes={notes} />
+        <InstallWidget viewer={viewer} />
+      </div>
+
+      <PinnedShelf pinned={pinned} onUnpin={onPin} />
+
+      <section className="explore">
+        <div className="explore-bar">
+          <div className="seg" role="tablist" aria-label="Filter sites">
+            {SHELVES.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={shelf === id}
+                className={"seg-btn" + (shelf === id ? " on" : "")}
+                onClick={() => setShelf(id)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </aside>
+          <div className="search">
+            <SearchIcon />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search sites"
+              aria-label="Search sites"
+            />
+          </div>
+        </div>
+        <SiteGrid sites={visible} selfId={viewer.id} pinnedIds={pinnedIds} onPin={onPin} />
       </section>
     </div>
   );
 }
 
-function SiteGrid({ sites }: { sites: Site[] }) {
-  if (!sites.length) return <div className="empty-card">Nothing here yet. Follow a few sites to train the graph.</div>;
-  return <div className="site-grid">{sites.map((site, index) => <SiteCard key={site.id} site={site} index={index} />)}</div>;
-}
-
-function SiteCard({ site, index }: { site: Site; index: number }) {
-  const href = site.url || (site.handle ? `/@${site.handle}` : "#");
+function Stat({ n, l }: { n: number | null | undefined; l: string }) {
   return (
-    <a className="site-card" href={href} target={site.url ? "_blank" : undefined} rel="noopener">
-      <div className={"thumb thumb-" + (index % 6)} style={site.thumbnail ? { backgroundImage: `url(${JSON.stringify(site.thumbnail)})` } : undefined}>
-        <span className="open-dot">↗</span>
-      </div>
-      <div className="site-meta">
-        <Avatar of={site} />
-        <div className="site-copy">
-          <div className="site-title">{site.name}{site.isNew && <span className="newdot" />}</div>
-          <div className="site-sub">{site.reason || (site.url ? host(site.url) : "@" + site.handle)}</div>
-        </div>
-        <div className="card-stats">
-          <span>♡ {compact(site.savedCount)}</span>
-          <span>◉ {compact(site.views)}</span>
-        </div>
-      </div>
-    </a>
-  );
-}
-
-function Rail({ title, to, children }: { title: string; to?: string; children: ReactNode }) {
-  return (
-    <div className="rail-card">
-      <div className="rail-head">
-        <h3>{title}</h3>
-        {to && <Link to={to}>View</Link>}
-      </div>
-      {children}
+    <div className="stat">
+      <b>{compact(n)}</b>
+      <span>{l}</span>
     </div>
   );
 }
 
-function MiniSite({ site }: { site: Site }) {
-  const href = site.url || (site.handle ? `/@${site.handle}` : "#");
+// The pin showcase: the (max 3) sites featured on your public profile, each with
+// the notes you left on it. Empty state nudges the user to pin from the grid.
+function PinnedShelf({ pinned, onUnpin }: { pinned: PinnedSite[]; onUnpin: (s: Site) => void }) {
   return (
-    <a className="mini-site" href={href} target={site.url ? "_blank" : undefined} rel="noopener">
-      <Avatar of={site} />
-      <span>{site.name}</span>
-      <b>{compact(site.savedCount)}</b>
-    </a>
+    <section className="pin-shelf">
+      <div className="pin-head">
+        <h2>Pinned</h2>
+        <span className="muted">Featured on your profile · max {PIN_LIMIT}</span>
+      </div>
+      {pinned.length ? (
+        <div className="pin-cards">
+          {pinned.map((site) => (
+            <article className="pin-card" key={site.id}>
+              <a className="shot-author" href={site.handle ? `/@${site.handle}` : site.url || "#"}>
+                <Avatar of={site} />
+                <span className="shot-name">{site.name}</span>
+              </a>
+              <button type="button" className="pin-card-unpin" onClick={() => onUnpin(site)} aria-label={`Unpin ${site.name}`}>
+                <PinIcon filled />
+              </button>
+              {site.notes.length > 0 && (
+                <div className="pin-card-notes">
+                  {site.notes.map((n) => <span className="pin-bubble" key={n.id}>{n.body}</span>)}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="pin-empty">Pin a site below to feature it here and on your public profile.</div>
+      )}
+    </section>
+  );
+}
+
+function SiteGrid({
+  sites, selfId, pinnedIds, onPin,
+}: {
+  sites: Site[]; selfId: string; pinnedIds: Set<string>; onPin: (s: Site) => void;
+}) {
+  return (
+    <div className="shots">
+      {sites.length ? (
+        sites.map((site, index) => (
+          <SiteCard
+            key={site.id}
+            site={site}
+            index={index}
+            pinned={pinnedIds.has(site.id)}
+            canPin={site.id !== selfId}
+            onPin={onPin}
+          />
+        ))
+      ) : (
+        <div className="empty-card">No sites match — try a different search or filter.</div>
+      )}
+    </div>
+  );
+}
+
+function SiteCard({
+  site, index, pinned, canPin, onPin,
+}: {
+  site: Site; index: number; pinned: boolean; canPin: boolean; onPin: (s: Site) => void;
+}) {
+  const profileHref = site.handle ? `/@${site.handle}` : site.url || "#";
+  const siteHref = site.url || profileHref;
+  const external = !!site.url;
+  return (
+    <article className="shot">
+      <a
+        className={"shot-thumb thumb-" + (index % 6)}
+        href={siteHref}
+        target={external ? "_blank" : undefined}
+        rel="noopener"
+        style={site.thumbnail ? { backgroundImage: `url(${JSON.stringify(site.thumbnail)})` } : undefined}
+        aria-label={`Open ${site.name}`}
+      >
+        {site.isNew && <span className="shot-new">New</span>}
+      </a>
+      {canPin && (
+        <button
+          type="button"
+          className={"shot-pin" + (pinned ? " on" : "")}
+          onClick={() => onPin(site)}
+          aria-pressed={pinned}
+          aria-label={pinned ? `Unpin ${site.name}` : `Pin ${site.name} to your profile`}
+          title={pinned ? "Pinned to your profile" : "Pin to your profile"}
+        >
+          <PinIcon filled={pinned} />
+        </button>
+      )}
+      <div className="shot-foot">
+        <a className="shot-author" href={profileHref} aria-label={`${site.name}'s profile`}>
+          <Avatar of={site} />
+          <span className="shot-name">{site.name}</span>
+        </a>
+        <div className="shot-stats">
+          <span className="shot-stat"><HeartIcon />{compact(site.savedCount)}</span>
+          <span className="shot-stat"><EyeIcon />{compact(site.views)}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function RecentNotes({ notes }: { notes: InboxNote[] }) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Recent notes</h3>
+        <Link to="/messages">View all</Link>
+      </div>
+      {notes.length ? (
+        notes.slice(0, 3).map((note) => <NoteLine key={note.id} note={note} />)
+      ) : (
+        <div className="empty">No notes yet. Your widget is ready for hellos.</div>
+      )}
+    </div>
   );
 }
 
 function NoteLine({ note }: { note: InboxNote }) {
-  return (
-    <Link className="comment-line" to="/messages">
-      <Avatar of={note.author} />
+  const a = note.author;
+  const inner: ReactNode = (
+    <>
+      <Avatar of={a} />
       <div>
-        <b>{note.author.name || "Someone"}</b>
+        <b>{a.name || "Someone"}</b>
         <p>{note.visibility === "private" ? "Private note" : note.body}</p>
       </div>
-    </Link>
+    </>
+  );
+  return a.handle ? (
+    <a className="note-line" href={`/@${a.handle}`}>{inner}</a>
+  ) : (
+    <Link className="note-line" to="/messages">{inner}</Link>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | null | undefined }) {
-  return <div><b>{compact(value)}</b><span>{label}</span></div>;
+function InstallWidget({ viewer }: { viewer: Member }) {
+  const toast = useToast();
+  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^den:/, "")}.js"></script>`;
+  const copy = () => navigator.clipboard.writeText(tag).then(() => toast("Copied"));
+  return (
+    <div className="card dash-widget">
+      <div className="card-head">
+        <h3>Your widget</h3>
+        <Link to="/site">Setup</Link>
+      </div>
+      <p>One line — works on any site builder.</p>
+      <div className="snippet">{tag}</div>
+      <button className="btn sm pink" onClick={copy}>Copy script</button>
+    </div>
+  );
 }

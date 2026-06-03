@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import toast from "react-hot-toast";
 import { getViewer, type Member } from "./api";
 
 /* ---- viewer (the signed-in member) -------------------------------------- */
@@ -38,34 +39,9 @@ export function useViewer(): ViewerCtx {
   return ctx;
 }
 
-/* ---- toast -------------------------------------------------------------- */
-
-const ToastContext = createContext<(msg: string) => void>(() => {});
-
-export function ToastProvider({ children }: { children: ReactNode }) {
-  const [text, setText] = useState("");
-  const [show, setShow] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  const toast = useCallback((msg: string) => {
-    setText(msg);
-    setShow(true);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setShow(false), 1600);
-  }, []);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  return (
-    <ToastContext.Provider value={toast}>
-      {children}
-      <div className={"toast" + (show ? " show" : "")} role="status" aria-live="polite">
-        {text}
-      </div>
-    </ToastContext.Provider>
-  );
-}
+/* ---- toast (react-hot-toast) -------------------------------------------- */
+// The <Toaster/> lives in main.tsx; call sites stay `useToast()("Saved")`.
 
 export function useToast(): (msg: string) => void {
-  return useContext(ToastContext);
+  return toast;
 }

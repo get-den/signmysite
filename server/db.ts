@@ -52,6 +52,16 @@ CREATE TABLE IF NOT EXISTS saves (
   created   TEXT NOT NULL,
   PRIMARY KEY (member_id, target_id)
 );
+-- Public "pins": a tiny curated showcase (max 3, enforced in the API) of sites a
+-- member points visitors to from their profile. Same shape as saves, kept its own
+-- table because it's public + capped where saves are a private, unbounded bookmark.
+CREATE TABLE IF NOT EXISTS pins (
+  member_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  created   TEXT NOT NULL,
+  PRIMARY KEY (member_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS pins_member ON pins (member_id, created);
 CREATE TABLE IF NOT EXISTS comments (
   id         TEXT PRIMARY KEY,
   target_id  TEXT NOT NULL,
@@ -62,6 +72,8 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created);
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
+-- Reactions (emoji taps) can be left anonymously, with no account behind them.
+ALTER TABLE comments ALTER COLUMN author_id DROP NOT NULL;
 CREATE TABLE IF NOT EXISTS sessions (
   token     TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,
@@ -86,7 +98,7 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, edges, saves, comments, sessions, magic_links, visits");
+  await pool.query("TRUNCATE members, edges, saves, pins, comments, sessions, magic_links, visits");
 }
 
 export type Member = {
@@ -96,8 +108,8 @@ export type Member = {
   last_edited: string | null; content_hash: string | null; created: string;
 };
 export type Stats = {
-  views: number; followers: number; following: number; saved: number;
-  viewerFollows: boolean; viewerSaved: boolean;
+  views: number; followers: number; following: number; saved: number; pinned: number;
+  viewerFollows: boolean; viewerSaved: boolean; viewerPinned: boolean;
 };
 export type Comment = {
   id: string; target_id: string; author_id: string; body: string; created: string;
@@ -168,6 +180,7 @@ export async function claimUnclaimedMember(targetId: string, sourceId: string): 
     await pool.query("UPDATE comments SET target_id = $1 WHERE target_id = $2", [targetId, sourceId]);
     await moveEdges(sourceId, targetId);
     await movePairs("saves", "member_id", "target_id", sourceId, targetId);
+    await movePairs("pins", "member_id", "target_id", sourceId, targetId);
     await moveVisits(sourceId, targetId);
     await pool.query("DELETE FROM members WHERE id = $1", [sourceId]);
     await pool.query("COMMIT");
@@ -257,19 +270,74 @@ export async function hasSave(member: string, target: string): Promise<boolean> 
   return (await pool.query("SELECT 1 FROM saves WHERE member_id = $1 AND target_id = $2", [member, target])).rowCount! > 0;
 }
 
+// ---- pins (public, max 3) ------------------------------------------------
+// The 3-pin cap is enforced in the API layer; the store stays a dumb set.
+export const PIN_LIMIT = 3;
+export async function setPin(member: string, target: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO pins (member_id, target_id, created) VALUES ($1, $2, $3)
+     ON CONFLICT (member_id, target_id) DO NOTHING`,
+    [member, target, now()]
+  );
+}
+export async function removePin(member: string, target: string): Promise<void> {
+  await pool.query("DELETE FROM pins WHERE member_id = $1 AND target_id = $2", [member, target]);
+}
+export async function hasPin(member: string, target: string): Promise<boolean> {
+  return (await pool.query("SELECT 1 FROM pins WHERE member_id = $1 AND target_id = $2", [member, target])).rowCount! > 0;
+}
+export async function countPins(member: string): Promise<number> {
+  return (await pool.query("SELECT COUNT(*)::int AS c FROM pins WHERE member_id = $1", [member])).rows[0].c;
+}
+// A member's pinned sites (oldest-first, so the showcase order is stable), each
+// carrying the public note(s) that member left on it — the bubble shown under
+// the pin. Capped at PIN_LIMIT.
+export type PinnedSite = SiteCard & { notes: Array<{ id: string; body: string; created: string }> };
+export async function listPinned(memberId: string): Promise<PinnedSite[]> {
+  const sites = (await pool.query(
+    `SELECT m.*,
+            COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
+            COUNT(DISTINCT followers.follower_id)::int AS follower_count
+       FROM pins p
+       JOIN members m ON m.id = p.target_id
+       LEFT JOIN saves all_saves ON all_saves.target_id = m.id
+       LEFT JOIN edges followers ON followers.target_id = m.id
+      WHERE p.member_id = $1
+      GROUP BY m.id, p.created
+      ORDER BY p.created ASC
+      LIMIT $2`,
+    [memberId, PIN_LIMIT]
+  )).rows as SiteCard[];
+  if (!sites.length) return [];
+  // The pinner's own PUBLIC notes on those sites, attached as the bubble.
+  const notes = (await pool.query(
+    `SELECT id, target_id, body, created FROM comments
+      WHERE author_id = $1 AND visibility = 'public' AND target_id = ANY($2)
+      ORDER BY created ASC`,
+    [memberId, sites.map((s) => s.id)]
+  )).rows as Array<{ id: string; target_id: string; body: string; created: string }>;
+  return sites.map((s) => ({
+    ...s,
+    notes: notes.filter((n) => n.target_id === s.id).map((n) => ({ id: n.id, body: n.body, created: n.created })),
+  }));
+}
+
 // ---- stats ---------------------------------------------------------------
 export async function stats(id: string, viewerId?: string): Promise<Stats> {
   const m = (await pool.query("SELECT views FROM members WHERE id = $1", [id])).rows[0];
   const followers = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE target_id = $1", [id])).rows[0].c;
   const following = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE follower_id = $1", [id])).rows[0].c;
   const saved = (await pool.query("SELECT COUNT(*)::int AS c FROM saves WHERE target_id = $1", [id])).rows[0].c;
+  const pinned = (await pool.query("SELECT COUNT(*)::int AS c FROM pins WHERE target_id = $1", [id])).rows[0].c;
   return {
     views: m?.views ?? 0,
     followers,
     following,
     saved,
+    pinned,
     viewerFollows: viewerId ? await hasEdge(viewerId, id) : false,
     viewerSaved: viewerId ? await hasSave(viewerId, id) : false,
+    viewerPinned: viewerId ? await hasPin(viewerId, id) : false,
   };
 }
 
@@ -313,13 +381,13 @@ export async function recordVisit(viewerId: string, targetId: string): Promise<v
 export type Visibility = "public" | "private";
 type db_CommentRow = {
   id: string; body: string; visibility: Visibility; created: string;
-  author_id: string; author_name: string; author_handle: string | null;
+  author_id: string | null; author_name: string | null; author_handle: string | null;
   author_avatar: string | null; author_url: string | null;
 };
 type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
 
 export async function addComment(c: {
-  id: string; target_id: string; author_id: string; body: string; visibility?: Visibility;
+  id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility;
 }): Promise<void> {
   await pool.query(
     "INSERT INTO comments (id, target_id, author_id, body, visibility, created) VALUES ($1, $2, $3, $4, $5, $6)",
@@ -334,7 +402,7 @@ export async function listComments(targetId: string, limit = 200): Promise<db_Co
     `SELECT c.id, c.body, c.visibility, c.created,
             m.id AS author_id, m.name AS author_name, m.handle AS author_handle,
             m.avatar AS author_avatar, m.url AS author_url
-       FROM comments c JOIN members m ON m.id = c.author_id
+       FROM comments c LEFT JOIN members m ON m.id = c.author_id
       WHERE c.target_id = $1
       ORDER BY c.created ASC
       LIMIT $2`,
@@ -351,7 +419,7 @@ export async function listInbox(ownerId: string, limit = 500): Promise<db_InboxR
             m.avatar AS author_avatar, m.url AS author_url,
             t.handle AS target_handle, t.name AS target_name
        FROM comments c
-       JOIN members m ON m.id = c.author_id
+       LEFT JOIN members m ON m.id = c.author_id
        JOIN members t ON t.id = c.target_id
       WHERE c.target_id = $1
       ORDER BY c.created DESC

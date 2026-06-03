@@ -28,7 +28,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, token, escapeHtml } from "./util.ts";
+import { newId, newHandle, token, escapeHtml, isReaction } from "./util.ts";
 import { inspectSite } from "./preview.ts";
 import { sendMagicLink, MAIL_LIVE } from "./mail.ts";
 import * as auth from "./auth.ts";
@@ -59,6 +59,12 @@ const publicMember = (m: db.Member | db.SiteCard) => ({
   savedCount: "saved_count" in m ? Number(m.saved_count || 0) : undefined,
   followerCount: "follower_count" in m ? Number(m.follower_count || 0) : undefined,
   mutualCount: "mutual_count" in m ? Number(m.mutual_count || 0) : undefined,
+});
+// A pinned site shown in a profile/widget: identity + the pinner's own public
+// notes (the bubble). Where it links — own URL if any, else the Den profile.
+const pinnedRow = (p: db.PinnedSite) => ({
+  id: p.id, handle: p.handle, name: p.name, avatar: p.avatar, url: p.url,
+  notes: p.notes,
 });
 // The session token comes from the first-party cookie (on den.com) OR a Bearer
 // header (the widget, embedded cross-site, where cookies are blocked). Same
@@ -162,7 +168,10 @@ app.post("/api/register", async (c) => {
   }
   const id = newId();
   const name = b?.name ? String(b.name) : (b?.handle ? String(b.handle) : "New member");
-  const m = await db.createMember({ id, handle, name, email, url: b?.url || null });
+  // Never pin a localhost/preview URL as the permanent site URL — it would point
+  // the public profile at a dev origin and break the same-origin claim on prod.
+  const url = b?.url && !isLocalUrl(String(b.url)) ? String(b.url) : null;
+  const m = await db.createMember({ id, handle, name, email, url });
   return c.json({ id: m.id, handle: m.handle, url: m.url });
 });
 
@@ -180,7 +189,7 @@ app.post("/api/sites/claim", async (c) => {
   const m = await db.createMember({
     id, handle,
     name: b?.name ? String(b.name).slice(0, 80) : "New blog",
-    url: b?.url ? String(b.url) : null,
+    url: b?.url && !isLocalUrl(String(b.url)) ? String(b.url) : null,
   });
   return c.json({ id: m.id, handle: m.handle, claimed: false });
 });
@@ -280,9 +289,37 @@ app.post("/api/save", async (c) => {
   return c.json(await db.stats(id, viewer.id));
 });
 
+// Toggle a public pin. Capped at db.PIN_LIMIT: pinning a 4th is rejected (409)
+// so the showcase stays a deliberate, small set — the owner unpins one first.
+app.post("/api/pin", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const id = String((await body(c))?.id || "");
+  if (!id) return c.json({ error: "id required" }, 400);
+  if (id === viewer.id) return c.json({ error: "cannot pin yourself" }, 400);
+  if (await db.hasPin(viewer.id, id)) {
+    await db.removePin(viewer.id, id);
+  } else {
+    if ((await db.countPins(viewer.id)) >= db.PIN_LIMIT)
+      return c.json({ error: "pin limit", limit: db.PIN_LIMIT }, 409);
+    await db.setPin(viewer.id, id);
+  }
+  return c.json(await db.stats(id, viewer.id));
+});
+
 app.get("/api/viewer", async (c) => {
   const viewer = await viewerOf(c);
   return c.json(viewer ? publicMember(viewer) : null);
+});
+
+// Lets the same-origin auth popup read its own session token so it can hand it
+// to the widget via postMessage. Needed for magic link: the email link opens a
+// fresh tab with no window.opener, so it can't deliver the token itself — the
+// original popup polls this instead. (Google delivers in-popup, so it doesn't.)
+app.get("/api/auth/session-token", async (c) => {
+  const t = getCookie(c, COOKIE);
+  const m = t ? await db.getSessionMember(t) : undefined;
+  return c.json({ token: m ? t : null });
 });
 
 // ---- profile editing -----------------------------------------------------
@@ -348,11 +385,21 @@ async function cardPayload(c: Context, id: string) {
   let m = await db.getMember(id);
   if (!m) return c.json({ error: "not found" }, 404);
   let viewer = await viewerOf(c);
-  if (viewer && viewer.id !== m.id && isUnclaimed(m) && sameOrigin(c.req.header("origin"), m.url)) {
+  const origin = c.req.header("origin");
+  if (viewer && viewer.id !== m.id && isUnclaimed(m) && claimable(origin, m)) {
     m = (await db.claimUnclaimedMember(m.id, viewer.id)) || m;
+    // First real (non-local) load is when we learn the site's permanent URL —
+    // register/claim may have happened from localhost where we kept it blank.
+    if (m && origin && !isLocalUrl(origin) && (!m.url || isLocalUrl(m.url))) {
+      m = (await db.updateMember(m.id, { url: origin })) || m;
+    }
     viewer = m;
   }
-  const [s, comments] = await Promise.all([db.stats(id, viewer?.id), db.listComments(id)]);
+  const [s, comments, pinned] = await Promise.all([
+    db.stats(id, viewer?.id),
+    db.listComments(id),
+    db.listPinned(m.id),
+  ]);
   // A signed-in viewer opening the card = they've "seen" this site now, so it
   // stops showing as new to them until the next edit.
   if (viewer && viewer.id !== id) db.recordVisit(viewer.id, id).catch(() => {});
@@ -361,12 +408,22 @@ async function cardPayload(c: Context, id: string) {
     stats: s,
     viewer: viewer ? { id: viewer.id, handle: viewer.handle, name: viewer.name } : null,
     comments: shapeComments(comments, id, viewer?.id),
+    pinned: pinned.map(pinnedRow),
     script: `${BASE}/w/${m.id.replace(/^den:/, "")}.js`,
   });
 }
 
 function isUnclaimed(m: db.Member): boolean {
   return !m.email && !m.google_sub;
+}
+
+// When may a signed-in viewer adopt an unclaimed site? Knowing the (unguessable)
+// id and embedding the widget is the ownership proof. On prod we still require
+// the origin to match the stored URL so a stranger can't grab a site by URL
+// alone; but when the site has no real URL yet, or either side is a local/preview
+// origin, we allow it — that's the local-first path the docs steer agents to.
+function claimable(origin: string | undefined, m: db.Member): boolean {
+  return sameOrigin(origin, m.url) || !m.url || isLocalUrl(m.url) || (!!origin && isLocalUrl(origin));
 }
 
 function sameOrigin(origin: string | undefined, url: string | null): boolean {
@@ -384,9 +441,10 @@ function emptyCard(url: string, name: string) {
       id: "", handle: null, name: name.slice(0, 80) || host, url, avatar: null,
       bio: "Sign in to personalize this Den widget.", views: 0, thumbnail: null, lastEdited: null,
     },
-    stats: { views: 0, followers: 0, following: 0, saved: 0, viewerFollows: false, viewerSaved: false },
+    stats: { views: 0, followers: 0, following: 0, saved: 0, pinned: 0, viewerFollows: false, viewerSaved: false, viewerPinned: false },
     viewer: null,
     comments: [],
+    pinned: [],
     script: `${BASE}/w.js`,
   };
 }
@@ -439,6 +497,24 @@ app.post("/api/profile/:id/comments", async (c) => {
   return c.json(shapeComments(rows, targetId, viewer.id));
 });
 
+// An emoji reaction — a tap, not a note. Always public, and allowed without an
+// account: a visitor on someone's site can react before they've ever signed up
+// (the widget posts here directly, then sends them to a confirmation page that
+// nudges sign-up). Attributed to the viewer if one happens to be signed in,
+// otherwise anonymous ("Someone").
+app.post("/api/profile/:id/react", async (c) => {
+  const targetId = c.req.param("id");
+  if (!(await db.getMember(targetId))) return c.json({ error: "not found" }, 404);
+  const emoji = String((await body(c))?.emoji || "").trim();
+  if (!isReaction(emoji)) return c.json({ error: "emoji required" }, 400);
+  const viewer = await viewerOf(c);
+  await db.addComment({
+    id: "c_" + token(8), target_id: targetId,
+    author_id: viewer?.id ?? null, body: emoji.slice(0, 24), visibility: "public",
+  });
+  return c.json({ ok: true });
+});
+
 // Pigeon box: every note left on YOUR site(s), public + private.
 app.get("/api/inbox", async (c) => {
   const viewer = await viewerOf(c);
@@ -463,6 +539,15 @@ app.get("/api/saved", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
   return c.json((await db.listSaved(viewer.id)).map(publicMember));
+});
+
+// A member's public pin showcase (max 3), each with the notes they left on it.
+// Public so any profile/widget can render it; defaults to the viewer's own.
+app.get("/api/pinned", async (c) => {
+  const viewer = await viewerOf(c);
+  const who = c.req.query("id") || viewer?.id;
+  if (!who) return c.json({ error: "sign in" }, 401);
+  return c.json((await db.listPinned(who)).map((p) => ({ ...publicMember(p), notes: p.notes })));
 });
 
 app.get("/api/discovery", async (c) => {
@@ -565,10 +650,28 @@ app.get("/auth", (c) => {
         });
         var j = await r.json();
         var out = document.getElementById("out");
-        if (j.dev_link) out.innerHTML = '<p>Dev mode — <a href="' + j.dev_link + '">click to continue &rarr;</a></p>';
-        else if (j.ok) out.innerHTML = "<p>Check your email for the link.</p>";
+        if (j.dev_link) { out.innerHTML = '<p>Dev mode — <a href="' + j.dev_link + '">click to continue &rarr;</a></p>'; if (popup) pollForSession(out); }
+        else if (j.ok) { out.innerHTML = "<p>Check your email for the link — keep this window open.</p>"; if (popup) pollForSession(out); }
         else out.innerHTML = "<p>" + (j.error || "Something went wrong, try again.") + "</p>";
       });
+      // The magic link lands in a separate tab that can't reach the widget, so
+      // poll here for the session it creates, then hand the token to the opener.
+      function pollForSession(out) {
+        var tries = 0;
+        var timer = setInterval(async function () {
+          if (++tries > 150) return clearInterval(timer); // ~5 min, then give up
+          try {
+            var r = await fetch("/api/auth/session-token", { credentials: "include" });
+            var j = await r.json();
+            if (j && j.token) {
+              clearInterval(timer);
+              try { if (window.opener) window.opener.postMessage({ den: "signed-in", token: j.token }, "*"); } catch (e) {}
+              out.innerHTML = "<p>Signed in. You can close this window.</p>";
+              setTimeout(function () { try { window.close(); } catch (e) {} }, 500);
+            }
+          } catch (e) {}
+        }, 2000);
+      }
     </script>`));
 });
 
@@ -581,10 +684,11 @@ app.get("/:at{@.+}", async (c) => {
   const m = await db.getMemberByHandle(handle);
   if (!m) return c.html(notFoundPage(handle), 404);
 
-  const [s, following, comments] = await Promise.all([
+  const [s, following, comments, pinned] = await Promise.all([
     db.stats(m.id),
     db.listFollowing(m.id),
     db.listComments(m.id),
+    db.listPinned(m.id),
   ]);
   const idShort = m.id.replace(/^den:/, "");
 
@@ -601,6 +705,15 @@ app.get("/:at{@.+}", async (c) => {
         <div class="meta"><div class="bn">${escapeHtml(b.name || "—")}</div>
         <div class="bh">${escapeHtml(b.url ? hostOf(b.url) : "@" + (b.handle || ""))}</div></div></a>`).join("")
     : `<div class="empty">Not following anyone yet.</div>`;
+
+  // Pinned showcase: up to 3 sites this member points visitors to, each with the
+  // note/reaction they left on it bubbled underneath — the traversal hook.
+  const pinnedHtml = pinned.map((b) => `<a class="pin" href="${b.url ? escapeHtml(b.url) : "/@" + escapeHtml(b.handle || "")}"${b.url ? ' target="_blank" rel="noopener"' : ""}>
+      ${av(b, "")}
+      <div class="meta"><div class="bn">${escapeHtml(b.name || "—")}</div>
+      <div class="bh">${escapeHtml(b.url ? hostOf(b.url) : "@" + (b.handle || ""))}</div></div>
+      ${b.notes.length ? `<div class="pin-notes">${b.notes.map((n) => `<span class="pin-bubble">${escapeHtml(n.body)}</span>`).join("")}</div>` : ""}
+    </a>`).join("");
 
   // This page is public + crawlable, so only public notes are shown here.
   const publicComments = comments.filter((cm) => cm.visibility === "public");
@@ -628,6 +741,7 @@ app.get("/:at{@.+}", async (c) => {
     <div><span class="n">${num(s.following)}</span> <span class="l">Following</span></div>
     <div><span class="n">${num(s.saved)}</span> <span class="l">Saved</span></div>
   </div>
+  ${pinned.length ? `<div class="section"><h2>Pinned sites</h2><div class="pins">${pinnedHtml}</div></div>` : ""}
   <div class="section"><h2>Blogs they follow</h2>${followingHtml}</div>
   <div class="section"><h2>Comments</h2>${commentsHtml}</div>
   <script src="/w/${escapeHtml(idShort)}.js" data-position="bottom-right"></script>`;
