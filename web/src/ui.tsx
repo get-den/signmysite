@@ -1,18 +1,108 @@
-import type { ReactNode } from "react";
-import { Navigate } from "react-router-dom";
-import { useToast, useViewer } from "./providers";
-import { host, initials } from "./lib";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Link, Navigate } from "react-router-dom";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { useViewer } from "./providers";
+import { host, initials, profileHref } from "./lib";
 import type { Site } from "./api";
 
-/** A code snippet with a rounded copy button in the corner. */
+/** Wrap the app once so tooltips share hover-intent timing. */
+export const TooltipProvider = RadixTooltip.Provider;
+
+/**
+ * A small text tooltip on hover/focus — headless Radix, styled by .tip to match
+ * the app. `asChild` attaches to the child element directly, so it never adds a
+ * wrapper that could disturb layout. The child must be focusable for keyboard
+ * users (e.g. a button, or a div with tabIndex={0}).
+ */
+export function Tip({
+  label,
+  side = "top",
+  children,
+}: {
+  label: string;
+  side?: "top" | "bottom" | "left" | "right";
+  children: ReactNode;
+}) {
+  return (
+    <RadixTooltip.Root>
+      <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+      <RadixTooltip.Portal>
+        <RadixTooltip.Content className="tip" side={side} sideOffset={6} collisionPadding={10}>
+          {label}
+          <RadixTooltip.Arrow className="tip-arrow" width={12} height={6} />
+        </RadixTooltip.Content>
+      </RadixTooltip.Portal>
+    </RadixTooltip.Root>
+  );
+}
+
+/**
+ * Canonical loading spinner — an SVG arc that rotates. Uses `currentColor`, so it
+ * takes on the surrounding text color (white in a primary button, faint in a
+ * field). Size is px; the 24×24 viewBox keeps the 2px stroke crisp at any size.
+ */
+export function Spinner({ size = 14 }: { size?: number }) {
+  return (
+    <span className="svg-spinner-container" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 24 24" width="100%" height="100%">
+        <circle
+          className="svg-spinner-circle"
+          cx="12" cy="12" r="10"
+          fill="none" stroke="currentColor" strokeWidth="2"
+          strokeDasharray="56.5487" strokeDashoffset="15.7" strokeLinecap="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * The app's button. When `loading`, the label stays in place (hidden) and the
+ * spinner overlays it centered — so the width never jumps. Pass the same class
+ * modifiers as a raw `.btn` (e.g. "primary lg", "sm pink").
+ */
+export function Button({
+  loading = false,
+  className = "",
+  type = "button",
+  disabled,
+  children,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean }) {
+  return (
+    <button
+      type={type}
+      className={("btn " + className).trim()}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      <span className="btn-lbl" data-hidden={loading || undefined}>{children}</span>
+      {loading && <span className="btn-spin"><Spinner /></span>}
+    </button>
+  );
+}
+
+/** Copy-to-clipboard state: the trigger flips to "Copied" for a beat. */
+export function useCopy(text: string, ms = 1400): { copied: boolean; copy: () => void } {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), ms);
+    }).catch(() => {});
+  };
+  return { copied, copy };
+}
+
+/** A code snippet with a rounded copy button that flips to "Copied". */
 export function CopyField({ text, label = "Copy" }: { text: string; label?: string }) {
-  const toast = useToast();
-  const copy = () => navigator.clipboard.writeText(text).then(() => toast("Copied"));
+  const { copied, copy } = useCopy(text);
   return (
     <div className="snippet">
       {text}
-      <button className="btn sm copy" onClick={copy}>
-        {label}
+      <button className="btn sm copy" type="button" onClick={copy}>
+        {copied ? "Copied" : label}
       </button>
     </div>
   );
@@ -66,6 +156,47 @@ export const PinIcon = ({ filled = false }: { filled?: boolean }) => (
     <path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
   </svg>
 );
+/** Canonical back chevron — one icon, used everywhere we go back. */
+export const BackIcon = ({ size = 18 }: { size?: number }) => (
+  <Lucide size={size}><path d="m15 18-6-6 6-6" /></Lucide>
+);
+/** Canonical dismiss ✕ — the close glyph for sheets and overlays. */
+export const CloseIcon = ({ size = 18 }: { size?: number }) => (
+  <Lucide size={size}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Lucide>
+);
+
+/**
+ * Canonical round nav button: a back chevron or a close ✕ inside a soft circle.
+ * The single back/dismiss affordance for the whole app — sheet overlays, the
+ * onboarding wizard, the public profile. Renders a router <Link> when given
+ * `to`, otherwise a <button> that calls `onClick`.
+ */
+export function IconButton({
+  icon,
+  to,
+  onClick,
+  label,
+  className = "",
+}: {
+  icon: "back" | "close";
+  to?: string;
+  onClick?: () => void;
+  label?: string;
+  className?: string;
+}) {
+  const cls = ("iconbtn" + (className ? ` ${className}` : "")).trim();
+  const aria = label ?? (icon === "back" ? "Back" : "Close");
+  const glyph = icon === "back" ? <BackIcon /> : <CloseIcon />;
+  return to ? (
+    <Link className={cls} to={to} aria-label={aria}>
+      {glyph}
+    </Link>
+  ) : (
+    <button className={cls} type="button" onClick={onClick} aria-label={aria}>
+      {glyph}
+    </button>
+  );
+}
 
 /** Google "G" mark for the sign-in button. */
 export function GoogleIcon() {
@@ -93,7 +224,7 @@ export function GoogleIcon() {
 
 /** A followed/saved site as a list row, linking to the member's Den profile. */
 export function BlogRow({ blog }: { blog: Site }) {
-  const href = blog.handle ? `/@${blog.handle}` : blog.url || "#";
+  const href = profileHref(blog);
   return (
     <a className="blog" href={href} rel="noopener">
       <Avatar of={blog} />
@@ -108,10 +239,11 @@ export function BlogRow({ blog }: { blog: Site }) {
   );
 }
 
-/** Gate a route on being signed in; bounce home otherwise. */
+/** Gate a route on being signed in (and onboarded); bounce home otherwise. */
 export function Protected({ children }: { children: ReactNode }) {
   const { viewer, loading } = useViewer();
   if (loading) return <Loading />;
   if (!viewer) return <Navigate to="/" replace />;
+  if (!viewer.onboarded) return <Navigate to="/" replace />; // finish signup first
   return <>{children}</>;
 }

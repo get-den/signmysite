@@ -12,6 +12,7 @@
  *   GET  /api/profile/:id        public profile
  *   GET  /api/profile/:id/stats  views / followers / following / viewer state
  *   POST /api/profile/:id/view   increment view count (widget impression)
+ *   GET  /api/profile/:id/history    the site's version timeline (snapshots)
  *   GET  /api/profile/:id/comments   list notes (private ones redacted unless owner/author)
  *   POST /api/profile/:id/comments   leave a note (members only; public|private)
  *   GET  /api/inbox              pigeon box: every note left on your site(s)
@@ -23,16 +24,17 @@
  *   POST /api/discover           fetch + index a site's me.json
  *   GET  /@:handle               public profile page (server-rendered, shareable)
  */
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, token, escapeHtml, isReaction } from "./util.ts";
-import { inspectSite } from "./preview.ts";
-import { sendMagicLink, MAIL_LIVE } from "./mail.ts";
+import { newId, newHandle, token, escapeHtml, normHandle, handleProblem } from "./util.ts";
+import { inspectSite, siteHasWidget } from "./preview.ts";
+import { sendMagicLink, MAIL_LIVE, notifySiteUpdated } from "./mail.ts";
 import * as auth from "./auth.ts";
-import { renderProfileInner, profileBackHeader } from "./profile.ts";
+import { renderProfileInner, siteHeader } from "./profile.ts";
 
 export const PORT = Number(process.env.PORT || 8787);
 export const BASE = (process.env.DEN_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
@@ -40,6 +42,10 @@ const SECURE = BASE.startsWith("https://");
 const COOKIE = "den_session";
 const HAS_MAILER = MAIL_LIVE; // true when RESEND_API_KEY is set (see mail.ts)
 const oauthStates = new Set<string>();               // CSRF state for the OAuth dance
+// Uploaded avatars. The client crops + re-encodes to a small square before upload,
+// so this ceiling is an abuse guard, not the expected size (~15KB WebP in practice).
+const AVATAR_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
+const AVATAR_MAX_BYTES = 256 * 1024;
 
 export const app = new Hono();
 
@@ -55,27 +61,38 @@ app.use("/api/*", cors({
 }));
 
 const publicMember = (m: db.Member | db.SiteCard) => ({
-  id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio,
+  id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar,
   views: m.views, thumbnail: m.thumbnail, lastEdited: m.last_edited,
   savedCount: "saved_count" in m ? Number(m.saved_count || 0) : undefined,
   followerCount: "follower_count" in m ? Number(m.follower_count || 0) : undefined,
   mutualCount: "mutual_count" in m ? Number(m.mutual_count || 0) : undefined,
 });
+// The signed-in viewer's own record — adds the private-ish flags the SPA gates
+// signup + verify prompts on (kept off public profiles).
+const viewerJson = (m: db.Member) => ({ ...publicMember(m), onboarded: m.onboarded, verified: m.verified });
 // A pinned site shown in a profile/widget: identity + the pinner's own public
 // notes (the bubble). Where it links — own URL if any, else the Den profile.
 const pinnedRow = (p: db.PinnedSite) => ({
   id: p.id, handle: p.handle, name: p.name, avatar: p.avatar, url: p.url,
   notes: p.notes,
 });
-// The session token comes from the first-party cookie (on den.com) OR a Bearer
-// header (the widget, embedded cross-site, where cookies are blocked). Same
-// token either way — sessions are token-keyed in the DB.
-function sessionToken(c: Context): string | undefined {
+// Resolve the signed-in member from either credential. The widget (embedded
+// cross-site, where cookies are blocked) sends a Bearer token; den.com itself
+// sends the first-party cookie. We try the Bearer token first, but FALL BACK to
+// the cookie when it yields nothing — so a stale token left in a host site's
+// localStorage (e.g. after logging out elsewhere) can never shadow a valid
+// den.com session. Sessions are token-keyed in the DB, same either way.
+async function viewerAuth(c: Context): Promise<{ member?: db.Member; via: "bearer" | "cookie" | null }> {
   const auth = c.req.header("authorization");
-  if (auth && auth.slice(0, 7).toLowerCase() === "bearer ") return auth.slice(7).trim();
-  return getCookie(c, COOKIE);
+  const bearer = auth && auth.slice(0, 7).toLowerCase() === "bearer " ? auth.slice(7).trim() : "";
+  if (bearer) {
+    const m = await db.getSessionMember(bearer);
+    if (m) return { member: m, via: "bearer" };
+  }
+  const m = await db.getSessionMember(getCookie(c, COOKIE));
+  return { member: m, via: m ? "cookie" : null };
 }
-const viewerOf = (c: Context) => db.getSessionMember(sessionToken(c));
+const viewerOf = async (c: Context): Promise<db.Member | undefined> => (await viewerAuth(c)).member;
 const body = (c: Context) => c.req.json().catch(() => ({} as any));
 
 async function uniqueHandle(): Promise<string> {
@@ -241,7 +258,7 @@ app.post("/api/discover", async (c) => {
     const owner = await db.getMemberByHandle(handle);
     if (owner && owner.id !== doc.id) handle = null; // never steal a taken handle
   }
-  const patch = { handle, name: String(doc.name), url: doc.url || target, avatar: doc.avatar || null, bio: doc.bio || null };
+  const patch = { handle, name: String(doc.name), url: doc.url || target, avatar: doc.avatar || null };
   if (await db.getMember(doc.id)) await db.updateMember(doc.id, patch);
   else await db.createMember({ id: doc.id, ...patch });
 
@@ -252,9 +269,10 @@ app.post("/api/discover", async (c) => {
     }
   }
   // Freshness: honor an explicit me.json `updated`, else mark edited now.
-  await db.markEdited(doc.id, typeof doc.updated === "string" ? doc.updated : undefined);
-  // Grab a preview thumbnail (og:image) in the background.
-  refreshPreview(doc.id, doc.url || target).catch(() => {});
+  const when = typeof doc.updated === "string" ? doc.updated : undefined;
+  await db.markEdited(doc.id, when);
+  // Capture a snapshot (thumbnail + content hash) in the background.
+  refreshPreview(doc.id, doc.url || target, when).catch(() => {});
   return c.json({ ok: true, id: doc.id, edges });
 });
 
@@ -310,7 +328,9 @@ app.post("/api/pin", async (c) => {
 
 app.get("/api/viewer", async (c) => {
   const viewer = await viewerOf(c);
-  return c.json(viewer ? publicMember(viewer) : null);
+  // onboarded + verified ride along only for the signed-in viewer (the SPA gates
+  // the signup wizard / verify prompts on them); both are left off public profiles.
+  return c.json(viewer ? viewerJson(viewer) : null);
 });
 
 // Lets the same-origin auth popup read its own session token so it can hand it
@@ -330,9 +350,12 @@ app.patch("/api/profile", async (c) => {
   const b = await body(c);
   const patch: Partial<db.Member> = {};
   if (typeof b.name === "string" && b.name.trim()) patch.name = b.name.trim().slice(0, 80);
-  if (typeof b.bio === "string") patch.bio = b.bio.slice(0, 280);
-  if (typeof b.url === "string") patch.url = b.url.trim() || null;
-  if (typeof b.avatar === "string") patch.avatar = b.avatar.trim() || null;
+  if (typeof b.url === "string") {
+    const url = b.url.trim() || null;
+    patch.url = url;
+    if (url !== viewer.url) patch.verified = false; // a new site must be re-verified
+  }
+  if (typeof b.avatar === "string") patch.avatar = b.avatar.trim().slice(0, 2048) || null;
   if (typeof b.handle === "string" && b.handle.trim()) {
     const h = b.handle.trim().toLowerCase();
     const owner = await db.getMemberByHandle(h);
@@ -343,10 +366,137 @@ app.patch("/api/profile", async (c) => {
   return c.json(publicMember(updated!));
 });
 
+// ---- avatars (profile pictures) ------------------------------------------
+// Upload a profile picture. The client crops + resizes to a small square and
+// re-encodes via <canvas>, which also strips EXIF and neutralizes any SVG/script
+// payload — so we receive plain raster bytes. We enforce type + size, store the
+// bytes, and point members.avatar at /avatars/<id>?v=<hash>: a stable, cacheable
+// URL whose hash changes on each upload, so the immutable cache busts itself.
+app.post("/api/avatar", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const mime = (c.req.header("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!AVATAR_TYPES.has(mime)) return c.json({ error: "use a PNG, JPEG, or WebP image" }, 415);
+  if (Number(c.req.header("content-length") || 0) > AVATAR_MAX_BYTES) return c.json({ error: "image too large" }, 413);
+  const bytes = Buffer.from(await c.req.arrayBuffer());
+  if (!bytes.length) return c.json({ error: "empty upload" }, 400);
+  if (bytes.length > AVATAR_MAX_BYTES) return c.json({ error: "image too large" }, 413);
+  await db.setAvatar(viewer.id, bytes, mime);
+  const version = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+  const url = `${BASE}/avatars/${viewer.id.replace(/^den:/, "")}?v=${version}`;
+  const updated = await db.updateMember(viewer.id, { avatar: url });
+  return c.json(publicMember(updated!));
+});
+
+// Serve an avatar's bytes. Long-lived + immutable: the ?v=<hash> in the URL
+// changes whenever the image does, so caches never serve a stale picture. Public
+// and cross-origin so the widget can render it embedded on any site.
+app.get("/avatars/:id", async (c) => {
+  const a = await db.getAvatar("den:" + c.req.param("id"));
+  if (!a) return c.notFound();
+  c.header("content-type", a.mime);
+  c.header("cache-control", "public, max-age=31536000, immutable");
+  c.header("access-control-allow-origin", "*");
+  return c.body(a.bytes);
+});
+
+// ---- signup wizard (username + optional site) ----------------------------
+// Live username availability for the picker. Normalizes server-side so client
+// and server always agree on what a handle becomes; your own handle reads as
+// available to you.
+app.get("/api/handle/check", async (c) => {
+  const viewer = await viewerOf(c);
+  const handle = normHandle(c.req.query("h") || "");
+  const reason = handleProblem(handle);
+  if (reason) return c.json({ handle, available: false, reason });
+  const owner = await db.getMemberByHandle(handle);
+  const available = !owner || owner.id === viewer?.id;
+  return c.json({ handle, available, reason: available ? null : "Already taken." });
+});
+
+// Finish signup: claim a username (required) + optionally link a site, then mark
+// the member onboarded. (The site is usually already set via /api/site/scrape;
+// url here is a fallback for the no-scrape path.)
+app.post("/api/onboard", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const b = await body(c);
+
+  const handle = normHandle(String(b?.handle || ""));
+  const problem = handleProblem(handle);
+  if (problem) return c.json({ error: problem }, 400);
+  const owner = await db.getMemberByHandle(handle);
+  if (owner && owner.id !== viewer.id) return c.json({ error: "handle taken" }, 409);
+
+  const patch: Partial<db.Member> = { handle, onboarded: true };
+  const raw = String(b?.url || "").trim();
+  if (raw) {
+    const url = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+    try { new URL(url); if (!isLocalUrl(url) && url !== viewer.url) { patch.url = url; patch.verified = false; } } catch { /* skip junk */ }
+  }
+  const updated = await db.updateMember(viewer.id, patch);
+  return c.json(viewerJson(updated!));
+});
+
+const normSiteUrl = (raw: string): string | null => {
+  const t = (raw || "").trim();
+  if (!t) return null;
+  const url = /^https?:\/\//i.test(t) ? t : "https://" + t;
+  try { new URL(url); } catch { return null; }
+  return isLocalUrl(url) ? null : url;
+};
+
+// Link a site and optimistically scrape it: capture a preview snapshot
+// (thumbnail) and infer a profile picture (icon → favicon). Saves both and
+// returns them so onboarding can show the result. Linking a new site resets
+// verification — ownership must be re-proven.
+app.post("/api/site/scrape", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const url = normSiteUrl(String((await body(c))?.url || ""));
+  if (!url) return c.json({ error: "Enter a valid website address." }, 400);
+
+  const patch: Partial<db.Member> = {};
+  if (url !== viewer.url) { patch.url = url; patch.verified = false; }
+
+  const p = await inspectSite(url); // one fetch → thumbnail + avatar + hash
+  if (p) {
+    await db.recordSnapshot(viewer.id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt });
+    if (p.avatar && !viewer.avatar) patch.avatar = p.avatar; // never clobber a real avatar
+  }
+  const updated = (await db.updateMember(viewer.id, patch)) || viewer;
+  return c.json({
+    host: new URL(url).host,
+    reachable: !!p,
+    thumbnail: updated.thumbnail ?? null,
+    avatar: updated.avatar ?? null,
+  });
+});
+
+// Prove the linked site is yours: fetch it and look for your own widget id.
+// Found → verified; otherwise tell the client it's not there yet.
+app.post("/api/verify", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  if (!viewer.url) return c.json({ verified: false, reason: "no-site" }, 400);
+  const found = await siteHasWidget(viewer.url, viewer.id.replace(/^den:/, ""));
+  const updated = found ? await db.updateMember(viewer.id, { verified: true }) : viewer;
+  return c.json({ verified: !!updated!.verified, reason: found ? null : "not-found" });
+});
+
 // ---- views ---------------------------------------------------------------
 app.post("/api/profile/:id/view", async (c) => {
   const views = await db.addView(c.req.param("id"));
   return c.json({ views });
+});
+
+// The site's version history, newest first — the timeline behind the live
+// thumbnail. Public + crawlable; the front-page preview is public anyway.
+app.get("/api/profile/:id/history", async (c) => {
+  const snaps = await db.listSnapshots(c.req.param("id"));
+  return c.json(snaps.map((s) => ({
+    id: s.id, thumbnail: s.thumbnail, title: s.title, excerpt: s.excerpt, captured: s.captured,
+  })));
 });
 
 // ---- freshness: "my site changed" ----------------------------------------
@@ -359,19 +509,28 @@ app.post("/api/ping", async (c) => {
   const id = String(b?.id || "");
   const m = await db.getMember(id);
   if (!m) return c.json({ error: "unknown id" }, 404);
-  await db.markEdited(id, typeof b?.at === "string" ? b.at : undefined);
-  // Refresh the thumbnail in the background — don't make the deploy wait on it.
-  refreshPreview(id, m.url).catch(() => {});
+  const when = typeof b?.at === "string" ? b.at : undefined;
+  await db.markEdited(id, when);
+  // Capture a snapshot in the background — don't make the deploy wait on it.
+  refreshPreview(id, m.url, when).catch(() => {});
   return c.json({ ok: true });
 });
 
-// Pull the site's og:image into our thumbnail (and record the content hash).
-async function refreshPreview(id: string, url: string | null): Promise<void> {
+// Inspect the site and, if its content actually changed, append a new snapshot
+// (capturing the thumbnail, title and excerpt for that version). On a real, non-
+// first change, quietly tell the owner we noticed. `when` carries an owner-asserted
+// edit time (me.json `updated` / ping `at`) so the snapshot is stamped with it.
+async function refreshPreview(id: string, url: string | null, when?: string): Promise<void> {
   if (!url) return;
   const p = await inspectSite(url);
   if (!p) return;
-  if (p.thumbnail) await db.setThumbnail(id, p.thumbnail);
-  await db.noteContentHash(id, p.hash);
+  const change = await db.recordSnapshot(
+    id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt }, when
+  );
+  if (change && !change.isFirst) {
+    const m = await db.getMember(id);
+    if (m) notifySiteUpdated(m, change.snapshot).catch(() => {});
+  }
 }
 
 // ---- widget card ---------------------------------------------------------
@@ -385,7 +544,8 @@ app.get("/api/profile/:id/card", async (c) => {
 async function cardPayload(c: Context, id: string) {
   let m = await db.getMember(id);
   if (!m) return c.json({ error: "not found" }, 404);
-  let viewer = await viewerOf(c);
+  const auth = await viewerAuth(c); // how the viewer authed — surfaced for the dev HUD
+  let viewer = auth.member;
   const origin = c.req.header("origin");
   if (viewer && viewer.id !== m.id && isUnclaimed(m) && claimable(origin, m)) {
     m = (await db.claimUnclaimedMember(m.id, viewer.id)) || m;
@@ -408,6 +568,7 @@ async function cardPayload(c: Context, id: string) {
     profile: publicMember(m),
     stats: s,
     viewer: viewer ? { id: viewer.id, handle: viewer.handle, name: viewer.name } : null,
+    auth: auth.via, // "bearer" | "cookie" | null — which credential the server used
     comments: shapeComments(comments, id, viewer?.id),
     pinned: pinned.map(pinnedRow),
     script: `${BASE}/w/${m.id.replace(/^den:/, "")}.js`,
@@ -440,7 +601,7 @@ function emptyCard(url: string, name: string) {
   return {
     profile: {
       id: "", handle: null, name: name.slice(0, 80) || host, url, avatar: null,
-      bio: "Sign in to personalize this Den widget.", views: 0, thumbnail: null, lastEdited: null,
+      views: 0, thumbnail: null, lastEdited: null,
     },
     stats: { views: 0, followers: 0, following: 0, saved: 0, pinned: 0, viewerFollows: false, viewerSaved: false, viewerPinned: false },
     viewer: null,
@@ -498,23 +659,10 @@ app.post("/api/profile/:id/comments", async (c) => {
   return c.json(shapeComments(rows, targetId, viewer.id));
 });
 
-// An emoji reaction — a tap, not a note. Always public, and allowed without an
-// account: a visitor on someone's site can react before they've ever signed up
-// (the widget posts here directly, then sends them to a confirmation page that
-// nudges sign-up). Attributed to the viewer if one happens to be signed in,
-// otherwise anonymous ("Someone").
-app.post("/api/profile/:id/react", async (c) => {
-  const targetId = c.req.param("id");
-  if (!(await db.getMember(targetId))) return c.json({ error: "not found" }, 404);
-  const emoji = String((await body(c))?.emoji || "").trim();
-  if (!isReaction(emoji)) return c.json({ error: "emoji required" }, 400);
-  const viewer = await viewerOf(c);
-  await db.addComment({
-    id: "c_" + token(8), target_id: targetId,
-    author_id: viewer?.id ?? null, body: emoji.slice(0, 24), visibility: "public",
-  });
-  return c.json({ ok: true });
-});
+// Note: reactions are no longer a separate endpoint. An emoji reaction is just a
+// public comment whose body is an emoji, posted through POST /comments so it's
+// always attributed to a signed-in member — never anonymous. The widget posts it
+// inline when signed in; otherwise the /reacted page posts it after sign-in.
 
 // Pigeon box: every note left on YOUR site(s), public + private.
 app.get("/api/inbox", async (c) => {
@@ -697,8 +845,8 @@ app.get("/:at{@.+}", async (c) => {
   ]);
 
   const inner = renderProfileInner({ m, s, pinned, comments, isOwner, base: BASE });
-  const desc = m.bio || `${m.name} on Den`;
-  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner, profileBackHeader));
+  const desc = `${m.name} on Den`;
+  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner, siteHeader(viewer, `${BASE}/@${m.handle}`, isOwner)));
 });
 
 function notFoundPage(handle: string): string {
@@ -724,7 +872,7 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
 </head><body>
 ${header || `<header class="top"><a class="brand" href="/">den</a><nav><a class="btn sm" href="/">Home</a></nav></header>`}
 <main>${inner}</main>
-<footer class="foot"><span>Den is an open protocol.</span><a href="/SPEC.md">Spec</a><a href="/skill.md">For agents</a></footer>
+<footer class="foot"><span>Den is an open protocol.</span><a href="/SPEC.md">Spec</a><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
 </body></html>`;
 }
 

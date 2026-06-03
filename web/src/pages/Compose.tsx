@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, getProfile, postComment, type Member } from "../api";
 import { useViewer } from "../providers";
-import { Avatar } from "../ui";
+import { Avatar, Button, IconButton } from "../ui";
 
 /**
  * The postcard. A visitor types a note in someone's widget and is sent here to
@@ -60,9 +60,23 @@ export function Compose() {
   return (
     <div className="sheet">
       <div className="sheet-bar">
-        <Link className="sheet-close" to="/" aria-label="Close">✕</Link>
+        <IconButton icon="close" to="/" />
         <span className="sheet-kicker">Writing to</span>
-        <span className="sheet-to"><Avatar of={target || { name: recipient }} /> {recipient}</span>
+        {target?.handle || target?.url ? (
+          // Open in a new tab so peeking at their profile never loses the draft.
+          <a
+            className="sheet-to"
+            href={target.handle ? `/@${target.handle}` : target.url!}
+            target="_blank"
+            rel="noopener"
+          >
+            <Avatar of={target} /> <span className="who">{recipient}</span>
+          </a>
+        ) : (
+          <span className="sheet-to">
+            <Avatar of={target || { name: recipient }} /> <span className="who">{recipient}</span>
+          </span>
+        )}
       </div>
 
       <div className="postcard">
@@ -93,9 +107,9 @@ export function Compose() {
               Private
             </button>
           </div>
-          <button className="btn pink send-btn" type="button" onClick={send} disabled={sending || !body.trim()}>
-            {sending ? "Sending…" : viewer ? "Send" : "Sign in & send"}
-          </button>
+          <Button className="pink send-btn" loading={sending} disabled={!body.trim()} onClick={send}>
+            {viewer ? "Send" : "Sign in & send"}
+          </Button>
         </div>
         <p className="postcard-hint">
           {error ? (

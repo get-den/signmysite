@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { CopyField, GoogleIcon } from "../ui";
+import { Button, CopyField, GoogleIcon } from "../ui";
 import { signinUrl } from "../lib";
 import { requestMagicLink } from "../api";
 import { useToast } from "../providers";
@@ -51,9 +51,7 @@ export function Landing() {
                 aria-label="Email address"
                 required
               />
-              <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? "Sending…" : "Email me a link"}
-              </button>
+              <Button className="primary" type="submit" loading={busy}>Email me a link</Button>
             </form>
           )}
         </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getInbox, getOutgoing, orEmpty, type InboxNote, type OutgoingNote } from "../api";
 import { Avatar, Loading } from "../ui";
-import { host } from "../lib";
+import { host, isReaction, profileHref, relTime } from "../lib";
 
 type Tab = "in" | "out";
 
@@ -55,18 +55,26 @@ export function Messages() {
 /** A note left on your site — the commenter links to their Den profile. */
 function IncomingRow({ note }: { note: InboxNote }) {
   const a = note.author;
+  const reaction = isReaction(note.body) ? note.body.trim() : "";
+  const ts = relTime(note.created);
   const inner = (
     <div className="meta">
-      <div>
+      <div className="cmt-line">
         <span className="who">{a.name || "Someone"}</span>
-        {a.url && <span className="where"> · {host(a.url)}</span>}
-        {note.visibility === "private" && <span className="tag">private</span>}
+        {reaction ? (
+          <span className="act"> reacted with {reaction}</span>
+        ) : (
+          a.url && <span className="where"> · {host(a.url)}</span>
+        )}
+        {!reaction && note.visibility === "private" && <span className="tag">private</span>}
+        {ts && <time className="cmt-time">{ts}</time>}
       </div>
-      <div className="body">{note.body}</div>
+      {!reaction && <div className="body">{note.body}</div>}
     </div>
   );
-  return a.handle ? (
-    <a className="cmt" href={`/@${a.handle}`} rel="noopener">
+  const href = a.handle ? `/@${a.handle}` : a.url || null;
+  return href ? (
+    <a className="cmt" href={href} target={a.handle ? undefined : "_blank"} rel="noopener">
       <Avatar of={a} />
       {inner}
     </a>
@@ -81,17 +89,24 @@ function IncomingRow({ note }: { note: InboxNote }) {
 /** A note you left elsewhere — links to that member's Den profile. */
 function OutgoingRow({ note }: { note: OutgoingNote }) {
   const s = note.site;
-  const href = s.handle ? `/@${s.handle}` : s.url || "#";
+  const href = profileHref(s);
+  const reaction = isReaction(note.body) ? note.body.trim() : "";
+  const ts = relTime(note.created);
   return (
     <a className="cmt" href={href} target={s.handle ? undefined : "_blank"} rel="noopener">
       <Avatar of={s} />
       <div className="meta">
-        <div>
+        <div className="cmt-line">
           <span className="who">{s.name}</span>
-          {s.url && <span className="where"> · {host(s.url)}</span>}
-          {note.visibility === "private" && <span className="tag">private</span>}
+          {reaction ? (
+            <span className="act"> · you reacted {reaction}</span>
+          ) : (
+            s.url && <span className="where"> · {host(s.url)}</span>
+          )}
+          {!reaction && note.visibility === "private" && <span className="tag">private</span>}
+          {ts && <time className="cmt-time">{ts}</time>}
         </div>
-        <div className="body">{note.body}</div>
+        {!reaction && <div className="body">{note.body}</div>}
       </div>
     </a>
   );

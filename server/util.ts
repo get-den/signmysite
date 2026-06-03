@@ -22,6 +22,28 @@ export function token(bytes = 24): string {
   return randomBytes(bytes).toString("base64url");
 }
 
+// Handles live in URLs (den.com/@handle), so keep them lowercase, url-safe, and
+// human. Normalize lossily as the user types; validate the result before saving.
+export const HANDLE_MIN = 3;
+export const HANDLE_MAX = 30;
+
+export function normHandle(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-") // spaces / punctuation → a single hyphen
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, HANDLE_MAX);
+}
+
+// Why a normalized handle isn't usable yet (or null if it's fine).
+export function handleProblem(h: string): string | null {
+  if (h.length < HANDLE_MIN) return `At least ${HANDLE_MIN} characters.`;
+  if (h.length > HANDLE_MAX) return `At most ${HANDLE_MAX} characters.`;
+  if (!/^[a-z0-9-]+$/.test(h)) return "Letters, numbers and hyphens only.";
+  return null;
+}
+
 // A short emoji-only string is a "reaction" (a tap), as opposed to a written
 // note. Mirrors the widget's isReaction so the server can accept anonymous,
 // always-public reactions without trusting the client's classification.
@@ -33,6 +55,21 @@ export function isReaction(s: string): boolean {
   } catch {
     return /^[^\w\s.,!?'"()\-]+$/.test(s);
   }
+}
+
+// Compact relative time for note feeds: now, 5m, 15h, 2d, 3w, 4mo, 1y. Mirrors
+// web/src/lib.ts so server-rendered comments read the same as the widget's notes.
+export function relTime(s: string | null | undefined): string {
+  const t = Date.parse(s || "");
+  if (!t) return "";
+  const d = Date.now() - t, m = 6e4, h = 36e5, day = 864e5;
+  if (d < m) return "now";
+  if (d < h) return Math.floor(d / m) + "m";
+  if (d < day) return Math.floor(d / h) + "h";
+  if (d < 7 * day) return Math.floor(d / day) + "d";
+  if (d < 30 * day) return Math.floor(d / (7 * day)) + "w";
+  if (d < 365 * day) return Math.floor(d / (30 * day)) + "mo";
+  return Math.floor(d / (365 * day)) + "y";
 }
 
 export function escapeHtml(s: string): string {

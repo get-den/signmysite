@@ -16,19 +16,80 @@ CREATE TABLE IF NOT EXISTS members (
   google_sub  TEXT UNIQUE,
   url         TEXT,
   avatar      TEXT,
-  bio         TEXT,
   views       INTEGER NOT NULL DEFAULT 0,
-  thumbnail   TEXT,            -- preview image (og:image today, screenshot later)
-  last_edited TEXT,            -- when the site last changed (ping / crawl / me.json)
-  content_hash TEXT,           -- last seen page hash, so the crawler only bumps on real change
+  -- Freshness clock for the "new" badge: the latest of any owner ping, me.json
+  -- 'updated', or a content change we detected. Kept on the member (not derived
+  -- from snapshots) so an owner can assert "I changed something" even when our
+  -- homepage hash didn't move (e.g. they edited a subpage).
+  last_edited TEXT,
+  -- Points at the live row in 'snapshots' (the newest version). NULL until the
+  -- first capture; the member_cards view reads the live thumbnail through it.
+  current_snapshot_id TEXT,
+  -- has the member finished the signup wizard (username + optional site)?
+  -- defaults TRUE so existing rows aren't sent back through onboarding; new
+  -- members are inserted with FALSE (see createMember).
+  onboarded   BOOLEAN NOT NULL DEFAULT TRUE,
+  -- has the member proven they control members.url? Set true only after we fetch
+  -- the site and find their own widget id in it; reset to false whenever the url
+  -- changes. Guards against one account claiming another's site. Defaults FALSE
+  -- (an unverified site shows "(unverified)" on the profile).
+  verified    BOOLEAN NOT NULL DEFAULT FALSE,
   created     TEXT NOT NULL
 );
 -- migrate older installs in place (idempotent)
 ALTER TABLE members ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS thumbnail TEXT;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS last_edited TEXT;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS content_hash TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS current_snapshot_id TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Every captured version of a site's front page — append-only history. The newest
+-- row per member is the "live" one (members.current_snapshot_id points at it); the
+-- rest are the timeline. We append only when the (normalized) content hash actually
+-- changes, so a static site never grows a no-op row. Each version keeps its OWN
+-- thumbnail/title/excerpt, so history stays truthful even after the owner later
+-- swaps the og:image the live thumbnail was sourced from.
+CREATE TABLE IF NOT EXISTS snapshots (
+  id           TEXT PRIMARY KEY,
+  member_id    TEXT NOT NULL,
+  content_hash TEXT NOT NULL,   -- normalized page hash; the dedupe key vs the previous version
+  thumbnail    TEXT,            -- preview image for THIS version (og:image today, screenshot later)
+  title        TEXT,            -- og:title / <title> at capture
+  excerpt      TEXT,            -- og:description / meta description at capture
+  captured     TEXT NOT NULL    -- when we first observed this version
+);
+CREATE INDEX IF NOT EXISTS snapshots_member ON snapshots (member_id, captured DESC);
+
+-- One-time migration off the old in-place columns: fold each member's last-known
+-- thumbnail + hash into a first snapshot, then drop the columns. Guarded so it only
+-- runs on installs that still have them (fresh databases skip it entirely).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'members' AND column_name = 'thumbnail') THEN
+    INSERT INTO snapshots (id, member_id, content_hash, thumbnail, title, excerpt, captured)
+      SELECT 'snap_legacy_' || m.id, m.id, COALESCE(m.content_hash, ''), m.thumbnail, NULL, NULL,
+             COALESCE(m.last_edited, m.created)
+        FROM members m
+       WHERE m.thumbnail IS NOT NULL OR m.content_hash IS NOT NULL
+      ON CONFLICT (id) DO NOTHING;
+    UPDATE members SET current_snapshot_id = 'snap_legacy_' || id
+      WHERE current_snapshot_id IS NULL AND (thumbnail IS NOT NULL OR content_hash IS NOT NULL);
+    ALTER TABLE members DROP COLUMN thumbnail;
+    ALTER TABLE members DROP COLUMN content_hash;
+  END IF;
+END $$;
+
+-- Read model: a member flattened together with its live snapshot's thumbnail, so
+-- every read can keep selecting a single row and find 'thumbnail' where it always
+-- was. Writes target the base tables (members + snapshots); reads come from here.
+-- DROP+CREATE (not REPLACE) so it survives any future change to the members columns.
+DROP VIEW IF EXISTS member_cards;
+CREATE VIEW member_cards AS
+  SELECT m.*, s.thumbnail
+    FROM members m
+    LEFT JOIN snapshots s ON s.id = m.current_snapshot_id;
 
 -- Per-viewer "last seen this site" — powers the "new"/"updated" badge.
 CREATE TABLE IF NOT EXISTS visits (
@@ -87,6 +148,16 @@ CREATE TABLE IF NOT EXISTS magic_links (
   expires  TEXT NOT NULL,
   consumed BOOLEAN NOT NULL DEFAULT FALSE
 );
+-- Uploaded profile pictures. The bytes live here — never in members or any API
+-- payload — so list responses and the embeddable widget's card JSON stay small;
+-- members.avatar holds /avatars/<id>?v=<hash> and the bytes are served from here
+-- with a long, immutable cache header. One (latest) row per member.
+CREATE TABLE IF NOT EXISTS avatars (
+  member_id TEXT PRIMARY KEY,
+  bytes     BYTEA NOT NULL,
+  mime      TEXT NOT NULL,
+  updated   TEXT NOT NULL
+);
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
@@ -111,14 +182,21 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, edges, saves, pins, comments, sessions, magic_links, visits");
+  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, avatars");
 }
 
 export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
   google_sub: string | null; url: string | null; avatar: string | null;
-  bio: string | null; views: number; thumbnail: string | null;
-  last_edited: string | null; content_hash: string | null; created: string;
+  views: number; last_edited: string | null;
+  current_snapshot_id: string | null;
+  thumbnail: string | null;   // from the member_cards view (the live snapshot's image)
+  onboarded: boolean; verified: boolean; created: string;
+};
+// One captured version of a site's front page (see the snapshots table).
+export type Snapshot = {
+  id: string; member_id: string; content_hash: string;
+  thumbnail: string | null; title: string | null; excerpt: string | null; captured: string;
 };
 export type Stats = {
   views: number; followers: number; following: number; saved: number; pinned: number;
@@ -129,45 +207,57 @@ export type Comment = {
 };
 
 // ---- members -------------------------------------------------------------
+// Reads go through member_cards (members + the live snapshot's thumbnail); writes
+// target the base members table.
 export async function getMember(id: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM members WHERE id = $1", [id])).rows[0];
+  return (await pool.query("SELECT * FROM member_cards WHERE id = $1", [id])).rows[0];
 }
 export async function getMemberByEmail(email: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM members WHERE email = $1", [email])).rows[0];
+  return (await pool.query("SELECT * FROM member_cards WHERE email = $1", [email])).rows[0];
 }
 export async function getMemberByHandle(handle: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM members WHERE handle = $1", [handle])).rows[0];
+  return (await pool.query("SELECT * FROM member_cards WHERE handle = $1", [handle])).rows[0];
 }
 export async function getMemberByUrl(url: string): Promise<Member | undefined> {
   return (await pool.query(
-    `SELECT * FROM members WHERE url = $1
+    `SELECT * FROM member_cards WHERE url = $1
      ORDER BY (email IS NOT NULL OR google_sub IS NOT NULL) DESC, created DESC
      LIMIT 1`,
     [url]
   )).rows[0];
 }
 export async function getMemberByGoogleSub(sub: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM members WHERE google_sub = $1", [sub])).rows[0];
+  return (await pool.query("SELECT * FROM member_cards WHERE google_sub = $1", [sub])).rows[0];
 }
 export async function createMember(m: {
   id: string; name: string; handle?: string | null; email?: string | null;
-  google_sub?: string | null; url?: string | null; avatar?: string | null; bio?: string | null;
+  google_sub?: string | null; url?: string | null; avatar?: string | null;
 }): Promise<Member> {
-  const r = await pool.query(
-    `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, bio, created)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+  // New members start un-onboarded — the signup wizard (username + optional
+  // site) flips this to true. (Crawled/indexed members never sign in, so theirs
+  // is moot.) Existing rows kept their column default of TRUE.
+  await pool.query(
+    `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, onboarded, created)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8)`,
     [m.id, m.handle ?? null, m.name, m.email ?? null, m.google_sub ?? null,
-     m.url ?? null, m.avatar ?? null, m.bio ?? null, now()]
+     m.url ?? null, m.avatar ?? null, now()]
   );
-  return r.rows[0];
+  return (await getMember(m.id))!;
 }
+// Columns a patch may write. Excludes id/created and the view-only `thumbnail`
+// (which lives on snapshots) — so a Partial<Member> can't accidentally generate
+// SQL against a column that no longer exists on the base table.
+const MUTABLE_MEMBER_COLS = new Set([
+  "handle", "name", "email", "google_sub", "url", "avatar",
+  "views", "last_edited", "current_snapshot_id", "onboarded", "verified",
+]);
 export async function updateMember(id: string, patch: Partial<Member>): Promise<Member | undefined> {
-  const keys = Object.keys(patch).filter((k) => k !== "id");
+  const keys = Object.keys(patch).filter((k) => MUTABLE_MEMBER_COLS.has(k));
   if (!keys.length) return getMember(id);
   const set = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
   const vals = keys.map((k) => (patch as Record<string, unknown>)[k] ?? null);
-  const r = await pool.query(`UPDATE members SET ${set} WHERE id = $${keys.length + 1} RETURNING *`, [...vals, id]);
-  return r.rows[0];
+  await pool.query(`UPDATE members SET ${set} WHERE id = $${keys.length + 1}`, [...vals, id]);
+  return getMember(id);
 }
 
 export async function claimUnclaimedMember(targetId: string, sourceId: string): Promise<Member | undefined> {
@@ -183,10 +273,9 @@ export async function claimUnclaimedMember(targetId: string, sourceId: string): 
       `UPDATE members
           SET email = $2,
               google_sub = $3,
-              avatar = COALESCE(avatar, $4),
-              bio = COALESCE(bio, $5)
+              avatar = COALESCE(avatar, $4)
         WHERE id = $1`,
-      [targetId, source.email, source.google_sub, source.avatar, source.bio]
+      [targetId, source.email, source.google_sub, source.avatar]
     );
     await pool.query("UPDATE sessions SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
     await pool.query("UPDATE comments SET author_id = $1 WHERE author_id = $2", [targetId, sourceId]);
@@ -195,6 +284,9 @@ export async function claimUnclaimedMember(targetId: string, sourceId: string): 
     await movePairs("saves", "member_id", "target_id", sourceId, targetId);
     await movePairs("pins", "member_id", "target_id", sourceId, targetId);
     await moveVisits(sourceId, targetId);
+    // Reparent any history the source accrued so deleting it orphans nothing; the
+    // target keeps its own current_snapshot_id as the live version.
+    await pool.query("UPDATE snapshots SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
     await pool.query("DELETE FROM members WHERE id = $1", [sourceId]);
     await pool.query("COMMIT");
     return getMember(targetId);
@@ -308,15 +400,16 @@ export async function countPins(member: string): Promise<number> {
 export type PinnedSite = SiteCard & { notes: Array<{ id: string; body: string; created: string }> };
 export async function listPinned(memberId: string): Promise<PinnedSite[]> {
   const sites = (await pool.query(
-    `SELECT m.*,
+    `SELECT m.*, snap.thumbnail,
             COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM pins p
        JOIN members m ON m.id = p.target_id
+       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves all_saves ON all_saves.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
       WHERE p.member_id = $1
-      GROUP BY m.id, p.created
+      GROUP BY m.id, snap.thumbnail, p.created
       ORDER BY p.created ASC
       LIMIT $2`,
     [memberId, PIN_LIMIT]
@@ -360,25 +453,77 @@ export async function addView(id: string): Promise<number> {
   return r.rows[0]?.views ?? 0;
 }
 
-// ---- freshness (last_edited) + thumbnail ---------------------------------
-// Mark a site as edited "now" (or at an explicit time, e.g. me.json `updated`).
+// ---- freshness + snapshots -----------------------------------------------
+// Mark a site as edited (monotonically — never moves freshness backwards). For
+// owner-asserted edits with no observable content change: a ping, or me.json
+// `updated`. Content changes we detect ourselves go through recordSnapshot.
 export async function markEdited(id: string, when?: string): Promise<void> {
-  await pool.query("UPDATE members SET last_edited = $2 WHERE id = $1", [id, when || now()]);
+  await pool.query("UPDATE members SET last_edited = GREATEST(last_edited, $2) WHERE id = $1", [id, when || now()]);
 }
-export async function setThumbnail(id: string, url: string | null): Promise<void> {
-  await pool.query("UPDATE members SET thumbnail = $2 WHERE id = $1", [id, url]);
+
+export type SnapshotInput = { hash: string; thumbnail?: string | null; title?: string | null; excerpt?: string | null };
+// Append a new version IFF the page content actually changed since the last one.
+// On a real change it inserts a snapshot, repoints members.current_snapshot_id at
+// it, and bumps last_edited. Returns the new snapshot plus whether it was the
+// member's first ever (so callers can skip "your site changed" on initial index).
+// Returns null when the content is unchanged — the dedupe that keeps history clean.
+export async function recordSnapshot(
+  id: string, snap: SnapshotInput, when?: string
+): Promise<{ snapshot: Snapshot; isFirst: boolean } | null> {
+  const prev = (await pool.query(
+    "SELECT content_hash FROM snapshots WHERE member_id = $1 ORDER BY captured DESC LIMIT 1", [id]
+  )).rows[0];
+  if (prev && prev.content_hash === snap.hash) return null;
+  const captured = when || now();
+  const row: Snapshot = {
+    id: "snap_" + token(8), member_id: id, content_hash: snap.hash,
+    thumbnail: snap.thumbnail ?? null, title: snap.title ?? null, excerpt: snap.excerpt ?? null, captured,
+  };
+  await pool.query("BEGIN");
+  try {
+    await pool.query(
+      `INSERT INTO snapshots (id, member_id, content_hash, thumbnail, title, excerpt, captured)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [row.id, row.member_id, row.content_hash, row.thumbnail, row.title, row.excerpt, row.captured]
+    );
+    await pool.query(
+      "UPDATE members SET current_snapshot_id = $2, last_edited = GREATEST(last_edited, $3) WHERE id = $1",
+      [id, row.id, captured]
+    );
+    await pool.query("COMMIT");
+  } catch (e) {
+    await pool.query("ROLLBACK");
+    throw e;
+  }
+  return { snapshot: row, isFirst: !prev };
 }
-// Returns true if the page content changed since last crawl (and stores the new
-// hash + bumps last_edited). Lets the crawler bump freshness only on real change.
-export async function noteContentHash(id: string, hash: string): Promise<boolean> {
-  const prev = (await pool.query("SELECT content_hash FROM members WHERE id = $1", [id])).rows[0];
-  if (prev && prev.content_hash === hash) return false;
-  await pool.query("UPDATE members SET content_hash = $2, last_edited = $3 WHERE id = $1", [id, hash, now()]);
-  return true;
+
+// A site's version history, newest first — the timeline behind the live thumbnail.
+export async function listSnapshots(id: string, limit = 50): Promise<Snapshot[]> {
+  return (await pool.query(
+    "SELECT * FROM snapshots WHERE member_id = $1 ORDER BY captured DESC LIMIT $2", [id, limit]
+  )).rows;
 }
-// All sites with a URL — for the crawler to walk.
+
+// All sites with a URL — for the crawler to walk. (Reads the view so each row
+// still carries its live thumbnail, keeping the Member shape intact.)
 export async function listCrawlable(): Promise<Member[]> {
-  return (await pool.query("SELECT * FROM members WHERE url IS NOT NULL")).rows;
+  return (await pool.query("SELECT * FROM member_cards WHERE url IS NOT NULL")).rows;
+}
+
+// ---- avatars (uploaded profile pictures) ---------------------------------
+// Stored as raw bytes, addressed by member id, served at /avatars/<id> (see
+// server/app.ts). Kept out of the members row so SELECT * and every list/card
+// payload stay lean — the widget only ever ships the short avatar URL.
+export async function setAvatar(memberId: string, bytes: Buffer, mime: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO avatars (member_id, bytes, mime, updated) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (member_id) DO UPDATE SET bytes = EXCLUDED.bytes, mime = EXCLUDED.mime, updated = EXCLUDED.updated`,
+    [memberId, bytes, mime, now()]
+  );
+}
+export async function getAvatar(memberId: string): Promise<{ bytes: Buffer; mime: string } | undefined> {
+  return (await pool.query("SELECT bytes, mime FROM avatars WHERE member_id = $1", [memberId])).rows[0];
 }
 
 // ---- visits (per-viewer "new" badge) -------------------------------------
@@ -453,7 +598,7 @@ export async function listFollowing(memberId: string): Promise<FollowedSite[]> {
             (m.last_edited IS NOT NULL
              AND (v.last_seen IS NULL OR m.last_edited > v.last_seen)) AS "isNew"
        FROM edges e
-       JOIN members m ON m.id = e.target_id
+       JOIN member_cards m ON m.id = e.target_id
        LEFT JOIN visits v ON v.viewer_id = $1 AND v.target_id = m.id
       WHERE e.follower_id = $1
       ORDER BY (m.last_edited IS NOT NULL) DESC, m.last_edited DESC NULLS LAST, e.created DESC`,
@@ -471,15 +616,16 @@ export type SiteCard = Member & {
 
 export async function listSaved(memberId: string): Promise<SiteCard[]> {
   const r = await pool.query(
-    `SELECT m.*,
+    `SELECT m.*, snap.thumbnail,
             COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM saves viewer_saves
        JOIN members m ON m.id = viewer_saves.target_id
+       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves all_saves ON all_saves.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
       WHERE viewer_saves.member_id = $1
-      GROUP BY m.id, viewer_saves.created
+      GROUP BY m.id, snap.thumbnail, viewer_saves.created
       ORDER BY viewer_saves.created DESC`,
     [memberId]
   );
@@ -488,13 +634,14 @@ export async function listSaved(memberId: string): Promise<SiteCard[]> {
 
 export async function listMostSaved(limit = 12): Promise<SiteCard[]> {
   const r = await pool.query(
-    `SELECT m.*,
+    `SELECT m.*, snap.thumbnail,
             COUNT(DISTINCT s.member_id)::int AS saved_count,
             COUNT(DISTINCT e.follower_id)::int AS follower_count
        FROM members m
+       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves s ON s.target_id = m.id
        LEFT JOIN edges e ON e.target_id = m.id
-      GROUP BY m.id
+      GROUP BY m.id, snap.thumbnail
       ORDER BY saved_count DESC, m.views DESC, follower_count DESC
       LIMIT $1`,
     [limit]
@@ -517,17 +664,18 @@ export async function listRecommended(memberId: string, limit = 12): Promise<Sit
         WHERE e.target_id <> $1
         GROUP BY e.target_id
      )
-     SELECT m.*,
+     SELECT m.*, snap.thumbnail,
             COALESCE(ff.mutual_count, 0)::int AS mutual_count,
             COUNT(DISTINCT s.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM members m
+       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN friend_follows ff ON ff.target_id = m.id
        LEFT JOIN saves s ON s.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
        LEFT JOIN mine ON mine.target_id = m.id
       WHERE m.id <> $1 AND mine.target_id IS NULL
-      GROUP BY m.id, ff.mutual_count
+      GROUP BY m.id, snap.thumbnail, ff.mutual_count
       ORDER BY mutual_count DESC, saved_count DESC, m.views DESC
       LIMIT $2`,
     [memberId, limit]

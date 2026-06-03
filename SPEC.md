@@ -63,7 +63,6 @@ A realistic one:
   "handle": "maya",
   "name": "Maya",
   "avatar": "https://maya.com/me.jpg",
-  "bio": "13. i draw dinosaurs and build little games.",
   "url": "https://maya.com",
   "links": [
     { "id": "den:1a2b3c4d5e6f7a8b", "handle": "leo", "rel": "friend" },
@@ -82,7 +81,6 @@ A realistic one:
 | `name` | ✅ | string | Display name. |
 | `handle` | – | string | Human-readable. No dot ⇒ a Den handle (`maya` → `maya.den.io`). Has a dot ⇒ a domain (`maya.com`). |
 | `avatar` | – | string (URL) | Square image. |
-| `bio` | – | string | ≤ 280 chars. |
 | `url` | – | string (URL) | Canonical home page. |
 | `created` | – | string | ISO 8601 date. |
 | `links` | – | array | Your graph edges. See below. |

@@ -8,7 +8,7 @@
  *     and "Your widget" instead. The server picks the variant from the session,
  *     so crawlers (no cookie) always get the public one.
  */
-import { escapeHtml } from "./util.ts";
+import { escapeHtml, isReaction, relTime } from "./util.ts";
 import type { Member, PinnedSite, Stats, Visibility } from "./db.ts";
 
 type CommentRow = {
@@ -40,8 +40,8 @@ export function siteThumb(site: { id: string; thumbnail?: string | null }): stri
 
 const num = (n: number) =>
   n < 1000 ? String(n)
-    : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K"
-      : (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "k"
+      : (n / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
 const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
 const bgUrl = (u: string) => `background-image:url(${escapeHtml(JSON.stringify(u))})`;
 
@@ -51,21 +51,32 @@ function avatar(x: Identity, cls = ""): string {
     : `<div class="avatar ${cls}">${escapeHtml((x.name || x.handle || "?").charAt(0).toUpperCase())}</div>`;
 }
 
+// Bookmark / check icons for the Save control — the same Lucide glyphs the widget
+// uses, inlined so the server-rendered page needs no icon runtime.
+const BOOKMARK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
+const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;
+
 /* ---- components ---------------------------------------------------------- */
 
 function header(m: Member, isOwner: boolean): string {
-  const action = isOwner
+  // Right side: a visitor gets the widget-style round Save button + Follow; the
+  // owner gets Edit profile. (You can't save your own site — as in the widget.)
+  const actions = isOwner
     ? `<a class="btn primary pfollow" href="/#/edit">Edit profile</a>`
-    : `<button id="pfollow" class="btn primary pfollow" type="button">Follow</button>`;
+    : `<button id="psave" class="psave-btn" type="button" aria-label="Save this site">${BOOKMARK_SVG}</button>` +
+      `<button id="pfollow" class="btn primary pfollow" type="button">Follow</button>`;
+  // A linked-but-unverified site is flagged so a claim can't be taken at face
+  // value. Verified sites get no badge — verification is the quiet default.
+  const unverified = m.url && !m.verified ? ` <span class="unverified">(unverified)</span>` : "";
   const sub = m.url
-    ? `<div class="purl"><a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(m.url))}</a></div>`
+    ? `<div class="purl"><a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(m.url))}</a>${unverified}</div>`
     : `<div class="phandle">@${escapeHtml(m.handle || "")}</div>`;
   return `<div class="phero">
     <div class="pid">
       ${avatar(m)}
       <div><div class="pname">${escapeHtml(m.name)}</div>${sub}</div>
     </div>
-    ${action}
+    <div class="phero-actions">${actions}</div>
   </div>`;
 }
 
@@ -77,11 +88,10 @@ function preview(m: Member): string {
   </a>`;
 }
 
-function actions(m: Member, s: Stats, isOwner: boolean): string {
+function actions(m: Member, s: Stats): string {
   const view = m.url ? `<a class="btn pview" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ↗</a>` : "";
-  const save = isOwner ? "" : `<button id="psave" class="btn psave" type="button">Save</button>`;
-  return `<div class="pactions">${view}${save}
-    <span id="pcounts" class="pcounts">${num(s.views)} views · ${num(s.saved)} saved</span>
+  return `<div class="pactions">${view}
+    <span id="pcounts" class="pcounts">${num(s.views)} views</span>
   </div>`;
 }
 
@@ -107,20 +117,63 @@ function pinnedSection(pinned: PinnedSite[], heading: string): string {
 }
 
 function commentsSection(rows: CommentRow[]): string {
-  // Public + crawlable, so only public notes appear here.
+  // Public + crawlable, so only public notes appear here. Rendered to mirror the
+  // embeddable widget's notes list exactly (.cmt in app.css): a round avatar, a
+  // name + relative-time line, and the body beneath — no surrounding card/border.
   const pub = rows.filter((cm) => cm.visibility === "public");
-  const body = pub.length
-    ? pub.map((cm) => `<div class="blog" style="border:0;padding:6px 0">
-        ${avatar({ avatar: cm.author_avatar, name: cm.author_name || "", handle: cm.author_handle })}
-        <div class="meta"><div class="bn">${escapeHtml(cm.author_name || "Someone")}${cm.author_url ? ` <a class="bh" href="${escapeHtml(cm.author_url)}" target="_blank" rel="noopener">(${escapeHtml(hostOf(cm.author_url))})</a>` : ""}</div>
-        <div>${escapeHtml(cm.body)}</div></div></div>`).join("")
-    : `<div class="empty">No notes yet.</div>`;
-  return `<div class="section pcomments"><h2>Comments</h2>${body}</div>`;
+  const rowsHtml = pub.map((cm) => {
+    const name = escapeHtml(cm.author_name || "Someone");
+    const ident: Identity = { avatar: cm.author_avatar, name: cm.author_name || "", handle: cm.author_handle };
+    const ts = relTime(cm.created);
+    const time = ts ? `<time class="cmt-time">${ts}</time>` : "";
+    // A single-emoji note renders as a "reacted with ✨" line (no body), like the widget.
+    const reaction = isReaction(cm.body) ? cm.body.trim() : "";
+    const meta = reaction
+      ? `<div class="cmt-line"><span class="who">${name}</span><span class="act"> reacted with </span><span class="react-emoji">${escapeHtml(reaction)}</span>${time}</div>`
+      : `<div class="cmt-line"><span class="who">${name}</span>${time}</div><div class="body">${escapeHtml(cm.body)}</div>`;
+    const inner = `${avatar(ident)}<div class="meta">${meta}</div>`;
+    // Link the row to the commenter — their Den profile if we know it, else their site.
+    const href = cm.author_handle ? `/@${escapeHtml(cm.author_handle)}` : cm.author_url ? escapeHtml(cm.author_url) : "";
+    const ext = !cm.author_handle && cm.author_url ? ` target="_blank" rel="noopener"` : "";
+    return href ? `<a class="cmt" href="${href}"${ext}>${inner}</a>` : `<div class="cmt">${inner}</div>`;
+  }).join("");
+  return `<section class="pcomments"><h2 class="pside-head">Comments</h2>
+    <div class="cmt-list">${pub.length ? rowsHtml : `<div class="empty">No notes yet.</div>`}</div>
+  </section>`;
 }
 
 /* ---- page assembly ------------------------------------------------------- */
 
-export const profileBackHeader = `<header class="top pback-bar"><a class="pback" href="/">(back)</a></header>`;
+const signOutBtn = `<button class="btn sm naked" data-signout>Sign out</button>`;
+// /api/logout returns JSON (no redirect), so end the session via fetch, then go home.
+const signOutScript = `<script>document.addEventListener("click",function(e){if(e.target.closest("[data-signout]")){e.preventDefault();fetch("/api/logout",{method:"POST"}).then(function(){location.href="/"});}});</script>`;
+
+/*
+ * The standard site header, server-rendered to mirror the React app's <Header>
+ * so a profile wears the same chrome instead of a lone back arrow. It's
+ * viewer-aware (the server already knows the session): signed-out visitors get
+ * "Sign in"; a half-finished signup gets just "Sign out"; everyone else gets the
+ * full nav. `here` is the current URL (the post-sign-in return target), and
+ * `ownProfile` highlights "Your site" when you're looking at yourself.
+ */
+export function siteHeader(
+  viewer: { handle: string | null; onboarded: boolean } | null | undefined,
+  here: string,
+  ownProfile = false,
+): string {
+  const nav = !viewer
+    ? `<a class="btn sm primary" href="/auth?return=${encodeURIComponent(here)}">Sign in</a>`
+    : !viewer.onboarded
+      ? signOutBtn
+      : `<a class="navlink" href="/">Home</a>` +
+        `<a class="navlink${ownProfile ? " active" : ""}" href="/@${escapeHtml(viewer.handle || "")}">Your site</a>` +
+        `<a class="navlink" href="/#/messages">Messages</a>` +
+        signOutBtn;
+  return (
+    `<header class="top"><a class="brand" href="/">den</a><nav>${nav}</nav></header>` +
+    (viewer ? signOutScript : "")
+  );
+}
 
 export function renderProfileInner(opts: {
   m: Member; s: Stats; pinned: PinnedSite[]; comments: CommentRow[]; isOwner: boolean; base: string;
@@ -135,8 +188,7 @@ export function renderProfileInner(opts: {
     <div class="pgrid">
       <div class="pcol-main">
         ${preview(m)}
-        ${actions(m, s, isOwner)}
-        ${m.bio ? `<p class="pbio">${escapeHtml(m.bio)}</p>` : ""}
+        ${actions(m, s)}
       </div>
       <aside class="pcol-side">${side}</aside>
     </div>
@@ -165,13 +217,15 @@ function profileScript(id: string, isOwner: boolean): string {
   return `
 (function(){
   var id=${JSON.stringify(id)};
+  var BOOKMARK=${JSON.stringify(BOOKMARK_SVG)};
+  var CHECK=${JSON.stringify(CHECK_SVG)};
   var followBtn=document.getElementById('pfollow');
   var saveBtn=document.getElementById('psave');
   var counts=document.getElementById('pcounts');
-  function num(n){n=Number(n)||0;return n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0).replace(/\\.0$/,'')+'K':(n/1e6).toFixed(1).replace(/\\.0$/,'')+'M';}
-  function renderCounts(s){if(counts)counts.textContent=num(s.views)+' views · '+num(s.saved)+' saved';}
-  function setFollow(on){if(followBtn){followBtn.textContent=on?'Following':'Follow';followBtn.classList.toggle('on',!!on);}}
-  function setSave(on){if(saveBtn){saveBtn.textContent=on?'Saved':'Save';saveBtn.classList.toggle('on',!!on);}}
+  function num(n){n=Number(n)||0;return n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0).replace(/\\.0$/,'')+'k':(n/1e6).toFixed(1).replace(/\\.0$/,'')+'m';}
+  function renderCounts(s){if(counts)counts.textContent=num(s.views)+' views';}
+  function setFollow(on){if(followBtn){followBtn.innerHTML=on?'<span class="lbl">Following</span>':'Follow';followBtn.classList.toggle('following',!!on);followBtn.classList.toggle('primary',!on);}}
+  function setSave(on){if(saveBtn){saveBtn.innerHTML=on?CHECK:BOOKMARK;saveBtn.classList.toggle('on',!!on);saveBtn.setAttribute('aria-label',on?'Saved':'Save this site');}}
   function signin(){location.href='/api/auth/google?return='+encodeURIComponent(location.href);}
   function toggle(path,apply){
     fetch(path,{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})})

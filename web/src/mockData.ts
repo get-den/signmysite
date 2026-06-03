@@ -17,7 +17,7 @@ function image(title: string, index: number): string {
     <circle cx="${650 - index * 17}" cy="${180 + index * 12}" r="126" fill="${accent}"/>
     <rect x="116" y="374" width="430" height="58" rx="29" fill="${ink}"/>
     <rect x="116" y="462" width="${270 + index * 24}" height="34" rx="17" fill="${ink}" opacity=".42"/>
-    <text x="116" y="552" font-family="Inter,Arial,sans-serif" font-size="40" font-weight="800" fill="${ink}">${title}</text>
+    <text x="116" y="552" font-family="Inter,Arial,sans-serif" font-size="40" font-weight="600" fill="${ink}">${title}</text>
   </svg>`;
   return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 }
@@ -29,7 +29,6 @@ function site(index: number, name: string, handle: string, reason: string, tags:
     name,
     url: `https://${handle}.example`,
     avatar: null,
-    bio: reason,
     views: 2400 + index * 3100,
     thumbnail: image(name, index),
     savedCount: 18 + index * 23,

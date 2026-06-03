@@ -9,8 +9,11 @@ export type Member = {
   name: string;
   url: string | null;
   avatar: string | null;
-  bio: string | null;
   views: number;
+  /** Present only on the signed-in viewer; gates the signup wizard. */
+  onboarded?: boolean;
+  /** Present only on the signed-in viewer; true once their site is proven theirs. */
+  verified?: boolean;
 };
 
 /** A followed/saved/discovered site card. */
@@ -79,7 +82,6 @@ export type ProfilePatch = {
   handle: string;
   url: string;
   avatar: string;
-  bio: string;
 };
 
 export class ApiError extends Error {
@@ -111,6 +113,31 @@ export const requestMagicLink = (email: string, returnTo?: string) =>
   });
 
 export const getViewer = () => req<Member | null>("/api/viewer");
+
+/** Live username availability for the signup picker. */
+export const checkHandle = (handle: string) =>
+  req<{ handle: string; available: boolean; reason: string | null }>(
+    `/api/handle/check?h=${encodeURIComponent(handle)}`,
+  );
+
+/** Reserve a username mid-wizard (durable progress) without finishing signup. */
+export const claimHandle = (handle: string) =>
+  req<Member>("/api/profile", { method: "PATCH", ...jsonBody({ handle }) });
+
+/** Finish signup: claim a username + optionally link a site. */
+export const onboard = (handle: string, url?: string) =>
+  req<Member>("/api/onboard", { method: "POST", ...jsonBody({ handle, url: url || "" }) });
+
+/** Link a site and optimistically scrape its thumbnail + inferred profile picture. */
+export const scrapeSite = (url: string) =>
+  req<{ host: string; reachable: boolean; thumbnail: string | null; avatar: string | null }>(
+    "/api/site/scrape",
+    { method: "POST", ...jsonBody({ url }) },
+  );
+
+/** Prove ownership of the linked site by detecting your widget on it. */
+export const verifySite = () =>
+  req<{ verified: boolean; reason: string | null }>("/api/verify", { method: "POST" });
 export const getProfile = (id: string) =>
   req<Member>(`/api/profile/${encodeURIComponent(id)}`);
 export const getStats = (id: string) =>
@@ -132,6 +159,9 @@ export const getFollowing = () => req<Site[]>("/api/following");
 export const getInbox = () => req<InboxNote[]>("/api/inbox");
 export const updateProfile = (patch: ProfilePatch) =>
   req<Member>("/api/profile", { method: "PATCH", ...jsonBody(patch) });
+/** Upload a new profile picture (already cropped + resized client-side). */
+export const uploadAvatar = (image: Blob) =>
+  req<Member>("/api/avatar", { method: "POST", headers: { "content-type": image.type }, body: image });
 export const logout = () => req<{ ok: true }>("/api/logout", { method: "POST" });
 
 export const getSaved = () => req<Site[]>("/api/saved");

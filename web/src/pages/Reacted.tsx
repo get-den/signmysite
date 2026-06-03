@@ -1,17 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { follow, getProfile, getStats, save, type Member, type Stats } from "../api";
-import { useViewer } from "../providers";
-import { useToast } from "../providers";
-import { Avatar } from "../ui";
+import { follow, getProfile, getStats, postComment, type Member, type Stats } from "../api";
+import { useToast, useViewer } from "../providers";
+import { Avatar, IconButton, Loading } from "../ui";
 
 /**
- * The landing after a reaction or a sent postcard. It celebrates that the thing
- * went through, then nudges the next step: make a Den (if they're a stranger),
- * or follow / save the site (if they're a member).
+ * Landing after a widget hand-off.
+ *
+ *  • kind=note  — the postcard was already posted by /compose; this just confirms.
+ *  • kind=react — the reaction has NOT been posted yet. We post it here, as the
+ *    signed-in viewer, so it's always attributed (never "Someone"). If they have
+ *    a den.com session it lands immediately; if not, they sign in first and it
+ *    posts the moment they return.
+ *
+ * Either way it ends on the same confirmation, with a Follow nudge.
  */
 export function Reacted() {
-  const { viewer } = useViewer();
+  const { viewer, loading } = useViewer();
   const [params] = useSearchParams();
 
   const kind = params.get("kind") === "note" ? "note" : "react";
@@ -21,12 +26,27 @@ export function Reacted() {
 
   const [target, setTarget] = useState<Member | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  // Notes arrive already-sent; reactions become "sent" once we post them below.
+  const [sent, setSent] = useState(kind === "note");
+  const posting = useRef(false);
 
   useEffect(() => {
-    if (!to) return;
-    getProfile(to).then(setTarget).catch(() => {});
-    if (viewer) getStats(to).then(setStats).catch(() => {});
+    if (to) getProfile(to).then(setTarget).catch(() => {});
+  }, [to]);
+
+  useEffect(() => {
+    if (to && viewer) getStats(to).then(setStats).catch(() => {});
   }, [to, viewer]);
+
+  // Post the reaction as the viewer, once we know who they are. Guarded so it
+  // fires exactly once.
+  useEffect(() => {
+    if (kind !== "react" || sent || !to || !viewer || posting.current) return;
+    posting.current = true;
+    postComment(to, emoji, "public")
+      .then(() => setSent(true))
+      .catch(() => { posting.current = false; });
+  }, [kind, sent, to, viewer, emoji]);
 
   if (!to) return <Navigate to="/" replace />;
 
@@ -36,48 +56,52 @@ export function Reacted() {
   return (
     <div className="sheet">
       <div className="sheet-bar">
-        <Link className="sheet-close" to="/" aria-label="Close">✕</Link>
+        <IconButton icon="close" to="/" />
       </div>
 
       <div className="confirm">
         <div className={"confirm-mark" + (isNote ? " mail" : "")} aria-hidden="true">
           {isNote ? "✉️" : emoji}
         </div>
-        <h1 className="confirm-title">
-          {isNote ? "Your postcard is on its way" : "Reaction sent"}
-        </h1>
-        <p className="confirm-sub">
-          {isNote
-            ? `${name} will find it in their notes.`
-            : <>Your {emoji} landed on <b>{name}</b>'s wall.</>}
-        </p>
 
-        {viewer ? (
-          <MemberNext to={to} name={name} target={target} stats={stats} setStats={setStats} />
+        {loading ? (
+          <Loading />
+        ) : viewer ? (
+          <Confirmed
+            isNote={isNote}
+            sent={sent}
+            emoji={emoji}
+            name={name}
+            to={to}
+            target={target}
+            stats={stats}
+            setStats={setStats}
+          />
         ) : (
-          <StrangerNext />
+          <SignInToSend isNote={isNote} emoji={emoji} name={name} />
         )}
       </div>
     </div>
   );
 }
 
-/** Signed-in: offer to follow or save the site they just engaged with. */
-function MemberNext({
-  to, name, target, stats, setStats,
+/** Signed in: the reaction/note is (being) posted as them — confirm + Follow. */
+function Confirmed({
+  isNote, sent, emoji, name, to, target, stats, setStats,
 }: {
-  to: string; name: string; target: Member | null; stats: Stats | null;
-  setStats: (s: Stats) => void;
+  isNote: boolean; sent: boolean; emoji: string; name: string;
+  to: string; target: Member | null; stats: Stats | null; setStats: (s: Stats) => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
-  const toggle = async (fn: (id: string) => Promise<Stats>, label: string) => {
+  const onFollow = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      setStats(await fn(to));
-      toast(label);
+      const next = await follow(to);
+      setStats(next);
+      toast(next.viewerFollows ? "Following" : "Unfollowed");
     } catch {
       toast("Something went wrong.");
     } finally {
@@ -87,42 +111,52 @@ function MemberNext({
 
   return (
     <>
-      <div className="confirm-site">
-        <Avatar of={target || { name }} />
-        <span>{name}</span>
-      </div>
-      <div className="confirm-actions">
+      <h1 className="confirm-title">
+        {isNote ? "Postcard sent" : sent ? "Reaction sent" : "Sending…"}
+      </h1>
+      <p className="confirm-sub">
+        <b>{name}</b> got your {isNote ? "note" : emoji}
+      </p>
+
+      <div className="confirm-follow">
+        {target?.handle || target?.url ? (
+          <a className="confirm-who" href={target.handle ? `/@${target.handle}` : target.url!}>
+            <Avatar of={target} />
+            <span className="who">{name}</span>
+          </a>
+        ) : (
+          <div className="confirm-who">
+            <Avatar of={target || { name }} />
+            <span className="who">{name}</span>
+          </div>
+        )}
         <button
-          className={"btn" + (stats?.viewerFollows ? "" : " primary")}
+          className={"btn" + (stats?.viewerFollows ? " following" : " primary")}
           type="button"
           disabled={busy}
-          onClick={() => toggle(follow, stats?.viewerFollows ? "Unfollowed" : "Following")}
+          onClick={onFollow}
         >
-          {stats?.viewerFollows ? "Following ✓" : "Follow"}
-        </button>
-        <button
-          className={"btn" + (stats?.viewerSaved ? "" : " pink")}
-          type="button"
-          disabled={busy}
-          onClick={() => toggle(save, stats?.viewerSaved ? "Removed" : "Saved")}
-        >
-          {stats?.viewerSaved ? "Saved ✓" : "Save"}
+          {stats?.viewerFollows ? <span className="lbl">Following</span> : "Follow"}
         </button>
       </div>
-      <Link className="confirm-skip" to="/">Back to your Den</Link>
     </>
   );
 }
 
-/** Not signed in: nudge them to make a Den, keeping them on this page after. */
-function StrangerNext() {
+/** Not signed in: the reaction is held until they sign in — then it posts as them. */
+function SignInToSend({ isNote, emoji, name }: { isNote: boolean; emoji: string; name: string }) {
   const ret = `${location.origin}/#${location.hash.slice(1) || "/reacted"}`;
   const signin = `/api/auth/google?return=${encodeURIComponent(ret)}`;
   return (
-    <div className="confirm-cta">
-      <p>Want a corner of the web like this one?</p>
-      <a className="btn pink lg" href={signin}>Make your Den</a>
-      <Link className="confirm-skip" to="/">Maybe later</Link>
-    </div>
+    <>
+      <h1 className="confirm-title">{isNote ? "Almost there" : "One more step"}</h1>
+      <p className="confirm-sub">
+        Sign in to add your {isNote ? "note" : emoji} to <b>{name}</b> — it posts as you, never anonymously.
+      </p>
+      <div className="confirm-cta">
+        <a className="btn pink lg" href={signin}>Sign in & send</a>
+        <Link className="confirm-skip" to="/">Maybe later</Link>
+      </div>
+    </>
   );
 }

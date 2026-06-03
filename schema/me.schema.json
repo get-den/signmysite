@@ -32,11 +32,6 @@
       "type": "string",
       "format": "uri"
     },
-    "bio": {
-      "description": "Short bio.",
-      "type": "string",
-      "maxLength": 280
-    },
     "url": {
       "description": "Canonical home page.",
       "type": "string",

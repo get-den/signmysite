@@ -22,7 +22,16 @@ export function Header() {
         den
       </Link>
       <nav>
-        {loading ? null : viewer ? (
+        {loading ? null : !viewer ? (
+          <a className="btn sm primary" href={authUrl()}>
+            Sign in
+          </a>
+        ) : !viewer.onboarded ? (
+          // Mid-signup: keep it focused — just a way out.
+          <button className="btn sm naked" onClick={signOut}>
+            Sign out
+          </button>
+        ) : (
           <>
             <NavLink className="navlink" to="/" end>
               Home
@@ -37,10 +46,6 @@ export function Header() {
               Sign out
             </button>
           </>
-        ) : (
-          <a className="btn sm primary" href={authUrl()}>
-            Sign in
-          </a>
         )}
       </nav>
     </header>

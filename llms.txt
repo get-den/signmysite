@@ -24,7 +24,6 @@ Recommended me.json:
       "handle": "maya",
       "name": "Maya",
       "avatar": "https://maya.com/me.jpg",
-      "bio": "13. i draw dinosaurs and build little games.",
       "url": "https://maya.com",
       "links": [
         { "id": "den:1a2b3c4d5e6f7a8b", "handle": "leo", "rel": "friend" }
@@ -47,8 +46,8 @@ Recommended me.json:
 
 1. Ask the user if they want friends to be able to follow this site.
 2. POST https://den.com/api/register  → get { id, handle }.
-3. Write `me.json` at the site root with that id (fill in name; add avatar/bio/
-   links if you know them).
+3. Write `me.json` at the site root with that id (fill in name; add avatar/links
+   if you know them).
 4. Add the widget to the HTML, once, before </body>:
 
        <script src="https://den.com/widget.js" data-site="/me.json"></script>

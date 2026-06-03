@@ -9,6 +9,7 @@ import {
   getStats,
   orEmpty,
   togglePin,
+  verifySite,
   type Discovery,
   type InboxNote,
   type Member,
@@ -16,10 +17,10 @@ import {
   type Site,
   type Stats,
 } from "../api";
-import { compact, siteThumb } from "../lib";
+import { compact, host, profileHref, siteThumb } from "../lib";
 import { mockDiscovery, mockFollowing } from "../mockData";
-import { useToast } from "../providers";
-import { Avatar, EyeIcon, HeartIcon, PinIcon, SearchIcon } from "../ui";
+import { useToast, useViewer } from "../providers";
+import { Avatar, Button, EyeIcon, HeartIcon, PinIcon, SearchIcon, Tip, useCopy } from "../ui";
 
 const PIN_LIMIT = 3;
 
@@ -96,14 +97,9 @@ export function Dashboard({ viewer }: { viewer: Member }) {
 
   return (
     <div className="dash">
+      <VerifyNotice viewer={viewer} />
       <header className="dash-head">
-        <div className="dash-you">
-          <Avatar of={viewer} />
-          <div>
-            <h1 className="dash-name">{viewer.name || "You"}</h1>
-            <div className="dash-handle">@{viewer.handle || "you"}</div>
-          </div>
-        </div>
+        <DashYou viewer={viewer} />
         <div className="dash-head-actions">
           <Link className="btn sm" to="/edit">Edit profile</Link>
           {viewer.handle && <a className="btn sm primary" href={`/@${viewer.handle}`}>View profile</a>}
@@ -111,10 +107,10 @@ export function Dashboard({ viewer }: { viewer: Member }) {
       </header>
 
       <div className="stat-row">
-        <Stat n={stats?.views} l="Views" />
-        <Stat n={stats?.followers} l="Followers" />
-        <Stat n={stats?.following} l="Following" />
-        <Stat n={stats?.saved} l="Saved" />
+        <Stat n={stats?.views} l="Views" tip="Times your sites have been opened — every widget impression counts." />
+        <Stat n={stats?.followers} l="Followers" tip="People following you. Your updates show up in their Den feed." />
+        <Stat n={stats?.following} l="Following" tip="Sites you follow. Their new posts appear in your feed." />
+        <Stat n={stats?.saved} l="Saved" tip="Sites you've saved to revisit later — private to you." />
       </div>
 
       <div className="dash-grid">
@@ -156,12 +152,33 @@ export function Dashboard({ viewer }: { viewer: Member }) {
   );
 }
 
-function Stat({ n, l }: { n: number | null | undefined; l: string }) {
+/** The owner's own identity, linking to their public profile. */
+function DashYou({ viewer }: { viewer: Member }) {
+  const inner = (
+    <>
+      <Avatar of={viewer} />
+      <div>
+        <h1 className="dash-name">{viewer.name || "You"}</h1>
+        <div className="dash-handle">@{viewer.handle || "you"}</div>
+      </div>
+    </>
+  );
+  return viewer.handle ? (
+    <a className="dash-you" href={`/@${viewer.handle}`}>{inner}</a>
+  ) : (
+    <div className="dash-you">{inner}</div>
+  );
+}
+
+function Stat({ n, l, tip }: { n: number | null | undefined; l: string; tip: string }) {
   return (
-    <div className="stat">
-      <b>{compact(n)}</b>
-      <span>{l}</span>
-    </div>
+    <Tip label={tip}>
+      {/* tabIndex makes the tile focusable so the tooltip is keyboard-accessible. */}
+      <div className="stat" tabIndex={0}>
+        <b>{compact(n)}</b>
+        <span>{l}</span>
+      </div>
+    </Tip>
   );
 }
 
@@ -178,7 +195,7 @@ function PinnedShelf({ pinned, onUnpin }: { pinned: PinnedSite[]; onUnpin: (s: S
         <div className="pin-cards">
           {pinned.map((site) => (
             <article className="pin-card" key={site.id}>
-              <a className="shot-author" href={site.handle ? `/@${site.handle}` : site.url || "#"}>
+              <a className="shot-author" href={profileHref(site)}>
                 <Avatar of={site} />
                 <span className="shot-name">{site.name}</span>
               </a>
@@ -230,8 +247,8 @@ function SiteCard({
 }: {
   site: Site; index: number; pinned: boolean; canPin: boolean; onPin: (s: Site) => void;
 }) {
-  const profileHref = site.handle ? `/@${site.handle}` : site.url || "#";
-  const siteHref = site.url || profileHref;
+  const profile = profileHref(site);
+  const siteHref = site.url || profile;
   const external = !!site.url;
   return (
     <article className="shot">
@@ -258,7 +275,7 @@ function SiteCard({
         </button>
       )}
       <div className="shot-foot">
-        <a className="shot-author" href={profileHref} aria-label={`${site.name}'s profile`}>
+        <a className="shot-author" href={profile} aria-label={`${site.name}'s profile`}>
           <Avatar of={site} />
           <span className="shot-name">{site.name}</span>
         </a>
@@ -305,10 +322,45 @@ function NoteLine({ note }: { note: InboxNote }) {
   );
 }
 
-function InstallWidget({ viewer }: { viewer: Member }) {
+// A quiet nudge while a linked site is unverified. Verifying re-checks the live
+// site for the widget; if it's not there yet, we point them at the widget card.
+function VerifyNotice({ viewer }: { viewer: Member }) {
+  const { setViewer } = useViewer();
   const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!viewer.url || viewer.verified) return null;
+
+  const verify = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await verifySite();
+      if (r.verified) {
+        setViewer({ ...viewer, verified: true });
+        toast("Verified ✓");
+      } else {
+        toast("Add the Den script to your site, then verify.");
+      }
+    } catch {
+      toast("Couldn't verify — try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="verify-bar">
+      <span>
+        Your site <b>{host(viewer.url)}</b> is <span className="unverified">unverified</span>. Add your widget to claim it.
+      </span>
+      <Button className="sm" loading={busy} onClick={verify}>Verify</Button>
+    </div>
+  );
+}
+
+function InstallWidget({ viewer }: { viewer: Member }) {
   const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^den:/, "")}.js"></script>`;
-  const copy = () => navigator.clipboard.writeText(tag).then(() => toast("Copied"));
+  const { copied, copy } = useCopy(tag);
   return (
     <div className="card dash-widget">
       <div className="card-head">
@@ -317,7 +369,7 @@ function InstallWidget({ viewer }: { viewer: Member }) {
       </div>
       <p>One line — works on any site builder.</p>
       <div className="snippet">{tag}</div>
-      <button className="btn sm pink" onClick={copy}>Copy script</button>
+      <button className="btn sm pink" type="button" onClick={copy}>{copied ? "Copied" : "Copy script"}</button>
     </div>
   );
 }

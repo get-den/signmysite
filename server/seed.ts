@@ -44,18 +44,18 @@ function thumb(title: string, index: number): string {
 }
 
 const members = [
-  { id: "den:you0000000000000", handle: "you", name: "You Example", email: "you@example.com", google_sub: "stub:you@example.com", bio: "curating quiet corners, sharp tools, and websites with taste.", url: "https://you.example" },
-  { id: "den:7f3a9c2e8b1d4f6a", handle: "maya", name: "Maya Chen", bio: "tiny games, dinosaur sketches, and cheerful CSS experiments.", url: "https://maya.example" },
-  { id: "den:1a2b3c4d5e6f7a8b", handle: "leo", name: "Leo Park", bio: "skateboards + stop-motion. currently obsessed with paper shadows.", url: "https://leo.example" },
-  { id: "den:9f8e7d6c5b4a3210", handle: "priya", name: "Priya Nair", bio: "i make weird little synths and browser instruments.", url: "https://priya.example" },
-  { id: "den:abcdef0123456789", handle: "rivera", name: "Mr. Rivera", bio: "7th grade art teacher. i reply to your zines.", url: "https://rivera.example" },
-  { id: "den:aeon000000000001", handle: "aeon", name: "Aeon Atlas", bio: "visual notes on cities, signage, and gentle interfaces.", url: "https://aeon.example" },
-  { id: "den:orbit0000000002", handle: "orbit", name: "Orbit Garden", bio: "a tiny directory of plants, poems, and field recordings.", url: "https://orbit.example" },
-  { id: "den:pixel0000000003", handle: "pixel", name: "Pixel Pantry", bio: "recipes as zines. food photos with a grid habit.", url: "https://pixel.example" },
-  { id: "den:soft00000000004", handle: "softspace", name: "Soft Space", bio: "calm productivity templates and beautiful blank pages.", url: "https://softspace.example" },
-  { id: "den:noon00000000005", handle: "noon", name: "Noon Studio", bio: "one-page portfolio experiments for type lovers.", url: "https://noon.example" },
-  { id: "den:glow00000000006", handle: "glowlog", name: "Glowlog", bio: "daily screenshots from delightful tools and websites.", url: "https://glowlog.example" },
-  { id: "den:fern00000000007", handle: "fern", name: "Fern Club", bio: "garden notes, neighborhood maps, and old web energy.", url: "https://fern.example" },
+  { id: "den:you0000000000000", handle: "you", name: "You Example", email: "you@example.com", google_sub: "stub:you@example.com", url: "https://you.example" },
+  { id: "den:7f3a9c2e8b1d4f6a", handle: "maya", name: "Maya Chen", url: "https://maya.example" },
+  { id: "den:1a2b3c4d5e6f7a8b", handle: "leo", name: "Leo Park", url: "https://leo.example" },
+  { id: "den:9f8e7d6c5b4a3210", handle: "priya", name: "Priya Nair", url: "https://priya.example" },
+  { id: "den:abcdef0123456789", handle: "rivera", name: "Mr. Rivera", url: "https://rivera.example" },
+  { id: "den:aeon000000000001", handle: "aeon", name: "Aeon Atlas", url: "https://aeon.example" },
+  { id: "den:orbit0000000002", handle: "orbit", name: "Orbit Garden", url: "https://orbit.example" },
+  { id: "den:pixel0000000003", handle: "pixel", name: "Pixel Pantry", url: "https://pixel.example" },
+  { id: "den:soft00000000004", handle: "softspace", name: "Soft Space", url: "https://softspace.example" },
+  { id: "den:noon00000000005", handle: "noon", name: "Noon Studio", url: "https://noon.example" },
+  { id: "den:glow00000000006", handle: "glowlog", name: "Glowlog", url: "https://glowlog.example" },
+  { id: "den:fern00000000007", handle: "fern", name: "Fern Club", url: "https://fern.example" },
 ];
 
 const edges: [string, string, string][] = [
@@ -109,11 +109,16 @@ for (const [index, member] of members.entries()) {
     ...member,
     avatar: avatar(member.name, index),
   });
-  await db.updateMember(created.id, {
-    views: 900 + index * 1370,
+  await db.updateMember(created.id, { views: 900 + index * 1370 });
+  // Seed an initial version: sets the live thumbnail + last_edited (staggered so
+  // the "freshest" sites sort to the top of the demo feed).
+  const capturedAt = new Date(Date.now() - index * 36 * 60 * 60 * 1000).toISOString();
+  await db.recordSnapshot(created.id, {
+    hash: "seed-" + created.id,
     thumbnail: thumb(member.name, index),
-    last_edited: new Date(Date.now() - index * 36 * 60 * 60 * 1000).toISOString(),
-  });
+    title: member.name,
+    excerpt: null,
+  }, capturedAt);
 }
 for (const [follower, target, rel] of edges) await db.setEdge(follower, target, rel);
 for (const [member, target] of saves) await db.setSave(member, target);

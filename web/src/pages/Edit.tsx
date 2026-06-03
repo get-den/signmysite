@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { ApiError, updateProfile } from "../api";
+import { useRef, useState } from "react";
+import { ApiError, updateProfile, uploadAvatar } from "../api";
+import { squareImage } from "../lib";
+import { Avatar, Button } from "../ui";
 import { useToast, useViewer } from "../providers";
 
 // After saving (or cancelling) we return to your public profile at /@handle,
@@ -15,20 +17,42 @@ export function Edit() {
     handle: viewer?.handle ?? "",
     url: viewer?.url ?? "",
     avatar: viewer?.avatar ?? "",
-    bio: viewer?.bio ?? "",
   });
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   if (!viewer) return null;
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // Upload happens immediately (not on Save): resize on a canvas, POST the bytes,
+  // then swap in the returned cacheable URL. We merge it onto the viewer rather
+  // than replacing the object — so we don't drop fields the upload omits (onboarded).
+  async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked after a failure
+    if (!file || !viewer) return; // narrow viewer for the merge below
+    setUploading(true);
+    setStatus("");
+    try {
+      const updated = await uploadAvatar(await squareImage(file));
+      setForm((f) => ({ ...f, avatar: updated.avatar ?? "" }));
+      setViewer({ ...viewer, avatar: updated.avatar ?? null });
+      toast("Photo updated");
+    } catch {
+      setStatus("Couldn't upload that image — try a JPEG, PNG, or WebP.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setStatus("Saving…");
+    setStatus("");
     try {
       const updated = await updateProfile(form);
       setViewer(updated);
@@ -41,28 +65,34 @@ export function Edit() {
   }
 
   return (
-    <>
+    <div className="narrow">
       <h2 className="section">Edit profile</h2>
       <form onSubmit={save}>
         <Field label="Name" value={form.name} onChange={set("name")} />
         <Field label="Handle" value={form.handle} onChange={set("handle")} />
         <Field label="Your site URL" value={form.url} onChange={set("url")} placeholder="https://you.example" />
-        <Field label="Avatar image URL" value={form.avatar} onChange={set("avatar")} placeholder="https://…/me.jpg" />
         <div className="field">
-          <label htmlFor="bio">Bio</label>
-          <textarea id="bio" value={form.bio} onChange={set("bio")} />
+          <label>Photo</label>
+          <div className="avatar-edit">
+            <Avatar of={{ name: form.name, handle: form.handle, avatar: form.avatar }} />
+            <div className="avatar-edit-actions">
+              <Button className="sm" loading={uploading} onClick={() => fileRef.current?.click()}>
+                {form.avatar ? "Change photo" : "Upload photo"}
+              </Button>
+              <span className="hint">A square photo works best — JPEG, PNG, or WebP.</span>
+            </div>
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pickAvatar} />
+          </div>
         </div>
         <div className="row">
-          <button className="btn primary" type="submit" disabled={saving}>
-            Save
-          </button>
+          <Button className="primary" type="submit" loading={saving}>Save</Button>
           <a className="btn" href={profilePath(viewer.handle)}>
             Cancel
           </a>
           <span className="formerr">{status}</span>
         </div>
       </form>
-    </>
+    </div>
   );
 }
 
