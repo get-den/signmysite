@@ -62,7 +62,7 @@ a:hover { text-decoration: underline; text-underline-offset: 4px; }
   color: var(--white);
   font-size: 17px;
   font-weight: 900;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
 }
 .brand:hover { text-decoration: none; transform: translateY(-1px); }
 .top nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -129,7 +129,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   color: var(--ink);
   font-size: clamp(46px, 8vw, 92px);
   line-height: .92;
-  letter-spacing: -0.075em;
+  letter-spacing: -0.02em;
   font-weight: 900;
 }
 .hero p {
@@ -168,7 +168,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   color: var(--ink);
   font-size: clamp(38px, 5.6vw, 74px);
   line-height: .94;
-  letter-spacing: -0.07em;
+  letter-spacing: -0.02em;
   font-weight: 900;
 }
 .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
@@ -180,7 +180,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   gap: 18px;
 }
 .profile-card .avatar { width: 88px; height: 88px; font-size: 30px; }
-.profile-name { color: var(--ink); font-size: 28px; font-weight: 900; letter-spacing: -0.04em; }
+.profile-name { color: var(--ink); font-size: 28px; font-weight: 900; letter-spacing: -0.02em; }
 .profile-handle { color: var(--muted); font-weight: 700; }
 .mini-stats {
   margin-top: auto;
@@ -193,7 +193,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   border-radius: 20px;
   background: var(--surface-2);
 }
-.mini-stats b { display: block; color: var(--ink); font-size: 24px; line-height: 1; letter-spacing: -0.05em; }
+.mini-stats b { display: block; color: var(--ink); font-size: 24px; line-height: 1; letter-spacing: -0.02em; }
 .mini-stats span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
 
 .workspace {
@@ -215,7 +215,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   color: var(--ink);
   font-size: 26px;
   line-height: 1;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.02em;
   font-weight: 900;
 }
 .tabs {
@@ -279,7 +279,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
 }
 .site-meta .avatar { width: 38px; height: 38px; font-size: 14px; }
 .site-copy { min-width: 0; }
-.site-title { color: var(--ink); font-weight: 900; letter-spacing: -0.025em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-title { color: var(--ink); font-weight: 900; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .site-sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-stats { display: flex; gap: 9px; color: var(--muted); font-size: 13px; font-weight: 800; }
 
@@ -351,7 +351,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   background: var(--surface);
   box-shadow: var(--shadow);
 }
-.pname { color: var(--ink); font-size: 34px; line-height: 1; font-weight: 900; letter-spacing: -0.055em; }
+.pname { color: var(--ink); font-size: 34px; line-height: 1; font-weight: 900; letter-spacing: -0.01em; }
 .phandle, .purl, .pbio, .muted-p { color: var(--muted); }
 .purl { margin-top: 6px; font-weight: 800; }
 .pbio { max-width: 720px; font-size: 17px; line-height: 1.5; }
@@ -372,12 +372,12 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 22px 24px 80px; }
   background: rgba(255,255,255,.68);
   border: 1px solid var(--line);
 }
-h2.section { color: var(--ink); font-size: 28px; line-height: 1; letter-spacing: -0.04em; font-weight: 900; }
+h2.section { color: var(--ink); font-size: 28px; line-height: 1; letter-spacing: -0.02em; font-weight: 900; }
 .section h2, .section-head h2 {
   margin: 0 0 12px;
   color: var(--ink);
   font-size: 18px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.015em;
   font-weight: 900;
   text-transform: none;
 }
