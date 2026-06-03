@@ -6,11 +6,15 @@ follow, save, and explore — without anyone giving up their own site.
 You keep your site. You add one line:
 
 ```html
-<script src="https://den.com/w/YOUR_ID.js"></script>
+<script src="https://den.com/w.js"></script>
 ```
 
 A small badge appears in the corner. Visitors can follow you and leave notes;
 you show up in everyone's graph. That's it.
+
+The generic tag is the safest bootstrap for local/preview installs. After you
+sign in, Den gives you a permanent tag like `https://den.com/w/YOUR_ID.js`;
+use that for production when you can.
 
 ## How it works
 
@@ -23,7 +27,9 @@ you show up in everyone's graph. That's it.
   followers stay attached. Sign in is **Google or email magic link**; no keys,
   no passwords. Built so a kid (and their AI agent) can use it.
 - **Agent-native onboarding.** Vibe-coding your site? Tell your AI agent
-  *"add Den, see den.com/skill.md"* and it pastes the line for you.
+  *"add Den, see den.com/skill.md"* and it pastes the line for you. You only
+  handle Google/email authentication; the agent can replace the generic tag
+  with the permanent one afterward.
 
 ## Run it locally
 

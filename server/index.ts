@@ -17,6 +17,12 @@ app.get("/w/:file{.+\\.js}", (c) => {
   c.header("access-control-allow-origin", "*");
   return c.body(WIDGET);
 });
+app.get("/w.js", (c) => {
+  c.header("content-type", "text/javascript; charset=utf-8");
+  c.header("cache-control", "no-cache");
+  c.header("access-control-allow-origin", "*");
+  return c.body(WIDGET);
+});
 
 // The main site (den.com) is the React SPA built by Vite into web/dist.
 // Its hashed JS/CSS live under /assets; index.html is the SPA shell at /.

@@ -49,7 +49,7 @@ export async function signInWithGoogle(c: Context, p: GoogleProfile, opts: {
 
   const tok = await db.createSession(m.id);
   setCookie(c, opts.cookie, tok, {
-    httpOnly: true, path: "/", maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true, path: "/", maxAge: db.SESSION_TTL_SEC,
     sameSite: opts.secure ? "None" : "Lax", secure: opts.secure,
   });
   return { member: m, token: tok };

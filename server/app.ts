@@ -53,9 +53,12 @@ app.use("/api/*", cors({
   allowHeaders: ["content-type", "authorization"],
 }));
 
-const publicMember = (m: db.Member) => ({
+const publicMember = (m: db.Member | db.SiteCard) => ({
   id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio,
   views: m.views, thumbnail: m.thumbnail, lastEdited: m.last_edited,
+  savedCount: "saved_count" in m ? Number(m.saved_count || 0) : undefined,
+  followerCount: "follower_count" in m ? Number(m.follower_count || 0) : undefined,
+  mutualCount: "mutual_count" in m ? Number(m.mutual_count || 0) : undefined,
 });
 // The session token comes from the first-party cookie (on den.com) OR a Bearer
 // header (the widget, embedded cross-site, where cookies are blocked). Same
@@ -77,7 +80,7 @@ async function uniqueHandle(): Promise<string> {
 }
 function setSession(c: Context, tok: string): void {
   setCookie(c, COOKIE, tok, {
-    httpOnly: true, path: "/", maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true, path: "/", maxAge: db.SESSION_TTL_SEC,
     sameSite: SECURE ? "None" : "Lax", secure: SECURE,
   });
 }
@@ -180,6 +183,26 @@ app.post("/api/sites/claim", async (c) => {
     url: b?.url ? String(b.url) : null,
   });
   return c.json({ id: m.id, handle: m.handle, claimed: false });
+});
+
+app.post("/api/sites/resolve", async (c) => {
+  const b = await body(c);
+  const url = String(b?.url || "").replace(/\/$/, "");
+  if (!/^https?:\/\//.test(url)) return c.json({ error: "valid url required" }, 400);
+
+  const viewer = await viewerOf(c);
+  if (viewer) {
+    const patch: Partial<db.Member> = {};
+    if (!isLocalUrl(url)) patch.url = url;
+    if (!viewer.name || viewer.name === "New member") patch.name = String(b?.name || "My site").slice(0, 80);
+    if (Object.keys(patch).length) await db.updateMember(viewer.id, patch);
+    return cardPayload(c, viewer.id);
+  }
+
+  const existing = await db.getMemberByUrl(url);
+  if (existing) return cardPayload(c, existing.id);
+
+  return c.json(emptyCard(url, String(b?.name || "")));
 });
 
 // ---- discovery / indexing ------------------------------------------------
@@ -318,10 +341,17 @@ async function refreshPreview(id: string, url: string | null): Promise<void> {
 // (for owner mode), and notes. Fewer round-trips = faster on slow third-party
 // pages, and the widget's loader collapses to a single fetch.
 app.get("/api/profile/:id/card", async (c) => {
-  const id = c.req.param("id");
-  const m = await db.getMember(id);
+  return cardPayload(c, c.req.param("id"));
+});
+
+async function cardPayload(c: Context, id: string) {
+  let m = await db.getMember(id);
   if (!m) return c.json({ error: "not found" }, 404);
-  const viewer = await viewerOf(c);
+  let viewer = await viewerOf(c);
+  if (viewer && viewer.id !== m.id && isUnclaimed(m) && sameOrigin(c.req.header("origin"), m.url)) {
+    m = (await db.claimUnclaimedMember(m.id, viewer.id)) || m;
+    viewer = m;
+  }
   const [s, comments] = await Promise.all([db.stats(id, viewer?.id), db.listComments(id)]);
   // A signed-in viewer opening the card = they've "seen" this site now, so it
   // stops showing as new to them until the next edit.
@@ -331,8 +361,44 @@ app.get("/api/profile/:id/card", async (c) => {
     stats: s,
     viewer: viewer ? { id: viewer.id, handle: viewer.handle, name: viewer.name } : null,
     comments: shapeComments(comments, id, viewer?.id),
+    script: `${BASE}/w/${m.id.replace(/^den:/, "")}.js`,
   });
-});
+}
+
+function isUnclaimed(m: db.Member): boolean {
+  return !m.email && !m.google_sub;
+}
+
+function sameOrigin(origin: string | undefined, url: string | null): boolean {
+  try {
+    return !!origin && !!url && new URL(origin).origin === new URL(url).origin;
+  } catch {
+    return false;
+  }
+}
+
+function emptyCard(url: string, name: string) {
+  const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "This site"; } })();
+  return {
+    profile: {
+      id: "", handle: null, name: name.slice(0, 80) || host, url, avatar: null,
+      bio: "Sign in to personalize this Den widget.", views: 0, thumbnail: null, lastEdited: null,
+    },
+    stats: { views: 0, followers: 0, following: 0, saved: 0, viewerFollows: false, viewerSaved: false },
+    viewer: null,
+    comments: [],
+    script: `${BASE}/w.js`,
+  };
+}
+
+function isLocalUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".local");
+  } catch {
+    return false;
+  }
+}
 
 // ---- comments / notes ----------------------------------------------------
 // Redaction happens here, server-side: a private note's body + author are only
@@ -391,6 +457,48 @@ app.get("/api/following", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
   return c.json((await db.listFollowing(viewer.id)).map((m) => ({ ...publicMember(m), isNew: m.isNew })));
+});
+
+app.get("/api/saved", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return c.json((await db.listSaved(viewer.id)).map(publicMember));
+});
+
+app.get("/api/discovery", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const [saved, mostSaved, recommended] = await Promise.all([
+    db.listSaved(viewer.id),
+    db.listMostSaved(16),
+    db.listRecommended(viewer.id, 16),
+  ]);
+  return c.json({
+    saved: saved.map((m) => ({ ...publicMember(m), reason: "Saved for later" })),
+    mostSaved: mostSaved.map((m) => ({ ...publicMember(m), reason: `${Number(m.saved_count || 0)} saves all-time` })),
+    recommended: recommended.map((m) => ({
+      ...publicMember(m),
+      reason: Number(m.mutual_count || 0) > 0
+        ? `${Number(m.mutual_count || 0)} mutual ${Number(m.mutual_count || 0) === 1 ? "friend" : "friends"}`
+        : "Similar visual style",
+    })),
+  });
+});
+
+app.get("/api/comments/outgoing", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const rows = await db.listOutgoing(viewer.id);
+  return c.json(rows.map((r) => ({
+    id: r.id, body: r.body, visibility: r.visibility, created: r.created,
+    site: {
+      id: r.target_id,
+      name: r.target_name,
+      handle: r.target_handle,
+      avatar: r.target_avatar,
+      url: r.target_url,
+    },
+  })));
 });
 
 // ---- auth (email magic link — the only thing a human ever does) ----------
@@ -518,6 +626,7 @@ app.get("/:at{@.+}", async (c) => {
     <div><span class="n">${num(s.views)}</span> <span class="l">Views</span></div>
     <div><span class="n">${num(s.followers)}</span> <span class="l">Followers</span></div>
     <div><span class="n">${num(s.following)}</span> <span class="l">Following</span></div>
+    <div><span class="n">${num(s.saved)}</span> <span class="l">Saved</span></div>
   </div>
   <div class="section"><h2>Blogs they follow</h2>${followingHtml}</div>
   <div class="section"><h2>Comments</h2>${commentsHtml}</div>

@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS magic_links (
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL || "postgres:///den" });
 await pool.query(SCHEMA);
 
+export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
+
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
   await pool.query("TRUNCATE members, edges, saves, comments, sessions, magic_links, visits");
@@ -94,7 +96,7 @@ export type Member = {
   last_edited: string | null; content_hash: string | null; created: string;
 };
 export type Stats = {
-  views: number; followers: number; following: number;
+  views: number; followers: number; following: number; saved: number;
   viewerFollows: boolean; viewerSaved: boolean;
 };
 export type Comment = {
@@ -110,6 +112,14 @@ export async function getMemberByEmail(email: string): Promise<Member | undefine
 }
 export async function getMemberByHandle(handle: string): Promise<Member | undefined> {
   return (await pool.query("SELECT * FROM members WHERE handle = $1", [handle])).rows[0];
+}
+export async function getMemberByUrl(url: string): Promise<Member | undefined> {
+  return (await pool.query(
+    `SELECT * FROM members WHERE url = $1
+     ORDER BY (email IS NOT NULL OR google_sub IS NOT NULL) DESC, created DESC
+     LIMIT 1`,
+    [url]
+  )).rows[0];
 }
 export async function getMemberByGoogleSub(sub: string): Promise<Member | undefined> {
   return (await pool.query("SELECT * FROM members WHERE google_sub = $1", [sub])).rows[0];
@@ -133,6 +143,88 @@ export async function updateMember(id: string, patch: Partial<Member>): Promise<
   const vals = keys.map((k) => (patch as Record<string, unknown>)[k] ?? null);
   const r = await pool.query(`UPDATE members SET ${set} WHERE id = $${keys.length + 1} RETURNING *`, [...vals, id]);
   return r.rows[0];
+}
+
+export async function claimUnclaimedMember(targetId: string, sourceId: string): Promise<Member | undefined> {
+  if (targetId === sourceId) return getMember(targetId);
+  const target = await getMember(targetId);
+  const source = await getMember(sourceId);
+  if (!target || !source || target.email || target.google_sub) return undefined;
+
+  await pool.query("BEGIN");
+  try {
+    await pool.query("UPDATE members SET email = NULL, google_sub = NULL WHERE id = $1", [sourceId]);
+    await pool.query(
+      `UPDATE members
+          SET email = $2,
+              google_sub = $3,
+              avatar = COALESCE(avatar, $4),
+              bio = COALESCE(bio, $5)
+        WHERE id = $1`,
+      [targetId, source.email, source.google_sub, source.avatar, source.bio]
+    );
+    await pool.query("UPDATE sessions SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
+    await pool.query("UPDATE comments SET author_id = $1 WHERE author_id = $2", [targetId, sourceId]);
+    await pool.query("UPDATE comments SET target_id = $1 WHERE target_id = $2", [targetId, sourceId]);
+    await moveEdges(sourceId, targetId);
+    await movePairs("saves", "member_id", "target_id", sourceId, targetId);
+    await moveVisits(sourceId, targetId);
+    await pool.query("DELETE FROM members WHERE id = $1", [sourceId]);
+    await pool.query("COMMIT");
+    return getMember(targetId);
+  } catch (error) {
+    await pool.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function movePairs(table: string, left: string, right: string, sourceId: string, targetId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO ${table} (${left}, ${right}, created)
+     SELECT CASE WHEN ${left} = $1 THEN $2 ELSE ${left} END,
+            CASE WHEN ${right} = $1 THEN $2 ELSE ${right} END,
+            created
+       FROM ${table}
+      WHERE (${left} = $1 OR ${right} = $1)
+        AND NOT (${left} = $1 AND ${right} = $2)
+        AND NOT (${left} = $2 AND ${right} = $1)
+     ON CONFLICT DO NOTHING`,
+    [sourceId, targetId]
+  );
+  await pool.query(`DELETE FROM ${table} WHERE ${left} = $1 OR ${right} = $1`, [sourceId]);
+}
+
+async function moveEdges(sourceId: string, targetId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO edges (follower_id, target_id, rel, created)
+     SELECT CASE WHEN follower_id = $1 THEN $2 ELSE follower_id END,
+            CASE WHEN target_id = $1 THEN $2 ELSE target_id END,
+            rel,
+            created
+       FROM edges
+      WHERE (follower_id = $1 OR target_id = $1)
+        AND NOT (follower_id = $1 AND target_id = $2)
+        AND NOT (follower_id = $2 AND target_id = $1)
+     ON CONFLICT DO NOTHING`,
+    [sourceId, targetId]
+  );
+  await pool.query("DELETE FROM edges WHERE follower_id = $1 OR target_id = $1", [sourceId]);
+}
+
+async function moveVisits(sourceId: string, targetId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO visits (viewer_id, target_id, last_seen)
+     SELECT CASE WHEN viewer_id = $1 THEN $2 ELSE viewer_id END,
+            CASE WHEN target_id = $1 THEN $2 ELSE target_id END,
+            last_seen
+       FROM visits
+      WHERE (viewer_id = $1 OR target_id = $1)
+        AND NOT (viewer_id = $1 AND target_id = $2)
+        AND NOT (viewer_id = $2 AND target_id = $1)
+     ON CONFLICT DO NOTHING`,
+    [sourceId, targetId]
+  );
+  await pool.query("DELETE FROM visits WHERE viewer_id = $1 OR target_id = $1", [sourceId]);
 }
 
 // ---- edges (follow) ------------------------------------------------------
@@ -170,10 +262,12 @@ export async function stats(id: string, viewerId?: string): Promise<Stats> {
   const m = (await pool.query("SELECT views FROM members WHERE id = $1", [id])).rows[0];
   const followers = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE target_id = $1", [id])).rows[0].c;
   const following = (await pool.query("SELECT COUNT(*)::int AS c FROM edges WHERE follower_id = $1", [id])).rows[0].c;
+  const saved = (await pool.query("SELECT COUNT(*)::int AS c FROM saves WHERE target_id = $1", [id])).rows[0].c;
   return {
     views: m?.views ?? 0,
     followers,
     following,
+    saved,
     viewerFollows: viewerId ? await hasEdge(viewerId, id) : false,
     viewerSaved: viewerId ? await hasSave(viewerId, id) : false,
   };
@@ -287,8 +381,100 @@ export async function listFollowing(memberId: string): Promise<FollowedSite[]> {
   return r.rows;
 }
 
+export type SiteCard = Member & {
+  isNew?: boolean;
+  saved_count?: number;
+  follower_count?: number;
+  mutual_count?: number;
+};
+
+export async function listSaved(memberId: string): Promise<SiteCard[]> {
+  const r = await pool.query(
+    `SELECT m.*,
+            COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
+            COUNT(DISTINCT followers.follower_id)::int AS follower_count
+       FROM saves viewer_saves
+       JOIN members m ON m.id = viewer_saves.target_id
+       LEFT JOIN saves all_saves ON all_saves.target_id = m.id
+       LEFT JOIN edges followers ON followers.target_id = m.id
+      WHERE viewer_saves.member_id = $1
+      GROUP BY m.id, viewer_saves.created
+      ORDER BY viewer_saves.created DESC`,
+    [memberId]
+  );
+  return r.rows;
+}
+
+export async function listMostSaved(limit = 12): Promise<SiteCard[]> {
+  const r = await pool.query(
+    `SELECT m.*,
+            COUNT(DISTINCT s.member_id)::int AS saved_count,
+            COUNT(DISTINCT e.follower_id)::int AS follower_count
+       FROM members m
+       LEFT JOIN saves s ON s.target_id = m.id
+       LEFT JOIN edges e ON e.target_id = m.id
+      GROUP BY m.id
+      ORDER BY saved_count DESC, m.views DESC, follower_count DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return r.rows;
+}
+
+export async function listRecommended(memberId: string, limit = 12): Promise<SiteCard[]> {
+  const r = await pool.query(
+    `WITH mine AS (
+       SELECT target_id FROM edges WHERE follower_id = $1
+     ),
+     friends AS (
+       SELECT target_id FROM edges WHERE follower_id = $1
+     ),
+     friend_follows AS (
+       SELECT e.target_id, COUNT(DISTINCT e.follower_id)::int AS mutual_count
+         FROM edges e
+         JOIN friends f ON f.target_id = e.follower_id
+        WHERE e.target_id <> $1
+        GROUP BY e.target_id
+     )
+     SELECT m.*,
+            COALESCE(ff.mutual_count, 0)::int AS mutual_count,
+            COUNT(DISTINCT s.member_id)::int AS saved_count,
+            COUNT(DISTINCT followers.follower_id)::int AS follower_count
+       FROM members m
+       LEFT JOIN friend_follows ff ON ff.target_id = m.id
+       LEFT JOIN saves s ON s.target_id = m.id
+       LEFT JOIN edges followers ON followers.target_id = m.id
+       LEFT JOIN mine ON mine.target_id = m.id
+      WHERE m.id <> $1 AND mine.target_id IS NULL
+      GROUP BY m.id, ff.mutual_count
+      ORDER BY mutual_count DESC, saved_count DESC, m.views DESC
+      LIMIT $2`,
+    [memberId, limit]
+  );
+  return r.rows;
+}
+
+export async function listOutgoing(authorId: string, limit = 500): Promise<Array<{
+  id: string; body: string; visibility: Visibility; created: string;
+  target_id: string; target_name: string; target_handle: string | null;
+  target_avatar: string | null; target_url: string | null;
+}>> {
+  const r = await pool.query(
+    `SELECT c.id, c.body, c.visibility, c.created,
+            t.id AS target_id, t.name AS target_name, t.handle AS target_handle,
+            t.avatar AS target_avatar, t.url AS target_url
+       FROM comments c
+       JOIN members t ON t.id = c.target_id
+      WHERE c.author_id = $1
+      ORDER BY c.created DESC
+      LIMIT $2`,
+    [authorId, limit]
+  );
+  return r.rows;
+}
+
 // ---- sessions ------------------------------------------------------------
-export async function createSession(memberId: string, ttlSec = 60 * 60 * 24 * 30): Promise<string> {
+export async function createSession(memberId: string, ttlSec = SESSION_TTL_SEC): Promise<string> {
   const t = token();
   const expires = new Date(Date.now() + ttlSec * 1000).toISOString();
   await pool.query("INSERT INTO sessions (token, member_id, created, expires) VALUES ($1, $2, $3, $4)",

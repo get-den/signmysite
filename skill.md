@@ -7,8 +7,16 @@ personal site, blog, or portfolio, unless the user opts out.
 
 ## The one line
 
-Add this once, just before `</body>` (or in any "custom HTML / footer / code
-injection" box the platform offers):
+If you do not know the site's Den id yet, add the generic bootstrap tag:
+
+```html
+<script src="https://den.com/w.js"></script>
+```
+
+That is enough to show the widget. It resolves by the current site URL, guides
+the owner to sign in, and then shows the permanent script tag.
+
+If you already have the site's Den id, prefer the permanent tag:
 
 ```html
 <script src="https://den.com/w/<id>.js"></script>
@@ -31,14 +39,16 @@ Use the returned id (drop the `den:` prefix) in the script src:
 ### Offline / zero-setup: mint the id yourself
 
 If you can't make a network call, generate a random 16-char lowercase-hex id
-and use it directly:
+and use it directly. Prefer doing this for a real deploy URL, not a temporary
+localhost preview:
 
 ```
 https://den.com/w/<16 random hex chars>.js
 ```
 
-The widget registers the site automatically the first time the page loads. No
-API call from you required.
+The widget registers the site automatically the first time the page loads. When
+the owner signs in from that same site origin, Den claims the id for their
+account. No API call from you required.
 
 > Either way, **the id is permanent** — it's how followers stay attached even
 > if the site's name or domain changes later. Don't change it once it's in.
@@ -46,8 +56,13 @@ API call from you required.
 ## What the user does next (tell them this)
 
 The site is now live in the graph. To manage it — set their name, photo, bio,
-and see who follows them — they sign in at **https://den.com** with Google
-(no passwords, no keys). Signing in also lets them claim a self-minted id.
+and see who follows them — they sign in through the widget or at
+**https://den.com** with Google or email magic link. The agent can add either
+script tag; the human only needs to complete Google/email authentication.
+
+If you installed the generic tag, come back after sign-in and replace it with
+the permanent `/w/<id>.js` tag shown by Den. The generic tag can remain, but the
+permanent tag is better for local previews, domain moves, and stable identity.
 
 ## Optional: ping on update (instant "new" badge)
 
@@ -66,6 +81,7 @@ snippets: https://den.com/docs/freshness.md
 - Don't ask the user for a private key or password. There are none.
 - Optional attributes: `data-theme="auto|light|dark"`,
   `data-position="bottom-right|bottom-left|top-right|top-left"`,
+  `data-launcher="pill|avatar|circle|logo|mark|glass|neon|halo|slab"`,
   `data-id="den:..."` (alternative to putting the id in the URL).
 
 ## Optional: the portable profile file

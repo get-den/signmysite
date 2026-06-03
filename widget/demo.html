@@ -35,7 +35,13 @@
     can't upload one (Squarespace, Wix).
   </div>
 
-  <!-- The one line a site pastes. The id is in the URL; nothing else needed. -->
-  <script src="/w/7f3a9c2e8b1d4f6a.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const tag = document.createElement("script");
+    tag.src = "/w/7f3a9c2e8b1d4f6a.js";
+    if (params.has("launcher")) tag.dataset.launcher = params.get("launcher");
+    if (params.has("collapsed")) tag.dataset.collapsed = params.get("collapsed");
+    document.body.append(tag);
+  </script>
 </body>
 </html>

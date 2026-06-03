@@ -13,16 +13,31 @@ export type Member = {
   views: number;
 };
 
-/** A followed/saved site. `isNew` (when the API provides it) flags a site
- *  edited since you last opened it — drives the "updated" dot. */
-export type Site = Member & { isNew?: boolean };
+/** A followed/saved/discovered site card. */
+export type Site = Member & {
+  isNew?: boolean;
+  thumbnail?: string | null;
+  lastEdited?: string | null;
+  savedCount?: number;
+  followerCount?: number;
+  mutualCount?: number;
+  reason?: string;
+  tags?: string[];
+};
 
 export type Stats = {
   views: number;
   followers: number;
   following: number;
+  saved: number;
   viewerFollows: boolean;
   viewerSaved: boolean;
+};
+
+export type Discovery = {
+  saved: Site[];
+  mostSaved: Site[];
+  recommended: Site[];
 };
 
 export type NoteAuthor = {
@@ -90,9 +105,6 @@ export const updateProfile = (patch: ProfilePatch) =>
   req<Member>("/api/profile", { method: "PATCH", ...jsonBody(patch) });
 export const logout = () => req<{ ok: true }>("/api/logout", { method: "POST" });
 
-// --- Pending backend (see note in PR): these endpoints don't exist yet. ----
-// `getSaved` mirrors `getFollowing` (publicMember[]); `getOutgoing` is the
-// author-side of comments. Wired now so the UI lights up the moment they ship;
-// callers wrap with orEmpty() so a 404 just shows an empty state.
 export const getSaved = () => req<Site[]>("/api/saved");
+export const getDiscovery = () => req<Discovery>("/api/discovery");
 export const getOutgoing = () => req<OutgoingNote[]>("/api/comments/outgoing");

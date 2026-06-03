@@ -17,6 +17,9 @@ talks to the API on the same origin. Sign-in is by email magic link; with no
 mailer configured the link is printed to the server console and returned as
 `dev_link` so you can complete it locally.
 
+The generic install tag is `http://localhost:8787/w.js`; permanent member tags
+use `/w/<id>.js`. Launcher variants are visible at `/widget/launcher-gallery.html`.
+
 ## Layout
 
 | File | Role |

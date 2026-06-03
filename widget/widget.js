@@ -1,411 +1,327 @@
-/*
- * Den widget — a floating profile + follow + notes badge for any personal site.
- *
- * Paste ONE line, anywhere (footer, header, HTML block). Works on Squarespace,
- * WordPress, Wix, Substack, Ghost, Jekyll, Lovable, Framer, hand-written HTML —
- * static or live — because a <script> tag is the only thing every platform
- * allows.
- *
- *   <script src="https://den.com/w/7f3a9c2e8b1d4f6a.js"></script>
- *
- * Everything it needs rides in on that one URL: the code, the API origin, and
- * whose badge this is (the id in the path). data-id="den:..." also works.
- *
- * Vanilla, zero dependencies, ~7KB gzipped. Mounts in a shadow DOM so it never
- * touches the host page's CSS. The whole card loads in ONE request (/card).
- */
 (function () {
   "use strict";
 
   if (window.__denWidget) return;
   window.__denWidget = true;
 
-  var script = document.currentScript ||
-    (function () {
-      var all = document.querySelectorAll('script[data-id],script[src*="/w/"]');
-      return all[all.length - 1] || null;
-    })();
+  var script = document.currentScript || document.querySelector('script[src*="/w/"],script[data-id]');
   if (!script) return;
 
-  var srcOrigin = "";
-  try { srcOrigin = new URL(script.src).origin; } catch (e) {}
+  var origin = "";
+  try { origin = new URL(script.src).origin; } catch (_) {}
 
   var cfg = {
-    id: resolveId(script),
-    api: (script.getAttribute("data-api") || srcOrigin || "https://den.com").replace(/\/$/, ""),
-    theme: script.getAttribute("data-theme") || "auto",     // auto | light | dark
+    id: idOf(script),
+    api: (script.getAttribute("data-api") || origin || "https://den.com").replace(/\/$/, ""),
+    theme: script.getAttribute("data-theme") || "light",
     position: script.getAttribute("data-position") || "bottom-right",
+    launcher: script.getAttribute("data-launcher") || "pill",
+    collapsed: script.getAttribute("data-collapsed") === "true",
   };
-  if (!cfg.id) {
-    console.warn("[den] no id — use src '.../w/<id>.js' or data-id='den:...'");
-    return;
-  }
+  cfg.generic = !cfg.id;
 
-  var DRAFT_KEY = "den_draft_" + cfg.id;  // a note survives a full page navigation
-  var TOKEN_KEY = "den_token";            // first-party session token (see authHeaders)
-  var el, card = null;                    // card = latest {profile,stats,viewer,comments}
-  var isPrivate = false, busy = false, viewed = false;
+  var card, ui, busy = false, viewed = false, isPrivate = false;
+  var draftKey = "den_draft_" + cfg.id;
+  var tokenKey = "den_token";
 
-  if (document.body) start();
-  else document.addEventListener("DOMContentLoaded", start);
+  ready(start);
 
   function start() {
     var host = document.createElement("div");
-    host.setAttribute("data-den-widget", "");
     var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+    host.setAttribute("data-den-widget", "");
     document.body.appendChild(host);
-    root.appendChild(style());
-    el = render();
-    root.appendChild(el.wrap);
-    el.remove = function () { host.remove(); };
+    root.innerHTML = style() + html(cfg);
+    ui = map(root);
 
-    // The sign-in popup messages us when done → store token, reload the card,
-    // then auto-post the note the visitor was writing before we sent them off.
+    ui.open.onclick = function () { open(true); };
+    ui.close.onclick = function () { open(false); };
+    ui.follow.onclick = function () { toggle("/api/follow", ui.follow); };
+    ui.save.onclick = function () { toggle("/api/save", ui.save); };
+    ui.private.onclick = function () { isPrivate = !isPrivate; paintPrivate(); ui.input.focus(); };
+    ui.send.onclick = submit;
+    ui.input.oninput = function () { ui.input.value.trim() ? saveDraft() : store(draftKey, ""); };
+    ui.input.onkeydown = function (e) { if (e.key === "Enter") submit(); };
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
     window.addEventListener("message", function (e) {
-      if (e && e.data && e.data.den === "signed-in") {
-        setStore(TOKEN_KEY, e.data.token || "");
-        load().then(postPendingDraft);
+      if (e.data && e.data.den === "signed-in") {
+        store(tokenKey, e.data.token || "");
+        load().then(postDraft);
       }
     });
+
     restoreDraft();
+    open(!cfg.collapsed);
     load();
   }
 
-  // ---- data: one request loads everything ----------------------------------
   async function load() {
-    var data;
     try {
-      data = await getJSON("/api/profile/" + enc(cfg.id) + "/card");
+      card = cfg.id
+        ? await api("/api/profile/" + enc(cfg.id) + "/card")
+        : await api("/api/sites/resolve", { url: location.origin, name: document.title || "" });
     } catch (e) {
-      if (e.status !== 404) { console.warn("[den] load failed", e); return el.remove(); }
-      // Unknown id (a self-minted tag) → claim it, then retry once.
+      if (e.status !== 404) return fail();
+      if (!cfg.id) return fail();
       try {
-        await postJSON("/api/sites/claim", { id: cfg.id, url: location.origin, name: document.title || "" });
-        data = await getJSON("/api/profile/" + enc(cfg.id) + "/card");
-      } catch (e2) { console.warn("[den] claim failed", e2); return el.remove(); }
+        await api("/api/sites/claim", { id: cfg.id, url: location.origin, name: document.title || "" });
+        card = await api("/api/profile/" + enc(cfg.id) + "/card");
+      } catch (_) { return fail(); }
     }
-    card = data;
+    cfg.id = (card.profile && card.profile.id) || cfg.id;
     paint();
-    countView();
+    if (cfg.id && !viewed) {
+      viewed = true;
+      api("/api/profile/" + enc(cfg.id) + "/view", {}).catch(function () {});
+    }
   }
 
-  async function countView() {
-    if (viewed) return;
-    viewed = true;
-    try { await postJSON("/api/profile/" + enc(cfg.id) + "/view", {}); } catch (e) {}
-  }
-
-  // ---- actions -------------------------------------------------------------
-  async function toggleFollow() {
+  async function toggle(path, button) {
     if (busy) return;
+    if (!cfg.id) return signIn();
     busy = true;
     try {
-      var s = await postJSON("/api/follow", { id: cfg.id });
-      card.stats = s; paintStats();
+      card.stats = await api(path, { id: cfg.id });
+      ui.status.textContent = "";
+      paintStats();
     } catch (e) {
-      if (e.status === 401) signIn(); else flash(el.follow, "try again");
+      e.status === 401 ? signIn() : flash(button);
     } finally { busy = false; }
   }
 
-  // Send a note. If not signed in, the draft is saved first, then auth opens —
-  // postPendingDraft() finishes the job when the popup reports back.
-  async function submitNote() {
-    var text = el.input.value.trim();
-    if (!text || busy) return;
-    saveDraft(text);
+  async function submit() {
+    var body = ui.input.value.trim();
+    if (!body || busy) return;
+    saveDraft();
     if (!card || !card.viewer) return signIn();
-    await postNote(text, isPrivate);
+    await postNote(body, isPrivate);
   }
-  async function postNote(text, priv) {
+
+  async function postNote(body, priv) {
     busy = true;
     try {
-      card.comments = await postJSON("/api/profile/" + enc(cfg.id) + "/comments",
-        { body: text, visibility: priv ? "private" : "public" });
-      clearDraft(); el.input.value = ""; closeComposer(); paintComments();
+      card.comments = await api("/api/profile/" + enc(cfg.id) + "/comments", {
+        body: body,
+        visibility: priv ? "private" : "public",
+      });
+      ui.input.value = "";
+      store(draftKey, "");
+      paintNotes();
     } catch (e) {
-      if (e.status === 401) signIn(); else flash(el.send, "!");
+      e.status === 401 ? signIn() : flash(ui.send);
     } finally { busy = false; }
   }
-  async function postPendingDraft() {
-    var d = readDraft();
-    if (d && d.text && card && card.viewer) await postNote(d.text, d.priv);
+
+  function paint() {
+    var p = card.profile || {};
+    var owner = card.viewer && card.viewer.id === cfg.id;
+    var href = p.url || profileUrl(p);
+
+    ui.name.textContent = p.name || p.handle || "Someone";
+    ui.name.href = href;
+    ui.name.target = p.url ? "_blank" : "_self";
+    ui.name.rel = "noopener";
+    ui.bio.textContent = p.bio || "A personal site on Den.";
+    if (ui.pillName) ui.pillName.textContent = p.name || p.handle || "Den";
+    avatar(ui.avatar, p);
+    avatar(ui.pillAvatar, p);
+    ui.follow.hidden = owner;
+    ui.save.hidden = owner;
+    ui.status.textContent = cfg.generic
+      ? card.viewer
+        ? "Connected. Permanent tag: " + card.script
+        : "Generic tag active. Sign in to personalize."
+      : "";
+    paintStats();
+    paintNotes();
+    paintCount();
+  }
+
+  function paintStats() {
+    var s = card.stats || {};
+    [["views", "views"], ["followers", "followers"], ["following", "following"], ["saved", "saved"]]
+      .forEach(function (x) { ui[x[0]].textContent = compact(s[x[1]]); });
+
+    ui.follow.textContent = s.viewerFollows ? "Following" : "Follow";
+    ui.follow.classList.toggle("on", !!s.viewerFollows);
+    ui.save.classList.toggle("on", !!s.viewerSaved);
+    ui.save.setAttribute("aria-label", s.viewerSaved ? "Unsave this site" : "Save this site");
+
+    var base = profileUrl(card.profile || {});
+    ["views", "followers", "following", "saved"].forEach(function (k) {
+      ui[k + "Link"].href = base + "#" + k;
+    });
+  }
+
+  function paintNotes() {
+    ui.notes.textContent = "";
+    var items = (card.comments || []).slice(-4).reverse();
+    paintCount();
+    if (!items.length) return ui.notes.append(node("div", "empty", "Be the first to leave a note."));
+    items.forEach(function (n) { ui.notes.append(note(n)); });
+  }
+
+  function paintCount() {
+    if (ui.count) ui.count.textContent = compact((card && card.comments && card.comments.length) || 3);
+  }
+
+  function note(n) {
+    var a = n.redacted ? {} : n.author || {};
+    var row = node("div", "note");
+    var av = node("span", "note-av" + (n.redacted ? " private-av" : ""), n.redacted ? "✉" : "");
+    var copy = node("div", "note-copy");
+    var line = node("div", "note-line");
+
+    if (!n.redacted) avatar(av, a);
+    line.append(n.redacted ? node("b", "", "Someone") : author(a));
+    line.append(document.createTextNode(n.redacted ? " left a private note" : ""));
+    if (!n.redacted && n.visibility === "private") line.append(node("span", "badge", "private"));
+    copy.append(line);
+    if (!n.redacted && n.body) copy.append(node("p", "", n.body));
+    row.append(av, copy);
+    return row;
+  }
+
+  function author(a) {
+    if (!a.url) return node("b", "", a.name || "Someone");
+    var link = node("a", "author", a.name || "Someone");
+    link.href = a.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    return link;
+  }
+
+  function paintPrivate() {
+    ui.private.classList.toggle("on", isPrivate);
+    ui.private.setAttribute("aria-pressed", String(isPrivate));
+    ui.input.placeholder = isPrivate ? "Leave a private note…" : "Leave a note…";
+  }
+
+  function saveDraft() {
+    store(draftKey, JSON.stringify({ text: ui.input.value.trim(), priv: isPrivate }));
+  }
+  function restoreDraft() {
+    var draft = readDraft();
+    if (!draft) return;
+    ui.input.value = draft.text || "";
+    isPrivate = !!draft.priv;
+    paintPrivate();
+  }
+  function readDraft() {
+    try { return JSON.parse(store(draftKey) || "null"); } catch (_) { return null; }
+  }
+  function postDraft() {
+    var draft = readDraft();
+    if (draft && draft.text && card && card.viewer) return postNote(draft.text, draft.priv);
   }
 
   function signIn() {
-    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href),
-      "den-auth", "width=420,height=560");
+    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href), "den-auth", "width=420,height=560");
+  }
+  function fail() {
+    ui.status.textContent = "Couldn’t load Den.";
+  }
+  function open(on) {
+    ui.wrap.classList.toggle("open", on);
+    ui.open.setAttribute("aria-expanded", String(on));
   }
 
-  // ---- draft persistence ---------------------------------------------------
-  function saveDraft(text) { setStore(DRAFT_KEY, JSON.stringify({ text: text, priv: isPrivate })); }
-  function readDraft() { try { return JSON.parse(getStore(DRAFT_KEY) || "null"); } catch (e) { return null; } }
-  function clearDraft() { setStore(DRAFT_KEY, ""); }
-  function restoreDraft() {
-    var d = readDraft();
-    if (d && d.text) { el.input.value = d.text; isPrivate = !!d.priv; openComposer(); paintToggle(); }
+  function api(path, body) {
+    var headers = {};
+    var token = store(tokenKey);
+    if (token) headers.authorization = "Bearer " + token;
+    if (body) headers["content-type"] = "application/json";
+    return fetch(cfg.api + path, {
+      method: body ? "POST" : "GET",
+      headers: headers,
+      credentials: "include",
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (r) {
+      if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
+      return r.json();
+    });
   }
 
-  // ---- paint ---------------------------------------------------------------
-  function paint() {
-    var p = (card && card.profile) || {};
-    el.name.textContent = p.name || p.handle || "Someone";
-    setAvatar(el.avatar, p);
-    setAvatar(el.pillAvatar, p);
-    var isOwner = !!(card && card.viewer && card.viewer.id === cfg.id);
-    el.follow.style.display = isOwner ? "none" : "";
-    paintStats();
-    paintComments();
+  function html(c) {
+    return '<div class="den ' + c.position + ' ' + c.theme + ' launcher-' + c.launcher + '">' +
+      '<section class="card" role="dialog" aria-label="Den profile card">' +
+        '<button class="x" aria-label="Collapse Den card">×</button><div class="top">' +
+          '<div class="avatar"></div><div class="actions"><button class="save" aria-label="Save this site">⌑</button><button class="follow">Follow</button></div>' +
+        '</div><a class="name"></a><p class="bio"></p><nav class="stats">' +
+          stat("views", "Views") + stat("followers", "Followers") + stat("following", "Following") + stat("saved", "Saved") +
+        '</nav><div class="notes-head"><b>Notes</b><span>Public and private replies</span></div><div class="notes"></div><div class="status"></div>' +
+        '<div class="composer"><input class="input" aria-label="Leave a note" placeholder="Leave a note…"><button class="private" aria-pressed="false">Private</button><button class="send" aria-label="Send note">+</button></div>' +
+      "</section>" + launcher(c.launcher) + "</div>";
   }
-  function paintStats() {
-    var s = card && card.stats;
-    el.views.textContent = s ? compact(s.views) : "–";
-    el.followers.textContent = s ? compact(s.followers) : "–";
-    var following = !!(s && s.viewerFollows);
-    el.follow.textContent = following ? "Following" : "Follow";
-    el.follow.classList.toggle("on", following);
+  function launcher(kind) {
+    var avatar = '<span class="pill-avatar"></span>';
+    var name = '<span class="pill-name">Den</span>';
+    var logo = '<span class="logo">den</span>';
+    var star = '<span class="logo">✦</span>';
+    var inner = {
+      avatar: avatar,
+      circle: avatar,
+      logo: logo,
+      mark: star,
+      glass: avatar + name,
+      neon: avatar + name,
+      halo: avatar,
+      slab: logo + name,
+      pill: avatar + name,
+    }[kind] || avatar + name;
+    return '<button class="launcher" aria-label="Open Den card" aria-expanded="false">' + inner + '<span class="notif">3</span></button>';
   }
-  function paintComments() {
-    var list = el.comments;
-    clear(list);
-    var items = (card && card.comments) || [];
-    if (!items.length) return list.append(h("div", "den-empty", "No notes yet — leave one."));
-    items.forEach(function (c) { list.append(noteEl(c)); });
+  function stat(key, label) {
+    return '<a class="' + key + '-link stat"><b class="' + key + '">–</b><span>' + label + "</span></a>";
   }
-  function noteEl(c) {
-    var row = h("div", "den-note");
-    var head = h("div", "den-nhead");
-    var a = c.redacted ? null : (c.author || {});
-    var av = h("span", "den-navatar" + (c.redacted ? " den-lock" : ""), c.redacted ? "✉" : null);
-    if (!c.redacted) setAvatar(av, a);
-    var who = h("span", "den-nwho");
-    if (c.redacted) {
-      who.append(h("b", "", "Someone"), document.createTextNode(" left a private note"));
-    } else {
-      who.append(h("b", "", a.name || "Someone"));
-      if (a.url) who.append(" ", link("(" + hostOf(a.url) + ")", a.url));
-      else if (a.handle) who.append(h("span", "den-nblog", " @" + a.handle));
-      if (c.visibility === "private") who.append(h("span", "den-badge", "private"));
-    }
-    head.append(av, who);
-    row.append(head);
-    if (!c.redacted && c.body) row.append(h("div", "den-nbody", c.body));
-    return row;
-  }
-  function paintToggle() {
-    el.toggle.classList.toggle("on", isPrivate);
-    el.toggleLabel.textContent = isPrivate ? "Private" : "Public";
-    el.input.setAttribute("placeholder", isPrivate ? "Leave a private note…" : "Leave a note…");
+  function map(root) {
+    var q = function (s) { return root.querySelector(s); };
+    return {
+      wrap: q(".den"), open: q(".launcher"), close: q(".x"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
+      pillName: q(".pill-name"), count: q(".notif"), save: q(".save"), follow: q(".follow"), name: q(".name"), bio: q(".bio"),
+      notes: q(".notes"), status: q(".status"), input: q(".input"), private: q(".private"), send: q(".send"),
+      views: q(".views"), followers: q(".followers"), following: q(".following"), saved: q(".saved"),
+      viewsLink: q(".views-link"), followersLink: q(".followers-link"), followingLink: q(".following-link"), savedLink: q(".saved-link"),
+    };
   }
 
-  function openComposer() { el.wrap.classList.add("den-compose"); }
-  function closeComposer() { el.wrap.classList.remove("den-compose"); }
-  function open(o) {
-    el.wrap.classList.toggle("den-open", o);
-    el.pill.setAttribute("aria-expanded", String(o));
-    if (!o) closeComposer();
+  function style() {
+    return '<style>' +
+      ':host{all:initial}.den,.den *{box-sizing:border-box}.den{position:fixed;z-index:2147483000;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;--bg:#fff;--ink:#050505;--muted:#767676;--soft:#f4f4f2;--line:#e8e8e5;--shadow:0 24px 80px rgba(0,0,0,.16)}button{font:inherit;-webkit-tap-highlight-color:transparent}' +
+      '.dark{--bg:#161616;--ink:#f6f6f2;--muted:#a0a0a0;--soft:#242424;--line:#333;--shadow:0 24px 80px rgba(0,0,0,.5)}.bottom-right{right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom))}.bottom-left{left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom))}.top-right{right:max(16px,env(safe-area-inset-right));top:max(16px,env(safe-area-inset-top))}.top-left{left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top))}' +
+      '.card{position:relative;width:430px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:34px;box-shadow:var(--shadow);padding:28px;opacity:0;transform:translateY(14px) scale(.97);pointer-events:none;transition:.18s ease}.open .card{opacity:1;transform:none;pointer-events:auto}' +
+      '.launcher{position:absolute;right:0;bottom:0;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:#fff;color:#050505;border-radius:999px;padding:6px 14px 6px 6px;box-shadow:var(--shadow);font:800 14px/1 inherit;cursor:pointer;transition:transform .16s ease}.launcher:hover{transform:translateY(-2px)}.open .launcher{opacity:0;pointer-events:none}.bottom-left .launcher,.top-left .launcher{left:0;right:auto}.top-left .launcher,.top-right .launcher{top:0;bottom:auto}.notif{position:absolute;top:-7px;right:-7px;min-width:22px;height:22px;padding:0 6px;border:2px solid #fff;border-radius:999px;background:#ff2d55;color:#fff;display:grid;place-items:center;font:900 11px/1 inherit}' +
+      '.x{position:absolute;top:18px;right:20px;width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:24px;cursor:pointer}.x:hover,.follow.on,.private{background:var(--soft);color:var(--ink)}.top{display:flex;justify-content:space-between;gap:20px}.avatar,.pill-avatar,.note-av{border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font-weight:900}.avatar{width:98px;height:98px;font-size:34px}.pill-avatar{width:30px;height:30px}.actions{display:flex;gap:10px;margin-top:18px}' +
+      '.logo{display:grid;place-items:center;font-weight:950;letter-spacing:-.06em}.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:66px;height:66px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:52px;height:52px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-logo .launcher,.launcher-mark .launcher{padding:0;background:#000;color:#fff;border-color:#000}.launcher-logo .logo{font-size:17px}.launcher-mark .logo{font-size:26px}.launcher-glass .launcher{background:rgba(255,255,255,.72);backdrop-filter:blur(18px);border-color:rgba(255,255,255,.7)}.launcher-neon .launcher{border-color:#ffd1ef;box-shadow:0 0 0 1px #ffd1ef,0 12px 44px rgba(255,45,133,.28),0 0 38px rgba(117,92,255,.18)}.launcher-halo .launcher{box-shadow:0 0 0 7px rgba(255,45,85,.08),0 20px 70px rgba(0,0,0,.18)}.launcher-slab .launcher{border-radius:18px;padding:9px 16px;background:#050505;color:#fff;border-color:#050505}.launcher-slab .logo{width:26px;height:26px;border-radius:8px;background:#fff;color:#000}.launcher-slab .notif,.launcher-logo .notif,.launcher-mark .notif{border-color:#050505}' +
+      '.save,.follow,.private,.send{border:0;cursor:pointer;font-weight:900}.save{width:56px;height:56px;border-radius:50%;background:var(--soft);border:1px solid var(--line);font-size:24px}.save.on,.follow,.private.on{background:#000;color:#fff;border-color:#000}.follow{height:56px;padding:0 30px;border-radius:999px;font-size:18px}.name{display:inline-block;margin-top:28px;color:var(--ink);font:900 31px/1.05 inherit;letter-spacing:-.04em;text-decoration:none}.name:hover,.stat:hover span{text-decoration:underline;text-underline-offset:5px}.bio{margin:8px 0 0;color:var(--muted);font-weight:600;max-width:32ch}' +
+      '.stats{display:flex;flex-wrap:wrap;gap:18px;margin:22px 0 30px}.stat{color:var(--muted);text-decoration:none;font-size:16px}.stat b{color:var(--ink);margin-right:5px}.notes-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:14px}.notes-head span,.empty,.status{color:var(--muted);font-size:13px}.status{margin-top:10px;overflow-wrap:anywhere}.notes{display:grid;gap:16px}.note{display:flex;gap:13px}.note-av{width:48px;height:48px;flex:0 0 auto}.private-av{background:#b5b8bd;color:#fff}.note-line{font-size:15px}.author,.note-line b{color:var(--ink);font-weight:900;text-decoration:none}.author:hover{text-decoration:underline}.note p{margin:6px 0 0;font-size:15px}.badge{margin-left:7px;border:1px solid var(--line);border-radius:999px;padding:2px 7px;font-size:11px;color:var(--muted)}' +
+      '.composer{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;margin-top:28px;padding:8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 14px 50px rgba(0,0,0,.08)}.input{min-width:0;border:0;background:transparent;color:var(--ink);font:600 16px/1 inherit;padding:13px 12px;outline:none}.private{height:38px;border-radius:999px;padding:0 13px;color:var(--muted);font-size:12px}.send{width:42px;height:42px;border-radius:50%;background:#d7d7d7;color:#fff;font-size:26px}.send:hover{background:#000}' +
+      '@media(max-width:520px){.den{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important}.card{width:auto;max-width:none;max-height:calc(100dvh - 24px);padding:22px;border-radius:28px}.avatar{width:82px;height:82px}.follow,.save{height:50px}.save{width:50px}.stats{gap:12px}.composer{grid-template-columns:1fr auto}.private{display:none}.launcher{right:0;bottom:0}.top{align-items:flex-start}.name{font-size:28px}}' +
+    "</style>";
   }
 
-  // ---- DOM -----------------------------------------------------------------
-  function render() {
-    var wrap = h("div", "den den-" + cfg.position + " den-" + cfg.theme);
-
-    var pill = h("button", "den-pill");
-    pill.setAttribute("aria-label", "Open Den profile");
-    var pillAvatar = h("span", "den-pill-av");
-    pill.append(pillAvatar, h("span", "den-mark", "den"));
-
-    var card = h("div", "den-card");
-    card.setAttribute("role", "dialog");
-
-    var top = h("div", "den-top");
-    var avatar = h("div", "den-av");
-    var follow = h("button", "den-follow", "Follow");
-    follow.onclick = toggleFollow;
-    top.append(avatar, follow);
-
-    var name = h("div", "den-name");
-    var stats = h("div", "den-stats");
-    var views = h("b"), followers = h("b");
-    stats.append(stat(views, "Views"), stat(followers, "Followers"));
-
-    var comments = h("div", "den-notes");
-
-    var composer = h("div", "den-composer");
-    var toggleRow = h("div", "den-trow");
-    var toggle = h("button", "den-toggle"); toggle.type = "button"; toggle.setAttribute("role", "switch");
-    toggle.append(h("span", "den-knob"));
-    var toggleLabel = h("span", "den-tlabel", "Public");
-    toggle.onclick = function () { isPrivate = !isPrivate; paintToggle(); el.input.focus(); };
-    toggleRow.append(toggle, toggleLabel, h("span", "den-thint", "Only the owner sees private notes"));
-
-    var inputRow = h("div", "den-irow");
-    var input = h("input", "den-input");
-    input.setAttribute("placeholder", "Leave a note…");
-    input.setAttribute("aria-label", "Leave a note");
-    input.addEventListener("focus", openComposer);
-    input.addEventListener("keydown", function (e) { if (e.key === "Enter") submitNote(); });
-    var send = h("button", "den-send", "→"); send.setAttribute("aria-label", "Send note");
-    send.onclick = submitNote;
-    inputRow.append(input, send);
-    composer.append(toggleRow, inputRow);
-
-    var close = h("button", "den-x", "×"); close.setAttribute("aria-label", "Close");
-    close.onclick = function () { open(false); };
-
-    card.append(close, top, name, stats, h("div", "den-ntitle", "Notes"), comments, composer);
-    wrap.append(card, pill);
-
-    pill.addEventListener("click", function () { open(true); });
-    wrap.addEventListener("mouseleave", function () { if (!input.value) open(false); });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
-
-    return { wrap: wrap, pill: pill, pillAvatar: pillAvatar, avatar: avatar, follow: follow,
-      name: name, views: views, followers: followers, comments: comments,
-      input: input, send: send, toggle: toggle, toggleLabel: toggleLabel };
-
-    function stat(v, label) { return h("span", "den-stat", null, [v, " ", h("span", "den-stat-l", label)]); }
-  }
-
-  // ---- helpers -------------------------------------------------------------
-  function resolveId(s) {
-    var attr = s.getAttribute("data-id");
-    if (attr) return attr.indexOf("den:") === 0 ? attr : "den:" + attr;
-    try {
-      var m = new URL(s.src).pathname.match(/\/w\/([a-z0-9]+)(?:\.js)?$/i);
-      if (m) return "den:" + m[1];
-    } catch (e) {}
-    return null;
+  function ready(fn) { document.body ? fn() : document.addEventListener("DOMContentLoaded", fn); }
+  function idOf(s) {
+    var id = s.getAttribute("data-id");
+    if (id) return id.indexOf("den:") === 0 ? id : "den:" + id;
+    try { var m = new URL(s.src).pathname.match(/\/w\/([a-z0-9]+)(?:\.js)?$/i); return m && "den:" + m[1]; } catch (_) {}
   }
   function enc(s) { return encodeURIComponent(s); }
-  function getStore(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
-  function setStore(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} }
-  // Bearer token works cross-site (3rd-party cookies are blocked); credentials
-  // cover first-party use on den.com itself.
-  function opts(method, bodyObj) {
-    var headers = {};
-    var t = getStore(TOKEN_KEY);
-    if (t) headers["authorization"] = "Bearer " + t;
-    if (bodyObj !== undefined) headers["content-type"] = "application/json";
-    return { method: method, headers: headers, credentials: "include",
-      body: bodyObj !== undefined ? JSON.stringify(bodyObj) : undefined };
-  }
-  async function getJSON(path) {
-    var r = await fetch(cfg.api + path, opts("GET"));
-    if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
-    return r.json();
-  }
-  async function postJSON(path, bodyObj) {
-    var r = await fetch(cfg.api + path, opts("POST", bodyObj || {}));
-    if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
-    return r.json();
-  }
-  function h(tag, cls, text, kids) {
-    var n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    (kids || []).forEach(function (k) { n.append(k.nodeType ? k : String(k)); });
-    return n;
-  }
-  function link(text, href) {
-    var a = h("a", "den-nblog", text); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a;
-  }
-  function clear(p) { while (p.firstChild) p.removeChild(p.firstChild); }
-  function setAvatar(node, m) {
-    if (m && m.avatar) { node.style.backgroundImage = "url(" + JSON.stringify(String(m.avatar)) + ")"; node.textContent = ""; }
-    else { node.style.backgroundImage = ""; node.textContent = ((m && (m.name || m.handle)) || "?").trim().charAt(0).toUpperCase(); }
+  function profileUrl(p) { return cfg.api + (p.handle ? "/@" + encodeURIComponent(p.handle) : "/"); }
+  function store(k, v) { try { if (arguments.length > 1) return v ? localStorage.setItem(k, v) : localStorage.removeItem(k); return localStorage.getItem(k) || ""; } catch (_) { return ""; } }
+  function node(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function avatar(el, m) {
+    if (!el) return;
+    if (m && m.avatar) { el.style.backgroundImage = "url(" + JSON.stringify(String(m.avatar)) + ")"; el.textContent = ""; }
+    else { el.style.backgroundImage = ""; el.textContent = ((m && (m.name || m.handle)) || "?").trim().charAt(0).toUpperCase(); }
   }
   function compact(n) {
     n = Number(n) || 0;
-    if (n < 1000) return String(n);
-    if (n < 1e6) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K";
-    return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    return n < 1e3 ? String(n) : n < 1e6 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "K" : (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
   }
-  function hostOf(u) { try { return new URL(u).host.replace(/^www\./, ""); } catch (e) { return String(u); } }
-  function flash(node, msg) { var old = node.textContent; node.textContent = msg; setTimeout(function () { node.textContent = old; }, 1200); }
-
-  // ---- styles (Den design system, scoped to the shadow root) ---------------
-  function style() {
-    var s = document.createElement("style");
-    s.textContent = [
-      ":host{all:initial}",
-      ".den{position:fixed;z-index:2147483000;",
-        "font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
-        "--bg:#fff;--title:#282a30;--base:#3c4149;--muted:#6c6a63;--faint:#918e87;",
-        "--line:#e0e1e5;--sub:#f2f0ed;--accent:#6f79d9;--accent-h:#5c68c9;--on-accent:#fff;",
-        "--shadow:0 12px 40px rgba(0,0,0,.16),0 1px 2px rgba(0,0,0,.06)}",
-      ".den-dark{--bg:#1c1c1f;--title:#e6e7eb;--base:#c8c9cf;--muted:#9a9ba3;--faint:#7c7d85;",
-        "--line:#3f3f45;--sub:#2a2a2d;--accent:#6f79d9;--accent-h:#8892e2;--on-accent:#fff;",
-        "--shadow:0 12px 40px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4)}",
-      "@media (prefers-color-scheme:dark){.den-auto{--bg:#1c1c1f;--title:#e6e7eb;--base:#c8c9cf;--muted:#9a9ba3;--faint:#7c7d85;",
-        "--line:#3f3f45;--sub:#2a2a2d;--accent:#6f79d9;--accent-h:#8892e2;--on-accent:#fff;",
-        "--shadow:0 12px 40px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4)}}",
-      ".den-bottom-right{right:20px;bottom:20px}.den-bottom-left{left:20px;bottom:20px}",
-      ".den-top-right{right:20px;top:20px}.den-top-left{left:20px;top:20px}",
-      // pill
-      ".den-pill{display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg);color:var(--title);",
-        "border:.5px solid var(--line);border-radius:999px;padding:5px 14px 5px 5px;",
-        "box-shadow:var(--shadow);transition:transform .12s ease,opacity .12s}",
-      ".den-pill:hover{transform:translateY(-1px)}",
-      ".den-pill-av{width:26px;height:26px;border-radius:50%;background:#e8e6fb center/cover no-repeat;",
-        "display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent)}",
-      ".den-mark{font-weight:700;font-size:13px;letter-spacing:-.02em}",
-      // card
-      ".den-card{position:absolute;width:340px;max-width:88vw;max-height:78vh;display:flex;flex-direction:column;",
-        "background:var(--bg);color:var(--base);border:.5px solid var(--line);border-radius:18px;padding:20px;",
-        "box-shadow:var(--shadow);opacity:0;transform:translateY(8px) scale(.98);transform-origin:bottom right;",
-        "pointer-events:none;transition:opacity .16s ease,transform .16s ease}",
-      ".den-bottom-right .den-card,.den-bottom-left .den-card{bottom:0}",
-      ".den-top-right .den-card,.den-top-left .den-card{top:0}",
-      ".den-bottom-right .den-card,.den-top-right .den-card{right:0}",
-      ".den-bottom-left .den-card,.den-top-left .den-card{left:0}",
-      ".den-open .den-card{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}",
-      ".den-open .den-pill{opacity:0;pointer-events:none}",
-      // top
-      ".den-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}",
-      ".den-av{width:60px;height:60px;border-radius:50%;background:#e8e6fb center/cover no-repeat;",
-        "display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;color:var(--accent)}",
-      ".den-follow{cursor:pointer;border:.5px solid var(--accent);background:var(--accent);color:var(--on-accent);",
-        "font-weight:500;font-size:14px;padding:8px 18px;border-radius:999px;transition:background .12s,transform .1s}",
-      ".den-follow:hover{background:var(--accent-h)}.den-follow:active{transform:scale(.97)}",
-      ".den-follow.on{background:var(--sub);color:var(--base);border-color:var(--line)}",
-      ".den-name{font-size:21px;font-weight:600;letter-spacing:-.01em;color:var(--title);margin:14px 0 8px}",
-      // stats
-      ".den-stats{display:flex;gap:20px}",
-      ".den-stat{font-size:14px;color:var(--muted)}.den-stat b{font-size:15px;font-weight:600;color:var(--title)}",
-      // notes
-      ".den-ntitle{font-weight:600;font-size:13px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 12px}",
-      ".den-notes{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:36px;",
-        "scrollbar-width:thin;scrollbar-color:var(--line) transparent}",
-      ".den-note{margin-bottom:14px}",
-      ".den-nhead{display:flex;align-items:center;gap:10px}",
-      ".den-navatar{width:32px;height:32px;border-radius:50%;background:#e8e6fb center/cover no-repeat;flex:0 0 auto;",
-        "display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--accent)}",
-      ".den-lock{background:var(--sub);color:var(--faint)}",
-      ".den-nwho{font-size:14px;color:var(--title);min-width:0}.den-nwho b{font-weight:600}",
-      ".den-nblog{color:var(--muted);text-decoration:none}.den-nblog:hover{text-decoration:underline}",
-      ".den-badge{margin-left:7px;font-size:11px;color:var(--muted);border:.5px solid var(--line);border-radius:4px;padding:0 6px}",
-      ".den-nbody{margin:5px 0 0 42px;font-size:14px;line-height:1.45;color:var(--base)}",
-      ".den-empty{color:var(--faint);font-size:14px;padding:2px 0 8px}",
-      // composer
-      ".den-composer{margin-top:8px;padding-top:14px;border-top:.5px solid var(--line)}",
-      ".den-trow{display:flex;align-items:center;gap:10px;max-height:0;opacity:0;overflow:hidden;transition:max-height .2s ease,opacity .2s ease,margin .2s ease}",
-      ".den-compose .den-trow{max-height:40px;opacity:1;margin-bottom:10px}",
-      ".den-toggle{position:relative;width:40px;height:23px;border-radius:999px;border:0;cursor:pointer;background:var(--sub);flex:0 0 auto;transition:background .15s}",
-      ".den-toggle.on{background:var(--accent)}",
-      ".den-knob{position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}",
-      ".den-toggle.on .den-knob{transform:translateX(17px)}",
-      ".den-tlabel{font-size:13px;font-weight:600;color:var(--title)}",
-      ".den-thint{font-size:11px;color:var(--faint);margin-left:auto}",
-      ".den-irow{display:flex;align-items:center;gap:8px}",
-      ".den-input{flex:1;font:inherit;font-size:14px;padding:10px 14px;border:.5px solid var(--line);border-radius:999px;background:var(--bg);color:var(--title);outline:none;transition:border-color .12s,box-shadow .12s}",
-      ".den-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}",
-      ".den-input::placeholder{color:var(--faint)}",
-      ".den-send{cursor:pointer;border:0;width:38px;height:38px;border-radius:50%;flex:0 0 auto;background:var(--accent);color:var(--on-accent);font-size:17px;line-height:1;transition:background .12s,transform .1s}",
-      ".den-send:hover{background:var(--accent-h)}.den-send:active{transform:scale(.94)}",
-      ".den-x{position:absolute;top:14px;right:16px;cursor:pointer;border:0;background:transparent;color:var(--faint);font-size:20px;line-height:1;padding:4px}",
-      ".den-x:hover{color:var(--base)}",
-      "@media (prefers-reduced-motion:reduce){.den-card,.den-pill,.den-follow,.den-send,.den-trow,.den-knob,.den-toggle{transition:none}}",
-    ].join("");
-    return s;
+  function flash(el) {
+    var old = el.textContent;
+    el.textContent = "Try again";
+    setTimeout(function () { el.textContent = old; }, 1200);
   }
 })();
