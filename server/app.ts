@@ -30,13 +30,14 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
 import { newId, newHandle, token, escapeHtml } from "./util.ts";
 import { inspectSite } from "./preview.ts";
+import { sendMagicLink, MAIL_LIVE } from "./mail.ts";
 import * as auth from "./auth.ts";
 
 export const PORT = Number(process.env.PORT || 8787);
 export const BASE = (process.env.DEN_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const SECURE = BASE.startsWith("https://");
 const COOKIE = "den_session";
-const HAS_MAILER = process.env.DEN_EMAIL === "smtp"; // not wired in the reference impl
+const HAS_MAILER = MAIL_LIVE; // true when RESEND_API_KEY is set (see mail.ts)
 const oauthStates = new Set<string>();               // CSRF state for the OAuth dance
 
 export const app = new Hono();
@@ -401,9 +402,18 @@ app.post("/api/auth/magic-link", async (c) => {
   const popup = b?.popup ? "&popup=1" : "";
   const tok = await db.createMagicLink(email);
   const link = `${BASE}/api/auth/verify?token=${tok}${ret ? `&return=${encodeURIComponent(ret)}` : ""}${popup}`;
+  if (HAS_MAILER) {
+    try {
+      await sendMagicLink(email, link);
+    } catch (e: any) {
+      console.error("[magic-link] send failed:", String(e?.message || e));
+      return c.json({ error: "could not send email, try again" }, 502);
+    }
+    return c.json({ ok: true });
+  }
+  // No mailer configured (local dev): log + hand the link back so dev can finish.
   console.log(`\n[magic-link] ${email}\n  ${link}\n`);
-  // No mailer in the reference impl: hand the link back so dev/demo can finish.
-  return c.json(HAS_MAILER ? { ok: true } : { ok: true, dev_link: link });
+  return c.json({ ok: true, dev_link: link });
 });
 
 app.get("/api/auth/verify", async (c) => {
@@ -446,9 +456,10 @@ app.get("/auth", (c) => {
           body: JSON.stringify({ email: document.getElementById("e").value, return: ret, popup: popup })
         });
         var j = await r.json();
-        document.getElementById("out").innerHTML = j.dev_link
-          ? '<p>Dev mode — <a href="' + j.dev_link + '">click to continue &rarr;</a></p>'
-          : "<p>Check your email for the link.</p>";
+        var out = document.getElementById("out");
+        if (j.dev_link) out.innerHTML = '<p>Dev mode — <a href="' + j.dev_link + '">click to continue &rarr;</a></p>';
+        else if (j.ok) out.innerHTML = "<p>Check your email for the link.</p>";
+        else out.innerHTML = "<p>" + (j.error || "Something went wrong, try again.") + "</p>";
       });
     </script>`));
 });

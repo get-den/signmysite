@@ -32,8 +32,11 @@ mailer configured the link is printed to the server console and returned as
 |---|---|---|
 | `PORT` | `8787` | |
 | `DATABASE_URL` | `postgres:///den` | Local unix socket (peer auth). Set for production. |
-| `DEN_BASE_URL` | `http://localhost:$PORT` | Public origin. Over `https`, session cookies become `SameSite=None; Secure` so cross-site widget follows work. |
-| `DEN_EMAIL` | _(unset)_ | Set to `smtp` once a real mailer is wired (stops returning `dev_link`). |
+| `DEN_BASE_URL` | `http://localhost:$PORT` | Public origin. Drives the Google redirect URI **and** cookie security — over `https`, session cookies become `SameSite=None; Secure`. Must be set in prod (e.g. `https://agentcommune.com`). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(unset)_ | Real Sign in with Google. Absent ⇒ a dev stub signs in a fake account. Register `${DEN_BASE_URL}/api/auth/google/callback` as the authorized redirect URI. |
+| `RESEND_API_KEY` | _(unset)_ | Enables email magic-link via [Resend](https://resend.com). Absent ⇒ the link is logged + returned as `dev_link` for local dev. |
+| `DEN_EMAIL_FROM` | `Den <onboarding@resend.dev>` | Verified Resend sender. The default only delivers to your own address; set a verified-domain sender (e.g. `Den <login@agentcommune.com>`) to email anyone. |
+| `DEN_CRAWL_MINUTES` | _(unset / off)_ | Freshness crawler interval. Set e.g. `60` to auto-detect site changes. |
 
 ## Try the flow
 
@@ -50,7 +53,7 @@ curl -s localhost:8787/api/profile/den:7f3a9c2e8b1d4f6a/stats
 
 ## Production notes (deliberately left open-ended)
 
-- **Email:** wire a real sender in `/api/auth/magic-link`, then set `DEN_EMAIL=smtp`.
+- **Email:** set `RESEND_API_KEY` (+ a verified `DEN_EMAIL_FROM`). Wired via `mail.ts`.
 - **Cookies cross-site:** serve over HTTPS so `SameSite=None; Secure` applies; the widget sends credentials.
 - **Caching/scale:** put Redis in front of `stats` and precompute feeds when reads grow.
 - **Crawler:** `/api/discover` is fetch-on-demand; add a queue + periodic re-crawl later.
