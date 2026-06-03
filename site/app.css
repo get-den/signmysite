@@ -108,9 +108,10 @@ a:hover { text-decoration: underline; }
   font-weight: 700; font-size: 20px; letter-spacing: -0.02em; color: var(--labelTitle);
 }
 .brand:hover { text-decoration: none; }
-.top nav { display: flex; align-items: center; gap: 10px; font-size: 14px; }
-.top nav .who { color: var(--labelMuted); margin-right: 2px; }
-.top nav .who:hover { color: var(--labelTitle); text-decoration: none; }
+.top nav { display: flex; align-items: center; gap: 14px; font-size: 14px; }
+.top nav .navlink { color: var(--labelMuted); }
+.top nav .navlink:hover { color: var(--labelTitle); text-decoration: none; }
+.top nav .navlink.active { color: var(--labelTitle); font-weight: 500; }
 
 main { max-width: var(--maxw); margin: 0 auto; padding: 10px 20px 80px; }
 
@@ -247,6 +248,48 @@ a.bh:hover { color: var(--labelLink); }
 
 /* ---- scrollbars (subtle, per design system) ----------------------------- */
 * { scrollbar-width: thin; scrollbar-color: var(--bgSubActive) transparent; }
+
+/* ---- dashboard (Home) --------------------------------------------------- */
+.dash-views { margin: 20px 0 4px; }
+.dash-views .big {
+  font-size: 40px; line-height: 1; font-weight: 600; letter-spacing: -0.02em; color: var(--labelTitle);
+}
+.dash-views .lbl { font-size: 13px; color: var(--labelMuted); margin-left: 8px; }
+.dash-sub { color: var(--labelMuted); font-size: 14px; margin-top: 8px; }
+
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.section-head h2 { margin: 0; }
+.section-head .more { font-size: 13px; color: var(--labelMuted); }
+.section-head .more:hover { color: var(--labelLink); }
+
+/* compact comment line (recent comments + messages) */
+.cmt { display: flex; gap: 10px; align-items: flex-start; padding: 11px 0; border-bottom: 0.5px solid var(--bgBorderSolid); color: inherit; }
+.cmt:last-child { border-bottom: 0; }
+.cmt:hover { text-decoration: none; }
+.cmt .avatar { width: 32px; height: 32px; font-size: 13px; }
+.cmt .meta { flex: 1; min-width: 0; }
+.cmt .who { font-weight: 500; color: var(--labelTitle); }
+.cmt .where { color: var(--labelMuted); font-size: 13px; }
+.cmt .body { color: var(--labelBase); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; }
+
+/* "edited since you last looked" dot */
+.newdot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--controlBase); margin-left: 7px; vertical-align: middle;
+}
+
+/* ---- segmented tabs (Messages) ------------------------------------------ */
+.tabs {
+  display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 18px;
+  border: 0.5px solid var(--bgBorderSolid); border-radius: 7px; background: var(--bgBase);
+}
+.tab {
+  appearance: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--labelMuted);
+  background: transparent; border: 0; border-radius: 5px; padding: 5px 12px; cursor: pointer;
+  transition: background 67ms ease, color 67ms ease;
+}
+.tab:hover { color: var(--labelTitle); }
+.tab.on { background: var(--bgSub); color: var(--labelTitle); }
 
 @media (max-width: 768px) {
   .hero h1 { font-size: 32px; }

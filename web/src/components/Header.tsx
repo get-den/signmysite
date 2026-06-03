@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useViewer } from "../providers";
 import { logout } from "../api";
 import { signinUrl } from "../lib";
@@ -24,15 +24,15 @@ export function Header() {
       <nav>
         {loading ? null : viewer ? (
           <>
-            <Link className="who" to="/">
-              @{viewer.handle || "you"}
-            </Link>
-            <Link className="btn sm" to="/inbox">
-              Pigeon box
-            </Link>
-            <Link className="btn sm" to="/embed">
-              Get widget
-            </Link>
+            <NavLink className="navlink" to="/" end>
+              Home
+            </NavLink>
+            <NavLink className="navlink" to="/site">
+              Your site
+            </NavLink>
+            <NavLink className="navlink" to="/messages">
+              Messages
+            </NavLink>
             <button className="btn sm naked" onClick={signOut}>
               Sign out
             </button>

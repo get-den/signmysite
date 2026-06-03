@@ -31,7 +31,7 @@ export function Edit() {
       const updated = await updateProfile(form);
       setViewer(updated);
       toast("Saved");
-      navigate("/");
+      navigate("/site");
     } catch (err) {
       setStatus(err instanceof ApiError && err.status === 409 ? "That handle is taken." : "Couldn't save.");
       setSaving(false);
@@ -54,7 +54,7 @@ export function Edit() {
           <button className="btn primary" type="submit" disabled={saving}>
             Save
           </button>
-          <Link className="btn" to="/">
+          <Link className="btn" to="/site">
             Cancel
           </Link>
           <span className="formerr">{status}</span>

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useViewer } from "./providers";
 import { host, initials } from "./lib";
-import type { Member } from "./api";
+import type { Site } from "./api";
 
 /** Round avatar — image if present, else the name/handle's first letter. */
 export function Avatar({
@@ -44,15 +44,18 @@ export function GoogleIcon() {
   );
 }
 
-/** A followed blog as a list row, linking to its site (or its Den page). */
-export function BlogRow({ blog }: { blog: Member }) {
+/** A followed/saved site as a list row, linking to its site (or its Den page). */
+export function BlogRow({ blog }: { blog: Site }) {
   const href = blog.url || (blog.handle ? `/@${blog.handle}` : "#");
   const external = !!blog.url;
   return (
     <a className="blog" href={href} target={external ? "_blank" : undefined} rel="noopener">
       <Avatar of={blog} />
       <div className="meta">
-        <div className="bn">{blog.name || "—"}</div>
+        <div className="bn">
+          {blog.name || "—"}
+          {blog.isNew && <span className="newdot" title="Updated since you last looked" />}
+        </div>
         <div className="bh">{blog.url ? host(blog.url) : "@" + (blog.handle || "")}</div>
       </div>
     </a>

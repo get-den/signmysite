@@ -3,9 +3,9 @@ import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { Protected } from "./ui";
 import { Home } from "./pages/Home";
+import { YourSite } from "./pages/YourSite";
+import { Messages } from "./pages/Messages";
 import { Edit } from "./pages/Edit";
-import { Embed } from "./pages/Embed";
-import { Inbox } from "./pages/Inbox";
 
 export function App() {
   return (
@@ -15,26 +15,26 @@ export function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route
+            path="/site"
+            element={
+              <Protected>
+                <YourSite />
+              </Protected>
+            }
+          />
+          <Route
+            path="/messages"
+            element={
+              <Protected>
+                <Messages />
+              </Protected>
+            }
+          />
+          <Route
             path="/edit"
             element={
               <Protected>
                 <Edit />
-              </Protected>
-            }
-          />
-          <Route
-            path="/embed"
-            element={
-              <Protected>
-                <Embed />
-              </Protected>
-            }
-          />
-          <Route
-            path="/inbox"
-            element={
-              <Protected>
-                <Inbox />
               </Protected>
             }
           />
