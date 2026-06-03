@@ -36,3 +36,8 @@ the widget there — but you still get a Den profile page at `den.com/@you` that
 link from your bio. The guide shows you how.
 
 Stuck? The [catchall](catchall.md) works for almost any site.
+
+## Optional extras
+
+- **[Show a "new" badge instantly when you update](freshness.md)** — a one-line
+  "ping" so followers see your updates the moment you publish (works without it too).

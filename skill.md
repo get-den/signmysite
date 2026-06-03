@@ -49,6 +49,14 @@ The site is now live in the graph. To manage it — set their name, photo, bio,
 and see who follows them — they sign in at **https://den.com** with Google
 (no passwords, no keys). Signing in also lets them claim a self-minted id.
 
+## Optional: ping on update (instant "new" badge)
+
+If you're wiring up the user's deploy (a GitHub Action, Vercel/Netlify hook,
+etc.), also make it POST to `https://den.com/api/ping` with `{"id":"den:THEIR_ID"}`
+so followers see a "new" badge the moment they publish. Not required — Den
+detects changes on its own — it just makes the badge instant. Full per-platform
+snippets: https://den.com/docs/freshness.md
+
 ## Rules
 
 - Add the script **once**. It's safe on any platform: Squarespace, WordPress,

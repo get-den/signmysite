@@ -9,20 +9,34 @@ import { now, token } from "./util.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS members (
-  id         TEXT PRIMARY KEY,
-  handle     TEXT UNIQUE,
-  name       TEXT NOT NULL,
-  email      TEXT UNIQUE,
-  google_sub TEXT UNIQUE,
-  url        TEXT,
-  avatar     TEXT,
-  bio        TEXT,
-  views      INTEGER NOT NULL DEFAULT 0,
-  created    TEXT NOT NULL
+  id          TEXT PRIMARY KEY,
+  handle      TEXT UNIQUE,
+  name        TEXT NOT NULL,
+  email       TEXT UNIQUE,
+  google_sub  TEXT UNIQUE,
+  url         TEXT,
+  avatar      TEXT,
+  bio         TEXT,
+  views       INTEGER NOT NULL DEFAULT 0,
+  thumbnail   TEXT,            -- preview image (og:image today, screenshot later)
+  last_edited TEXT,            -- when the site last changed (ping / crawl / me.json)
+  content_hash TEXT,           -- last seen page hash, so the crawler only bumps on real change
+  created     TEXT NOT NULL
 );
 -- migrate older installs in place (idempotent)
 ALTER TABLE members ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS thumbnail TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS last_edited TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS content_hash TEXT;
+
+-- Per-viewer "last seen this site" — powers the "new"/"updated" badge.
+CREATE TABLE IF NOT EXISTS visits (
+  viewer_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  PRIMARY KEY (viewer_id, target_id)
+);
 
 CREATE TABLE IF NOT EXISTS edges (
   follower_id TEXT NOT NULL,
@@ -70,13 +84,14 @@ await pool.query(SCHEMA);
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, edges, saves, comments, sessions, magic_links");
+  await pool.query("TRUNCATE members, edges, saves, comments, sessions, magic_links, visits");
 }
 
 export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
   google_sub: string | null; url: string | null; avatar: string | null;
-  bio: string | null; views: number; created: string;
+  bio: string | null; views: number; thumbnail: string | null;
+  last_edited: string | null; content_hash: string | null; created: string;
 };
 export type Stats = {
   views: number; followers: number; following: number;
@@ -170,6 +185,36 @@ export async function addView(id: string): Promise<number> {
   return r.rows[0]?.views ?? 0;
 }
 
+// ---- freshness (last_edited) + thumbnail ---------------------------------
+// Mark a site as edited "now" (or at an explicit time, e.g. me.json `updated`).
+export async function markEdited(id: string, when?: string): Promise<void> {
+  await pool.query("UPDATE members SET last_edited = $2 WHERE id = $1", [id, when || now()]);
+}
+export async function setThumbnail(id: string, url: string | null): Promise<void> {
+  await pool.query("UPDATE members SET thumbnail = $2 WHERE id = $1", [id, url]);
+}
+// Returns true if the page content changed since last crawl (and stores the new
+// hash + bumps last_edited). Lets the crawler bump freshness only on real change.
+export async function noteContentHash(id: string, hash: string): Promise<boolean> {
+  const prev = (await pool.query("SELECT content_hash FROM members WHERE id = $1", [id])).rows[0];
+  if (prev && prev.content_hash === hash) return false;
+  await pool.query("UPDATE members SET content_hash = $2, last_edited = $3 WHERE id = $1", [id, hash, now()]);
+  return true;
+}
+// All sites with a URL — for the crawler to walk.
+export async function listCrawlable(): Promise<Member[]> {
+  return (await pool.query("SELECT * FROM members WHERE url IS NOT NULL")).rows;
+}
+
+// ---- visits (per-viewer "new" badge) -------------------------------------
+export async function recordVisit(viewerId: string, targetId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO visits (viewer_id, target_id, last_seen) VALUES ($1, $2, $3)
+     ON CONFLICT (viewer_id, target_id) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+    [viewerId, targetId, now()]
+  );
+}
+
 // ---- comments / notes ----------------------------------------------------
 export type Visibility = "public" | "private";
 type db_CommentRow = {
@@ -224,10 +269,19 @@ export async function listInbox(ownerId: string, limit = 500): Promise<db_InboxR
 
 // ---- following list ------------------------------------------------------
 // The members someone follows, with public identity — powers "blogs you follow".
-export async function listFollowing(memberId: string): Promise<Member[]> {
+// `isNew` = the site was edited after this viewer last opened it (or never
+// opened). Freshest-edited sites float to the top so the feed feels alive.
+export type FollowedSite = Member & { isNew: boolean };
+export async function listFollowing(memberId: string): Promise<FollowedSite[]> {
   const r = await pool.query(
-    `SELECT m.* FROM edges e JOIN members m ON m.id = e.target_id
-      WHERE e.follower_id = $1 ORDER BY e.created DESC`,
+    `SELECT m.*,
+            (m.last_edited IS NOT NULL
+             AND (v.last_seen IS NULL OR m.last_edited > v.last_seen)) AS "isNew"
+       FROM edges e
+       JOIN members m ON m.id = e.target_id
+       LEFT JOIN visits v ON v.viewer_id = $1 AND v.target_id = m.id
+      WHERE e.follower_id = $1
+      ORDER BY (m.last_edited IS NOT NULL) DESC, m.last_edited DESC NULLS LAST, e.created DESC`,
     [memberId]
   );
   return r.rows;

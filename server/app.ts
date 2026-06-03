@@ -29,6 +29,7 @@ import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
 import { newId, newHandle, token, escapeHtml } from "./util.ts";
+import { inspectSite } from "./preview.ts";
 import * as auth from "./auth.ts";
 
 export const PORT = Number(process.env.PORT || 8787);
@@ -52,7 +53,8 @@ app.use("/api/*", cors({
 }));
 
 const publicMember = (m: db.Member) => ({
-  id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio, views: m.views,
+  id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar, bio: m.bio,
+  views: m.views, thumbnail: m.thumbnail, lastEdited: m.last_edited,
 });
 // The session token comes from the first-party cookie (on den.com) OR a Bearer
 // header (the widget, embedded cross-site, where cookies are blocked). Same
@@ -215,6 +217,10 @@ app.post("/api/discover", async (c) => {
       if (l && typeof l.id === "string") { await db.setEdge(doc.id, l.id, l.rel || "follow"); edges++; }
     }
   }
+  // Freshness: honor an explicit me.json `updated`, else mark edited now.
+  await db.markEdited(doc.id, typeof doc.updated === "string" ? doc.updated : undefined);
+  // Grab a preview thumbnail (og:image) in the background.
+  refreshPreview(doc.id, doc.url || target).catch(() => {});
   return c.json({ ok: true, id: doc.id, edges });
 });
 
@@ -281,6 +287,31 @@ app.post("/api/profile/:id/view", async (c) => {
   return c.json({ views });
 });
 
+// ---- freshness: "my site changed" ----------------------------------------
+// Called by the owner's deploy (GitHub Action, Vercel/Netlify hook, WordPress
+// save_post — see docs). Bumps last_edited so followers see "new", and refreshes
+// the preview thumbnail from the site's og:image. No auth: the id is the secret,
+// and the only effect is "this public site updated" (worst case, a stale bump).
+app.post("/api/ping", async (c) => {
+  const b = await body(c);
+  const id = String(b?.id || "");
+  const m = await db.getMember(id);
+  if (!m) return c.json({ error: "unknown id" }, 404);
+  await db.markEdited(id, typeof b?.at === "string" ? b.at : undefined);
+  // Refresh the thumbnail in the background — don't make the deploy wait on it.
+  refreshPreview(id, m.url).catch(() => {});
+  return c.json({ ok: true });
+});
+
+// Pull the site's og:image into our thumbnail (and record the content hash).
+async function refreshPreview(id: string, url: string | null): Promise<void> {
+  if (!url) return;
+  const p = await inspectSite(url);
+  if (!p) return;
+  if (p.thumbnail) await db.setThumbnail(id, p.thumbnail);
+  await db.noteContentHash(id, p.hash);
+}
+
 // ---- widget card ---------------------------------------------------------
 // Everything the widget needs in ONE request: identity, stats, who's viewing
 // (for owner mode), and notes. Fewer round-trips = faster on slow third-party
@@ -291,6 +322,9 @@ app.get("/api/profile/:id/card", async (c) => {
   if (!m) return c.json({ error: "not found" }, 404);
   const viewer = await viewerOf(c);
   const [s, comments] = await Promise.all([db.stats(id, viewer?.id), db.listComments(id)]);
+  // A signed-in viewer opening the card = they've "seen" this site now, so it
+  // stops showing as new to them until the next edit.
+  if (viewer && viewer.id !== id) db.recordVisit(viewer.id, id).catch(() => {});
   return c.json({
     profile: publicMember(m),
     stats: s,
@@ -351,10 +385,11 @@ app.get("/api/inbox", async (c) => {
 });
 
 // ---- following list ------------------------------------------------------
+// Returns followed sites newest-edit-first, each tagged isNew for this viewer.
 app.get("/api/following", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
-  return c.json((await db.listFollowing(viewer.id)).map(publicMember));
+  return c.json((await db.listFollowing(viewer.id)).map((m) => ({ ...publicMember(m), isNew: m.isNew })));
 });
 
 // ---- auth (email magic link — the only thing a human ever does) ----------

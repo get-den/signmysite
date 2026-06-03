@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { app, PORT, BASE } from "./app.ts";
+import { startCrawler } from "./crawler.ts";
 
 // The widget, served as one canonical URL per member: /w/<id>.js
 // The id rides in the path; the widget reads it from its own <script src>.
@@ -43,4 +44,5 @@ serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`\n  Den  → ${BASE}`);
   console.log(`  demo → ${BASE}/widget/demo.html`);
   console.log(`  spec → ${BASE}/SPEC.md\n`);
+  startCrawler(); // no-op unless DEN_CRAWL_MINUTES is set
 });
