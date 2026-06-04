@@ -231,6 +231,25 @@ if (process.env.SIGNMYSITE_RESET_DB === "1") {
 }
 await pool.query(SCHEMA);
 
+// Re-insert accounts captured before a reset, passed as a JSON array in
+// SIGNMYSITE_RESTORE (so no personal data ever lives in the repo). Each entry is a
+// full members row. Paired with SIGNMYSITE_RESET_DB; remove both env vars once the
+// launch deploy has run. ON CONFLICT DO NOTHING keeps it safe to re-run.
+if (process.env.SIGNMYSITE_RESET_DB === "1" && process.env.SIGNMYSITE_RESTORE) {
+  let rows: Array<Record<string, unknown>> = [];
+  try { rows = JSON.parse(process.env.SIGNMYSITE_RESTORE); } catch { console.error("[db] SIGNMYSITE_RESTORE is not valid JSON; skipping"); }
+  for (const a of rows) {
+    await pool.query(
+      `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, verified, onboarded, links, views, last_edited, created)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
+       ON CONFLICT (id) DO NOTHING`,
+      [a.id, a.handle, a.name, a.email ?? null, a.google_sub ?? null, a.url ?? null, a.avatar ?? null,
+       a.verified ?? false, a.onboarded ?? false, JSON.stringify(a.links ?? []), a.views ?? 0, a.last_edited ?? null, a.created ?? now()]
+    );
+  }
+  if (rows.length) console.warn(`[db] restored ${rows.length} account(s) from SIGNMYSITE_RESTORE`);
+}
+
 export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
