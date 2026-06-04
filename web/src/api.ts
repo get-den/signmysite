@@ -74,6 +74,8 @@ export type ViewerVisit = {
 export type Analytics = {
   views: number;
   visitors: number;
+  /** Distinct sessions in the last 7 days — the "this week" headline. */
+  visitorsWeek: number;
   knownVisitors: number;
   avgDurationMs: number | null;
   recent: ViewerVisit[];

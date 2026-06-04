@@ -13,11 +13,16 @@
  */
 
 export const ORIGIN_SENTINEL = "https://den.com";
+const HOST_SENTINEL = "den.com"; // the bare host, for prose/link-text the full-URL sentinel misses
 export const PROTOCOL_VERSION = "den/v1";
 
-/** Rewrite the origin sentinel to the live base in any shipped text asset. */
+/** Rewrite the origin sentinel to the live base in any shipped text asset. Full-URL
+ *  form first (https://den.com → base), THEN the bare host (den.com → base's host),
+ *  so a profile mention like `den.com/@you` or a `[den.com]` label resolves too —
+ *  and no shipped file ever needs to name the live domain literally. */
 export function rewriteOrigin(text: string, base: string): string {
-  return text.split(ORIGIN_SENTINEL).join(base);
+  const host = base.replace(/^https?:\/\//, "");
+  return text.split(ORIGIN_SENTINEL).join(base).split(HOST_SENTINEL).join(host);
 }
 
 /**

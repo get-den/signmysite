@@ -5,11 +5,11 @@ import { requestMagicLink } from "../api";
 import { useToast } from "../providers";
 
 /**
- * The one sign-in control: an email magic link (the primary method) with Google
- * underneath. The link doubles as sign-up — a new email just gets an account —
- * so this covers both join and log in. Used on the landing's "Join now" funnel
- * and the focused /auth page. `returnTo` is where the server sends the member
- * back once they're signed in (default: wherever this is shown).
+ * The one sign-in control: Continue with Google on top (the higher-conversion
+ * path), an email magic link underneath. The link doubles as sign-up — a new
+ * email just gets an account — so this covers both join and log in. Shown on the
+ * focused /auth page. `returnTo` is where the server sends the member back once
+ * they're signed in (default: wherever this is shown).
  */
 export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
   const [email, setEmail] = useState("");
@@ -34,6 +34,11 @@ export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
 
   return (
     <div className="signin">
+      <a className="google" href={signinUrl(returnTo)}>
+        <GoogleIcon />
+        Continue with Google
+      </a>
+      <div className="signin-or"><span>or</span></div>
       {sent ? (
         <div className="signin-sent">
           <b>Check your email.</b> We sent a sign-in link to {email.trim()}.
@@ -53,11 +58,6 @@ export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
           <Button className="pink" type="submit" loading={busy}>Email me a sign-in link</Button>
         </form>
       )}
-      <div className="signin-or"><span>or</span></div>
-      <a className="google" href={signinUrl(returnTo)}>
-        <GoogleIcon />
-        Continue with Google
-      </a>
     </div>
   );
 }

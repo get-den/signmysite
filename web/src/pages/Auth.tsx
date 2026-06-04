@@ -8,7 +8,7 @@ import { ProfileMock } from "../components/ProfileMock";
  * The focused sign-in page (in-app /#/auth). Anywhere that needs a signed-in
  * member (the landing "Join now", Compose's signed-out Send, the header) sends
  * them here with ?return=, then back once they're in — so the original action
- * resumes. Magic-link email is the primary method, Google underneath; the link
+ * resumes. Continue with Google leads, magic-link email underneath; the link
  * doubles as sign-up, so one page covers join + log in.
  */
 export function Auth() {

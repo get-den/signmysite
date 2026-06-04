@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, getProfile, postComment, type Member } from "../api";
 import { useViewer } from "../providers";
+import { savePending, clearPending } from "../pending";
 import { Avatar, Button, IconButton } from "../ui";
 
 /**
@@ -18,6 +19,8 @@ export function Compose() {
 
   const to = params.get("to") || "";
   const siteName = params.get("site") || "this site";
+  // The exact page they came from (passed by the widget), carried to the confirmation.
+  const from = params.get("from") || "";
 
   const [body, setBody] = useState(params.get("body") || "");
   const [visibility, setVisibility] = useState<"public" | "private">(
@@ -48,6 +51,16 @@ export function Compose() {
     el.setSelectionRange(end, end);
   }, []);
 
+  // Keep a durable copy of the draft as they type, so a sign-in round trip that
+  // doesn't land back here (a reaped mobile tab, a magic link opened elsewhere)
+  // is still recoverable — the Home backstop resumes it. Cleared once it sends.
+  useEffect(() => {
+    if (!to) return;
+    const text = body.trim();
+    if (text) savePending({ kind: "note", to, site: siteName, from, body: text, visibility });
+    else clearPending();
+  }, [to, siteName, from, body, visibility]);
+
   // Back from sign-in with the draft in the URL: post it automatically, once the
   // viewer is known. deliver() is hoisted, so referencing it here is fine.
   useEffect(() => {
@@ -68,7 +81,10 @@ export function Compose() {
     setError("");
     try {
       await postComment(to, text, visibility);
-      navigate(`/reacted?${new URLSearchParams({ kind: "note", to, site: recipient, v: visibility })}`, { replace: true });
+      clearPending();
+      const done = new URLSearchParams({ kind: "note", to, site: recipient, v: visibility });
+      if (from) done.set("from", from);
+      navigate(`/reacted?${done}`, { replace: true });
     } catch (e) {
       delivered.current = false;
       setError(e instanceof ApiError && e.status === 401 ? "Please sign in to send." : "Couldn't send. Try again.");
@@ -83,7 +99,9 @@ export function Compose() {
     // which also creates an account), returning to this very postcard with the
     // draft + visibility preserved and send=1 — so it posts itself on the way back.
     if (!viewer) {
-      const ret = `${location.origin}/#/compose?${new URLSearchParams({ to, site: siteName, body: text, v: visibility, send: "1" })}`;
+      const draft = new URLSearchParams({ to, site: siteName, body: text, v: visibility, send: "1" });
+      if (from) draft.set("from", from);
+      const ret = `${location.origin}/#/compose?${draft}`;
       navigate(`/auth?return=${encodeURIComponent(ret)}`);
       return;
     }

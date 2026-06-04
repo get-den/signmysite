@@ -4,11 +4,13 @@
  * own the look of a single thing (a reader, a stat, an identity chip). One pink
  * accent, hairline rules, Söhne; nothing here introduces a new color.
  */
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { updateProfile, verifySite } from "../api";
 import type { Member, Site, ViewerVisit } from "../api";
-import { compact, host, profileHref, relTime } from "../lib";
-import { Avatar, Button, PinIcon, SiteThumbnail, useCopy } from "../ui";
+import { compact, host, profileHref, relTime, validateSite } from "../lib";
+import { useToast, useViewer } from "../providers";
+import { Avatar, Button, PinIcon, SiteThumbnail, Spinner, WidgetInstall } from "../ui";
 import { firstName } from "./data";
 
 /** Date line + a greeting that follows the clock. The Brief's masthead. */
@@ -58,16 +60,16 @@ export function ReaderRow({ who, onFollow }: { who: ViewerVisit; onFollow: (v: V
 /** A site preview tile for the gallery wall: the og:image, name + counts, and an
  *  optional pin toggle that writes through to your public profile. */
 export function SiteTile({
-  site, index, pinned, canPin, onPin, big = false,
+  site, pinned, canPin, onPin, big = false,
 }: {
-  site: Site; index: number; pinned?: boolean; canPin?: boolean; onPin?: (s: Site) => void; big?: boolean;
+  site: Site; pinned?: boolean; canPin?: boolean; onPin?: (s: Site) => void; big?: boolean;
 }) {
   const profile = profileHref(site);
   const external = !!site.url;
   return (
     <article className={"tile" + (big ? " tile-big" : "")}>
       <a
-        className={"tile-thumb thumb-" + (index % 6)}
+        className="tile-thumb"
         href={site.url || profile}
         target={external ? "_blank" : undefined}
         rel="noopener"
@@ -99,18 +101,6 @@ export function SiteTile({
   );
 }
 
-/** The one-line widget snippet + a copy button. The whole install, everywhere. */
-export function WidgetLine({ viewer, className = "" }: { viewer: Member; className?: string }) {
-  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^den:/, "")}.js"></script>`;
-  const { copied, copy } = useCopy(tag);
-  return (
-    <div className={("widget-line " + className).trim()}>
-      <code className="snippet">{tag}</code>
-      <button className="btn sm" type="button" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
-    </div>
-  );
-}
-
 /** The quiet nudge shown (in every layout) while a linked site is unverified. */
 export function VerifyNotice({ viewer }: { viewer: Member }) {
   if (!viewer.url || viewer.verified) return null;
@@ -125,4 +115,140 @@ export function VerifyNotice({ viewer }: { viewer: Member }) {
 /** An empty-state line: calm, never a dead end — always says what to do next. */
 export function Hint({ children }: { children: ReactNode }) {
   return <p className="home-hint">{children}</p>;
+}
+
+/** One KPI in the executive summary: a big number, a label, an optional sub-line,
+ *  and — when it links somewhere ("take me to them") — a quiet arrow on hover. */
+export function StatCard({
+  value, label, sub, to, accent = false,
+}: {
+  value: ReactNode; label: string; sub?: string; to?: string; accent?: boolean;
+}) {
+  const body = (
+    <>
+      <div className="kpi-val">{value}</div>
+      <div className="kpi-label">{label}</div>
+      {sub && <div className="kpi-sub">{sub}</div>}
+      {to && <span className="kpi-go" aria-hidden="true">→</span>}
+    </>
+  );
+  const cls = "kpi" + (accent ? " kpi-accent" : "") + (to ? " kpi-link" : "");
+  return to ? <Link className={cls} to={to}>{body}</Link> : <div className={cls}>{body}</div>;
+}
+
+/**
+ * The state-aware top of the analytics layouts. The first thing you should see
+ * depends on where you are: no linked site → a clear box to add one; a linked but
+ * unverified site → a prompt to verify it. Once verified it renders nothing, and
+ * the layout shows your summary instead.
+ */
+export function SiteCTA({ viewer }: { viewer: Member }) {
+  if (!viewer.url) return <AddSiteForm />;
+  if (!viewer.verified) return <VerifyCTA url={viewer.url} />;
+  return null;
+}
+
+// Paste a site → save it on your profile (then verify next). Mirrors the edit
+// page: validate live, PATCH the profile, refresh the viewer in place.
+function AddSiteForm() {
+  const { viewer, setViewer } = useViewer();
+  const toast = useToast();
+  const [raw, setRaw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (busy || !viewer) return;
+    const check = validateSite(raw);
+    if (!check.ok || !check.url) { setErr(check.error || "Enter your site's web address."); return; }
+    setBusy(true); setErr("");
+    try {
+      const updated = await updateProfile({
+        name: viewer.name, handle: viewer.handle ?? "", url: check.url,
+        avatar: viewer.avatar ?? "", links: viewer.links ?? [],
+      });
+      setViewer(updated);
+      toast("Site linked. Verify it next.");
+    } catch {
+      setErr("Couldn't link that site. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="cta cta-add">
+      <div className="cta-head">
+        <h2>Add your site</h2>
+        <p>Link your personal site and Den starts showing you who reads it.</p>
+      </div>
+      <div className={"cta-field" + (err ? " bad" : "")}>
+        <input
+          value={raw}
+          onChange={(e) => { setRaw(e.target.value); setErr(""); }}
+          placeholder="yoursite.com"
+          aria-label="Your site's web address"
+          autoCapitalize="none" autoCorrect="off" spellCheck={false}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        />
+        <Button className="primary" loading={busy} disabled={!raw.trim()} onClick={submit}>Add site</Button>
+      </div>
+      {err && <p className="cta-err">{err}</p>}
+    </section>
+  );
+}
+
+// Linked but unproven. The button opens the canonical install inline (no page
+// jump); copying the line kicks off a live check, with a refresh to re-run it.
+function VerifyCTA({ url }: { url: string }) {
+  const { viewer, setViewer } = useViewer();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [missed, setMissed] = useState(false);
+  if (!viewer) return null;
+
+  const check = async () => {
+    if (checking) return;
+    setChecking(true); setMissed(false);
+    try {
+      const r = await verifySite();
+      if (r.verified) { setViewer({ ...viewer, verified: true }); toast("Verified ✓"); }
+      else setMissed(true);
+    } catch {
+      setMissed(true);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <section className="cta cta-verify">
+      <div className="cta-head">
+        <h2>Add Den to your site</h2>
+        <p>Add the one-line widget to <b>{host(url)}</b> to confirm it's yours.</p>
+      </div>
+      {!open ? (
+        <Button className="primary" onClick={() => setOpen(true)}>Add your site</Button>
+      ) : (
+        <div className="cta-install">
+          <WidgetInstall viewer={viewer} onCopied={check} />
+          {(checking || missed) && (
+            <div className="cta-checking slide-down" role="status" aria-live="polite">
+              {checking && <Spinner />}
+              <span>{checking ? "Checking your site…" : "Not live yet. Publish, then check again."}</span>
+              <button
+                type="button"
+                className="cta-refresh"
+                onClick={check}
+                disabled={checking}
+                aria-label="Check again"
+                title="Check again"
+              >↻</button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }

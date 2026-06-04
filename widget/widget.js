@@ -25,7 +25,8 @@
     theme: script.getAttribute("data-theme") || "light",
     position: script.getAttribute("data-position") || "bottom-right",
     launcher: script.getAttribute("data-launcher") || "circle",
-    collapsed: script.getAttribute("data-collapsed") === "true",
+    // Closed by default — a quiet badge until tapped. data-collapsed="false" opens it.
+    collapsed: script.getAttribute("data-collapsed") !== "false",
     // How the owner's pinned sites (their webring) are shown: "ring" (default) |
     // "stack" | "thumbs" | "spotlight" | "list". See paintPins().
     pins: (script.getAttribute("data-pins") || "ring").toLowerCase(),
@@ -101,6 +102,12 @@
         store(tokenKey, e.data.token || "");
         load().then(resumePending);
       }
+    });
+    // Returning to the tab after a sign-in detour (mobile opens auth in a separate
+    // tab, so the postMessage above can be missed): re-check the session and replay
+    // any pending follow/save. No-op unless a sign-in was actually started.
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden && pendingAction) load().then(resumePending);
     });
 
     buildTray();
@@ -209,9 +216,12 @@
   // After sign-in the card is reloaded; if the visitor had clicked follow/save
   // beforehand, carry that action through now that they have a session.
   function resumePending() {
+    // Only consume the stashed action once we actually have a session — otherwise
+    // keep it, so returning to the tab and re-checking (below) can still replay it.
+    if (!pendingAction || !card || !card.viewer) return;
     var a = pendingAction;
     pendingAction = null;
-    if (a && card && card.viewer) act(a.path, a.flag);
+    act(a.path, a.flag);
   }
 
   // Is this visitor signed in here? The widget sends its stored Bearer token, so
@@ -229,7 +239,7 @@
     if (!text) return toggleTray();
     if (authed()) return postNote(text, isPrivate);
     if (!cfg.id) return signIn();
-    openTab(mainUrl("/compose", { to: cfg.id, site: siteName(), body: text }));
+    openTab(mainUrl("/compose", { to: cfg.id, site: siteName(), body: text, from: location.href }));
   }
 
   // Reactions are always public AND always attributed (never anonymous).
@@ -241,7 +251,7 @@
     if (busy || !cfg.id) return;
     toggleTray(false);
     if (authed()) return postReaction(emoji);
-    openTab(mainUrl("/reacted", { to: cfg.id, site: siteName(), emoji: emoji }));
+    openTab(mainUrl("/reacted", { to: cfg.id, site: siteName(), emoji: emoji, from: location.href }));
   }
 
   // Post a written note as the signed-in visitor, in place. If the session turns
@@ -257,7 +267,7 @@
       paintSend();
       paintPrivacy();
     } catch (e) {
-      if (e.status === 401) openTab(mainUrl("/compose", { to: cfg.id, site: siteName(), body: text }));
+      if (e.status === 401) openTab(mainUrl("/compose", { to: cfg.id, site: siteName(), body: text, from: location.href }));
     } finally { busy = false; }
   }
 
@@ -270,7 +280,7 @@
     try {
       await send(emoji, false);
     } catch (e) {
-      if (e.status === 401) openTab(mainUrl("/reacted", { to: cfg.id, site: siteName(), emoji: emoji }));
+      if (e.status === 401) openTab(mainUrl("/reacted", { to: cfg.id, site: siteName(), emoji: emoji, from: location.href }));
     } finally { busy = false; }
   }
 
@@ -494,8 +504,8 @@
     });
     // Minimal scroll arrows: only the right one shows at the start; the left fades
     // in once you've scrolled, and each fades out at its end of the rail.
-    var prev = railArrow("ring-prev", "‹", "Previous");
-    var next = railArrow("ring-next", "›", "Next");
+    var prev = railArrow("ring-prev", "chevron-left", "Previous");
+    var next = railArrow("ring-next", "chevron-right", "Next");
     prev.onclick = function () { rail.scrollBy({ left: -165, behavior: "smooth" }); };
     next.onclick = function () { rail.scrollBy({ left: 165, behavior: "smooth" }); };
     var sync = function () {
@@ -507,9 +517,10 @@
     ui.pins.append(frame);
     sync(); // reflect the initial position (start ⇒ only the right arrow)
   }
-  function railArrow(cls, glyph, label) {
-    var b = node("button", "ring-arrow " + cls, glyph);
+  function railArrow(cls, name, label) {
+    var b = node("button", "ring-arrow " + cls);
     b.type = "button";
+    b.innerHTML = icon(name); // a real chevron, centered (SVG has no text baseline)
     b.setAttribute("aria-label", label);
     return b;
   }
@@ -629,9 +640,6 @@
       avatar(a, v);
       ui.visitorFaces.append(a);
     });
-    var toFollow = list.filter(function (v) { return !v.viewerFollows; }).length;
-    var noun = list.length === 1 ? "reader from Den" : "readers from Den";
-    ui.visitorLabel.textContent = list.length + " " + noun + (toFollow ? " · " + toFollow + " to follow back" : "");
   }
 
   // ms → "45s" / "1m 12s" / "–" (nothing measured yet). Mirrors the dashboard.
@@ -661,7 +669,7 @@
     // Your own widget: Follow → Edit profile, Save ribbon → Preview (eye).
     if (isOwner) {
       ui.follow.classList.remove("on", "just");
-      ui.follow.innerHTML = icon("pencil") + "<span>Edit profile</span>";
+      ui.follow.innerHTML = "Edit profile";
       ui.save.classList.remove("on");
       ui.save.innerHTML = icon("eye");
       ui.save.setAttribute("aria-label", "Preview as a guest");
@@ -684,6 +692,7 @@
     var all = card.comments || [];
     var items = all.slice(-3).reverse();
     paintCount();
+    if (ui.notesHead) ui.notesHead.hidden = !items.length;
     if (!items.length) {
       var empty = node("div", "notes-empty");
       empty.append(badge("notes-empty-ic", icon("message")), node("p", "", "No comments yet"));
@@ -815,7 +824,10 @@
   }
 
   function signIn() {
-    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href), "den-auth", "width=420,height=560");
+    // "_blank", never a persistent window name: on mobile the auth tab often can't
+    // close itself, and a named target would just re-aim that stale background tab —
+    // so a second tap looked like it did nothing. A fresh tab each time always shows.
+    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href), "_blank", "width=420,height=560");
   }
 
   // The display name we hand the compose / confirmation pages, so they can greet
@@ -906,7 +918,8 @@
           '<div class="metric"><b class="ana-time">–</b><span>Avg. time</span></div>' +
         '</div>' +
         // Relational analytics: who from Den has actually read you (owner-only).
-        '<div class="visitors" hidden><div class="visitors-faces"></div><div class="visitors-label"></div></div>' +
+        '<div class="visitors" hidden><div class="visitors-faces"></div></div>' +
+        '<div class="notes-head" hidden>Comments</div>' +
         '<div class="notes"></div><div class="status"></div>' +
         '<div class="tray" role="group" aria-label="Send a reaction" hidden></div>' +
         '<div class="composer">' +
@@ -956,7 +969,11 @@
       slab: logo + name,
       pill: avatar + name,
     }[kind] || avatar + name;
-    return '<button class="launcher" aria-label="Toggle Den card" aria-expanded="false">' + inner + '<span class="notif" hidden>0</span></button>';
+    // The circle lives inside a larger, stable hit target (.launch). Only the inner
+    // .launcher scales on hover, so the clickable area never shifts out from under
+    // the cursor — a tap near the edge always opens the card.
+    return '<button class="launch" aria-label="Toggle Den card" aria-expanded="false">' +
+      '<span class="launcher">' + inner + '<span class="notif" hidden>0</span></span></button>';
   }
   function stat(key, label) {
     return '<a class="' + key + '-link stat"><b class="' + key + '">–</b><span>' + label + "</span></a>";
@@ -964,15 +981,15 @@
   function map(root) {
     var q = function (s) { return root.querySelector(s); };
     return {
-      wrap: q(".den"), panel: q(".card"), open: q(".launcher"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
+      wrap: q(".den"), panel: q(".card"), open: q(".launch"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
       pillName: q(".pill-name"), count: q(".notif"), save: q(".save"), follow: q(".follow"), name: q(".name"),
-      social: q(".social"), pins: q(".pins"), notes: q(".notes"), status: q(".status"), input: q(".input"),
+      social: q(".social"), pins: q(".pins"), notesHead: q(".notes-head"), notes: q(".notes"), status: q(".status"), input: q(".input"),
       composer: q(".composer"), react: q(".react"), send: q(".send"), tray: q(".tray"),
       privacy: q(".privacy"), privCheck: q(".priv-check"),
       stats: q(".stats"), views: q(".views"), followers: q(".followers"),
       viewsLink: q(".views-link"), followersLink: q(".followers-link"),
       analytics: q(".analytics"), anaViews: q(".ana-views"), anaComments: q(".ana-comments"), anaTime: q(".ana-time"),
-      visitors: q(".visitors"), visitorFaces: q(".visitors-faces"), visitorLabel: q(".visitors-label"),
+      visitors: q(".visitors"), visitorFaces: q(".visitors-faces"),
       onboard: q(".onboard"), obMark: q(".ob-mark"), obTitle: q(".ob-title"), obBody: q(".ob-body"),
       obCta: q(".ob-cta"), obAlt: q(".ob-alt"), obTag: q(".ob-tag"),
       obCode: q(".ob-code"), obCopy: q(".ob-copy"),
@@ -994,7 +1011,8 @@
       mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
       eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.94 10.94 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.94 10.94 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
       "arrow-up-right": '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
-      pencil: '<path d="M21.17 6.83 17.17 2.83a2 2 0 0 0-2.83 0L3 14.17V21h6.83L21.17 9.66a2 2 0 0 0 0-2.83z"/><path d="m15 5 4 4"/>',
+      "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+      "chevron-right": '<path d="m9 18 6-6-6-6"/>',
       external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>',
       message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     }[name] || "";
@@ -1032,7 +1050,7 @@
       '.bottom-left{left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));align-items:flex-start}' +
       '.top-right{right:max(16px,env(safe-area-inset-right));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse}' +
       '.top-left{left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse;align-items:flex-start}' +
-      '.card{width:392px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:30px;box-shadow:var(--shadow);padding:26px 24px}' +
+      '.card{width:416px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:30px;box-shadow:var(--shadow);padding:26px 24px}' +
       '.den:not(.open):not(.closing) .card{display:none}.open .card{animation:denPop .2s cubic-bezier(.2,.7,.3,1)}.closing .card{animation:denPopOut .17s cubic-bezier(.4,0,.7,.3) forwards;pointer-events:none}@keyframes denPop{from{opacity:0;transform:translateY(10px) scale(.97)}}@keyframes denPopOut{to{opacity:0;transform:translateY(10px) scale(.97)}}' +
       '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}' +
       '.avatar{width:92px;height:92px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 32px/1 var(--ff);flex:0 0 auto;text-decoration:none;cursor:pointer}' +
@@ -1044,7 +1062,9 @@
       '.follow{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:46px;padding:0 22px;border-radius:999px;background:var(--ink);color:var(--bg);font:600 17px/1 var(--ff)}.follow:hover{opacity:.9}' +
       // Following = quiet outline; hover reveals the destructive "Unfollow" in red.
       // .just suppresses that for one hover cycle after the click (set in armFollowGuard).
-      '.follow.on{background:transparent;color:var(--ink);border:1px solid var(--line)}.follow.on:not(.just):hover{background:rgba(229,72,77,.12);color:#e5484d;border-color:rgba(229,72,77,.5);opacity:1}.follow.on:not(.just):hover .lbl{display:none}.follow.on:not(.just):hover::after{content:"Unfollow"}' +
+      // Following: stack the "Following" label and the "Unfollow" pseudo in one grid
+      // cell so the button is as wide as the longer word — the hover swap never resizes it.
+      '.follow.on{background:transparent;color:var(--ink);border:1px solid var(--line);display:inline-grid;place-items:center}.follow.on .lbl,.follow.on::after{grid-area:1/1}.follow.on::after{content:"Unfollow";visibility:hidden}.follow.on:not(.just):hover{background:rgba(229,72,77,.12);color:#e5484d;border-color:rgba(229,72,77,.5);opacity:1}.follow.on:not(.just):hover .lbl{visibility:hidden}.follow.on:not(.just):hover::after{visibility:visible}' +
       '.name{display:inline-block;margin:14px 0 var(--vgap);color:var(--ink);font:600 28px/1.15 var(--ff);letter-spacing:-.02em;text-decoration:none}.name:hover{text-decoration:underline;text-underline-offset:4px}' +
       '.stats{display:flex;flex-wrap:wrap;gap:8px 22px;margin:16px 0 26px}.stats[hidden]{display:none}.stat{color:var(--muted);text-decoration:none;font-size:16px;font-weight:600}.stat b{color:var(--ink);font-weight:800;margin-right:5px}.stat:hover span{text-decoration:underline;text-underline-offset:3px}' +
       // Creator analytics: a clean 3-up row, hairline dividers between metrics.
@@ -1057,7 +1077,6 @@
       '.visitors-faces{display:flex;align-items:center;padding-left:2px}' +
       '.vface{width:34px;height:34px;border-radius:50%;margin-right:-8px;border:2px solid var(--bg);background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 13px/1 var(--ff);text-decoration:none;transition:transform .12s ease}' +
       '.vface:hover{transform:translateY(-2px)}.vface.vnew{border-color:var(--accent)}' +
-      '.visitors-label{margin-top:11px;color:var(--muted);font:400 13px/1.35 var(--ff)}' +
       // Pins — the curated webring. Three presentations share the .pins box and a
       // mode class (stack | thumbs | ring); see paintPins(). Shared bits first:
       '.pins[hidden]{display:none}' +
@@ -1086,12 +1105,21 @@
       '.pin-thumb-host{font:500 12px/1.35 var(--ff);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-thumb .pin-go{margin-left:auto;opacity:0;transition:opacity .15s ease}.pin-thumb:hover .pin-go{opacity:1}' +
       // ring: a horizontal filmstrip; the rail snaps and peeks the next card.
-      '.pin-head{margin:0 0 11px;font:700 13px/1 var(--ff);color:var(--muted)}' +
+      '.pin-head,.notes-head{margin:0 0 11px;font:700 13px/1 var(--ff);color:var(--muted)}' +
       '.pin-rail{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}.pin-rail::-webkit-scrollbar{display:none}' +
       '.ring-card{flex:0 0 auto;width:150px;scroll-snap-align:start;color:var(--ink);text-decoration:none}' +
       '.ring-shot{display:block;width:150px;height:95px;object-fit:cover;border-radius:14px;border:1px solid var(--line);background:var(--soft);transition:box-shadow .15s ease}.ring-card:hover .ring-shot{box-shadow:0 10px 24px rgba(0,0,0,.14)}' +
       '.ring-cap{display:flex;align-items:center;gap:7px;margin-top:8px}' +
       '.ring-name{font:700 13px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      // Floating circular prev/next over the thumbnails. Hidden until the strip is
+      // hovered, then only the relevant ones show: .on is toggled by sync() in
+      // pinsRing (right arrow at the start, left arrow once you have scrolled).
+      // top:31px ≈ (ring-shot 95 − arrow 32) / 2 — vertically centered on the thumbnail.
+      '.pin-frame{position:relative}' +
+      '.ring-arrow{position:absolute;top:31px;z-index:2;display:grid;place-items:center;width:32px;height:32px;padding:0;border-radius:50%;background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:0 6px 18px rgba(0,0,0,.16);font:400 18px/1 var(--ff);opacity:0;transform:scale(.8);pointer-events:none;transition:opacity .15s ease,transform .15s ease}' +
+      '.ring-prev{left:-2px}.ring-next{right:-2px}' +
+      '.pin-frame:hover .ring-arrow.on{opacity:1;transform:scale(1);pointer-events:auto}' +
+      '.ring-arrow:hover{background:var(--soft)}' +
       // spotlight: one big card + a ‹ • • • › navigator; flip through one at a time.
       '.spot-card{display:block;color:var(--ink);text-decoration:none}' +
       '.spot-shot{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;border:1px solid var(--line);background:var(--soft)}' +
@@ -1132,9 +1160,15 @@
       '.send{width:42px;height:42px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:22px;display:grid;place-items:center;transition:background .15s ease,color .15s ease}.send.ready{background:var(--accent);color:var(--accent-ink)}.send:hover{color:var(--ink)}.send.ready:hover{color:var(--accent-ink);opacity:.9}' +
       // The private-note switch: collapsed by default, slides down (max-height +
       // fade) once a signed-in visitor starts writing.
-      '.privacy{display:flex;align-items:center;gap:9px;overflow:hidden;max-height:0;opacity:0;margin-top:0;padding:0 6px;cursor:pointer;user-select:none;font:400 13px/1.2 var(--ff);color:var(--muted);transition:max-height .22s ease,opacity .2s ease,margin-top .22s ease}' +
+      '.privacy{display:flex;align-items:center;gap:10px;overflow:hidden;max-height:0;opacity:0;margin-top:0;padding:0 6px 0 14px;cursor:pointer;user-select:none;font:400 13px/1.2 var(--ff);color:var(--muted);transition:max-height .22s ease,opacity .2s ease,margin-top .22s ease}' +
       '.privacy.show{max-height:44px;opacity:1;margin-top:12px}' +
-      '.priv-check{flex:0 0 auto;width:16px;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}' +
+      // The private toggle: a custom rounded checkbox that fills with the accent and
+      // shows a crisp tick when on, in place of the native control.
+      '.priv-check{appearance:none;-webkit-appearance:none;position:relative;flex:0 0 auto;width:18px;height:18px;margin:0;border:1.5px solid var(--line);border-radius:6px;background-color:var(--bg);cursor:pointer}' +
+      '.priv-check:hover{border-color:var(--muted)}' +
+      '.priv-check:focus-visible{outline:2px solid var(--accent);outline-offset:2px}' +
+      '.priv-check:checked{background-color:var(--accent);border-color:var(--accent)}' +
+      '.priv-check:checked::after{content:"";position:absolute;left:6px;top:2px;width:4px;height:9px;border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}' +
       // Dev HUD — a thin monospace footer, only present against a local API.
       '.dev{display:flex;align-items:center;gap:8px;margin-top:18px;padding-top:12px;border-top:1px dashed var(--line);font:600 11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}.dev[hidden]{display:none}' +
       '.dev-tag{flex:0 0 auto;padding:2px 6px;border-radius:6px;background:var(--accent);color:var(--accent-ink);font-weight:800;letter-spacing:.04em}' +
@@ -1143,7 +1177,7 @@
       // Onboarding view (the generic /w.js front door). When .onboarding is on the
       // card, the profile chrome is hidden and this self-contained flow shows.
       '.onboard{display:none;text-align:center;padding:6px 2px 2px}.card.onboarding .onboard{display:block}' +
-      '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.social,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer,.card.onboarding>.privacy{display:none!important}' +
+      '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.social,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes-head,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer,.card.onboarding>.privacy{display:none!important}' +
       '.ob-mark{width:56px;height:56px;margin:8px auto 18px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}.ob-mark .logo{font:950 16px/1 var(--ff);letter-spacing:-.03em}' +
       '.ob-mark.emoji{background:transparent;font-size:46px;line-height:1}' +
       '.ob-title{margin:0 0 10px;font:600 22px/1.2 var(--ff);letter-spacing:-.02em;color:var(--ink)}' +
@@ -1160,7 +1194,11 @@
       '.ob-help-panel{margin-top:12px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--soft);text-align:left}.ob-help-panel[hidden]{display:none}' +
       '.ob-steps{margin:0;padding-left:20px;font:400 13px/1.55 var(--ff);color:var(--muted)}.ob-steps li{margin:0 0 7px}.ob-steps code{font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}' +
       '.ob-help-link{display:inline-block;margin-top:6px;color:var(--ink);font:600 13px/1 var(--ff);text-decoration:underline;text-underline-offset:2px}' +
-      '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:rgba(255,255,255,.8);color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:var(--shadow);font:600 14px/1 var(--ff);transition:transform .16s ease}.launcher:hover{transform:translateY(-2px)}' +
+      // .launch is the click target: a stable box (plus a -12px invisible ::before
+      // halo) that never moves, so tapping the badge always lands. The inner
+      // .launcher is the visible circle, and it GROWS on hover (scale) — never shifts.
+      '.launch{position:relative;display:block;margin:0;padding:0;background:transparent;cursor:pointer}.launch::before{content:"";position:absolute;inset:-12px}' +
+      '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:rgba(255,255,255,.8);color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:var(--shadow);font:600 14px/1 var(--ff);transition:transform .16s ease}.launch:hover .launcher{transform:scale(1.06)}' +
       '.pill-avatar{width:30px;height:30px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font-weight:600;flex:0 0 auto}' +
       '.notif{position:absolute;top:-3px;right:-3px;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#ff2d55;color:#fff;display:grid;place-items:center;font:600 12px/1 var(--ff)}.notif[hidden]{display:none}' +
       '.logo{display:grid;place-items:center;font-weight:950;letter-spacing:-.02em}' +

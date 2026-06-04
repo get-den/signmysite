@@ -57,19 +57,17 @@ export function isReaction(s: string | null | undefined): boolean {
 }
 
 // Shown when a site has no real preview image (og:image): a flat, neutral
-// wireframe of a webpage, inlined as a data URI — no network request, nothing to
-// keep on disk. Sized to the canonical og:image ratio (1200×630) so it drops into
-// the same box as a real preview. Deliberately generic so a real og:image stands
-// out beside it.
+// flat grayscale wireframe of a webpage, inlined as a data URI — no network
+// request, nothing to keep on disk. One canonical placeholder, no variants and no
+// text. Sized to the canonical og:image ratio (1200×630) so it drops into the same
+// box as a real preview, and deliberately plain so a real og:image stands out.
 const PLACEHOLDER_SVG =
   `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">` +
   `<rect width="1200" height="630" fill="#f3f3f4"/>` +
-  `<rect x="220" y="115" width="760" height="400" rx="24" fill="#fff" stroke="#e6e6e9" stroke-width="2"/>` +
-  `<circle cx="256" cy="149" r="7" fill="#dcdce0"/><circle cx="282" cy="149" r="7" fill="#dcdce0"/><circle cx="308" cy="149" r="7" fill="#dcdce0"/>` +
-  `<line x1="220" y1="183" x2="980" y2="183" stroke="#ededf0" stroke-width="2"/>` +
-  `<rect x="260" y="220" width="680" height="170" rx="16" fill="#e9e9ec"/>` +
-  `<rect x="260" y="420" width="680" height="18" rx="9" fill="#e9e9ec"/>` +
-  `<rect x="260" y="452" width="430" height="18" rx="9" fill="#e9e9ec"/>` +
+  `<rect x="220" y="140" width="760" height="350" rx="20" fill="#ffffff"/>` +
+  `<rect x="270" y="190" width="660" height="170" rx="14" fill="#ececef"/>` +
+  `<rect x="270" y="392" width="660" height="20" rx="10" fill="#ececef"/>` +
+  `<rect x="270" y="430" width="420" height="20" rx="10" fill="#ececef"/>` +
   `</svg>`;
 /** Canonical fallback preview, used anywhere a site has no real thumbnail. */
 export const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;

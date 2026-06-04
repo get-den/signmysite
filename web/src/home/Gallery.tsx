@@ -69,9 +69,9 @@ export function Gallery({ data }: { data: HomeData }) {
         </div>
         {pinned.length ? (
           <div className="feat-grid">
-            {pinned.map((site, i) => (
+            {pinned.map((site) => (
               <article className="feat" key={site.id}>
-                <a className={"tile-thumb thumb-" + (i % 6)} href={site.url || profileHref(site)} target={site.url ? "_blank" : undefined} rel="noopener" aria-label={`Open ${site.name}`}>
+                <a className="tile-thumb" href={site.url || profileHref(site)} target={site.url ? "_blank" : undefined} rel="noopener" aria-label={`Open ${site.name}`}>
                   <SiteThumbnail site={site} />
                 </a>
                 <button type="button" className="tile-pin on" onClick={() => togglePinSite(site)} aria-label={`Unpin ${site.name}`} title="Unpin">
@@ -92,9 +92,9 @@ export function Gallery({ data }: { data: HomeData }) {
       <section className="gallery-wall" aria-label="Sites">
         {wall.length ? (
           <div className="wall-grid">
-            {wall.map((site, i) => (
+            {wall.map((site) => (
               <SiteTile
-                key={site.id} site={site} index={i}
+                key={site.id} site={site}
                 pinned={pinnedIds.has(site.id)}
                 canPin={site.id !== viewer.id}
                 onPin={togglePinSite}

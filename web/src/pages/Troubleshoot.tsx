@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
+// The examples below name THIS origin so the help text always matches the live
+// domain. The app is same-origin, so there's no hardcoded host to update if it
+// moves — location is the client-side mirror of the server's DEN_BASE_URL.
+const ORIGIN = location.origin; // e.g. https://den.com
+const HOST = location.host; // e.g. den.com
+
 /**
  * Plain, scannable fixes for the widget — the page the widget's "Not working?"
  * link points at. Ordered by how often each thing actually trips people up
@@ -13,7 +19,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
       <>
         <b>Hard-refresh the page</b> first: ⌘⇧R on Mac, Ctrl-Shift-R on Windows. A cached
         older script is the most common cause. Then check the tag is exactly{" "}
-        <code>&lt;script src="https://agentcommune.com/w/you.js"&gt;&lt;/script&gt;</code> and
+        <code>{`<script src="${ORIGIN}/w/you.js"></script>`}</code> and
         sits just before the closing <code>&lt;/body&gt;</code> tag. Open your browser console
         (F12). An ad-blocker or strict content-security-policy can block third-party scripts.
       </>
@@ -24,7 +30,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     a: (
       <>
         The widget couldn't reach the API. Confirm you're online and that{" "}
-        <code>agentcommune.com</code> loads in a tab. If you're running a local copy, make sure
+        <code>{HOST}</code> loads in a tab. If you're running a local copy, make sure
         the server is up and the script's domain matches it.
       </>
     ),
@@ -46,7 +52,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     a: (
       <>
         After signing up, the widget shows your <b>permanent tag</b>:{" "}
-        <code>&lt;script src="https://agentcommune.com/w/YOUR_ID.js"&gt;&lt;/script&gt;</code>.
+        <code>{`<script src="${ORIGIN}/w/YOUR_ID.js"></script>`}</code>.
         Copy it and replace the <code>/w/you.js</code> line on your site. The generic line keeps
         showing the “create your account” card to visitors. Your permanent tag is what makes the
         widget <em>yours</em>.

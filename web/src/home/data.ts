@@ -43,6 +43,8 @@ export type HomeData = {
   unfollowedReaders: ViewerVisit[];
   /** Sites you follow that changed since you last looked. */
   freshFollows: Site[];
+  /** Comments left on your site in the last 7 days — the "new" count. */
+  newComments: number;
   /** The single reverse-chron activity timeline. */
   events: HomeEvent[];
 
@@ -131,6 +133,10 @@ export function useHomeData(viewer: Member): HomeData {
     [analytics],
   );
   const freshFollows = useMemo(() => following.filter((s) => s.isNew), [following]);
+  const newComments = useMemo(
+    () => notes.filter((n) => Date.now() - (Date.parse(n.created) || 0) < 7 * 864e5).length,
+    [notes],
+  );
 
   // The timeline: reads + notes + follow-updates, newest first. Each carries the
   // timestamp the layout shows ("3h"), so sorting and display read from one field.
@@ -144,7 +150,7 @@ export function useHomeData(viewer: Member): HomeData {
 
   return {
     viewer, stats, analytics, notes, following, discovery, pinned, crews,
-    pinnedIds, allSites, unfollowedReaders, freshFollows, events,
+    pinnedIds, allSites, unfollowedReaders, freshFollows, newComments, events,
     followBack, togglePinSite, makeCrew,
   };
 }

@@ -20,20 +20,22 @@ type Identity = { avatar: string | null; name: string; handle: string | null };
 
 /* ---- thumbnails ---------------------------------------------------------- */
 
-// Placeholder site thumbnails to cycle through when a member has no real one.
-const PLACEHOLDER_THUMBS = ["andrew", "ilayda", "james", "justin"].map((n) => `/site/thumbnails/${n}.png`);
+// One canonical placeholder, no variants and no text: a flat grayscale webpage
+// wireframe inlined as a data URI (mirrors web/src/lib.ts PLACEHOLDER_THUMB), at
+// the og:image ratio (1200×630) so it drops into the same box as a real preview.
+const PLACEHOLDER_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">` +
+  `<rect width="1200" height="630" fill="#f3f3f4"/>` +
+  `<rect x="220" y="140" width="760" height="350" rx="20" fill="#ffffff"/>` +
+  `<rect x="270" y="190" width="660" height="170" rx="14" fill="#ececef"/>` +
+  `<rect x="270" y="392" width="660" height="20" rx="10" fill="#ececef"/>` +
+  `<rect x="270" y="430" width="420" height="20" rx="10" fill="#ececef"/>` +
+  `</svg>`;
+export const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;
 
-// Stable per-site pick: a given site always lands on the same placeholder (no
-// flicker between loads), while different sites spread across the set.
-export function placeholderThumb(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (Math.imul(h, 31) + seed.charCodeAt(i)) >>> 0;
-  return PLACEHOLDER_THUMBS[h % PLACEHOLDER_THUMBS.length];
-}
-
-// The thumbnail a site preview shows: its real one, else a cycled placeholder.
-export function siteThumb(site: { id: string; thumbnail?: string | null }): string {
-  return site.thumbnail || placeholderThumb(site.id);
+// The thumbnail a site preview shows: its real one, else the canonical placeholder.
+export function siteThumb(site: { thumbnail?: string | null }): string {
+  return site.thumbnail || PLACEHOLDER_THUMB;
 }
 
 /* ---- small helpers ------------------------------------------------------- */
@@ -131,10 +133,9 @@ function actions(m: Member, s: Stats): string {
 function widgetPanel(m: Member, base: string): string {
   const tag = escapeHtml(`<script src="${base}/w/${m.id.replace(/^den:/, "")}.js"></script>`);
   return `<div class="card dash-widget pwidget">
-    <div class="card-head"><h3>Your widget</h3></div>
-    <p>One line — works on any site builder.</p>
-    <div class="snippet" id="wsnippet">${tag}</div>
-    <button class="btn sm pink" id="wcopy" type="button">Copy script</button>
+    <div class="card-head"><h3>Add to your site</h3></div>
+    <button class="btn pink" id="wcopy" type="button">Copy</button>
+    <span id="wsnippet" hidden>${tag}</span>
   </div>`;
 }
 
@@ -201,7 +202,6 @@ export function siteHeader(
       : `<a class="navlink" href="/">Home</a>` +
         `<a class="navlink${ownProfile ? " active" : ""}" href="/@${escapeHtml(viewer.handle || "")}">Your site</a>` +
         `<a class="navlink" href="/#/messages">Messages</a>` +
-        `<a class="navlink" href="/#/notes">Notes</a>` +
         signOutBtn;
   return (
     `<header class="top"><a class="brand" href="/">den</a><nav>${nav}</nav></header>` +
@@ -243,7 +243,7 @@ function profileScript(id: string, isOwner: boolean): string {
   btn.addEventListener('click',function(){
     var t=snip.textContent;
     (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){
-      btn.textContent='Copied';setTimeout(function(){btn.textContent='Copy script';},1400);
+      btn.textContent='Copied';setTimeout(function(){btn.textContent='Copy';},1400);
     }).catch(function(){});
   });
 })();`;

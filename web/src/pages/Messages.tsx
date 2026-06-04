@@ -13,43 +13,25 @@ import {
   type Conversation,
   type Thread,
 } from "../api";
-import { useViewer } from "../providers";
-import { Avatar, Loading } from "../ui";
+import { useToast, useViewer } from "../providers";
+import { Avatar, Loading, Spinner } from "../ui";
 import { profileHref, relTime, REACTIONS } from "../lib";
 
 /**
- * Direct messages — a basic, clean 1:1 chat. Two panes: the inbox of conversations
- * on the left, the open thread in the middle. A thread is addressed by the other
- * member's id (so /messages/:id deep-links straight into a chat, e.g. from a profile
- * or a note someone left you). Every message reuses the app's comment row (.cmt);
- * the chat-only bits — your-vs-theirs alignment, edit/delete, emoji reactions — layer
- * on top. Light polling keeps an open thread + the inbox feeling live without sockets.
+ * Direct messages — a clean 1:1 chat. Two panes: the inbox of conversations on the
+ * left, the open thread in the middle. A thread is addressed by the other member's
+ * id, so /messages/:id deep-links straight into a chat (from a profile, or a note
+ * someone left you). Every row reuses the comment row (.cmt); the chat-only bits —
+ * edit, delete, emoji reactions — layer on top.
  */
 export function Messages() {
   const { id: peerId } = useParams();
   const [convos, setConvos] = useState<Conversation[] | null>(null);
 
   const loadConvos = useCallback(() => {
-    getThreads()
-      .then(setConvos)
-      .catch(() => setConvos([]));
+    getThreads().then(setConvos, () => setConvos([]));
   }, []);
-
-  useEffect(() => {
-    loadConvos();
-  }, [loadConvos]);
-
-  // Refresh the inbox when the tab regains focus (you may have read elsewhere) and
-  // on a gentle interval, so a new conversation/preview/unread count shows up.
-  useEffect(() => {
-    const tick = () => document.visibilityState === "visible" && loadConvos();
-    const timer = setInterval(tick, 8000);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [loadConvos]);
+  usePoll(loadConvos, 8000);
 
   return (
     <div className="dm">
@@ -84,18 +66,28 @@ export function Messages() {
   );
 }
 
+/** Run `fn` once on mount, again whenever the tab regains focus, and on an interval
+ *  while it's visible — the liveness behind the inbox and an open thread, no sockets. */
+function usePoll(fn: () => void, ms: number) {
+  useEffect(() => {
+    fn();
+    const tick = () => document.visibilityState === "visible" && fn();
+    const timer = setInterval(tick, ms);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [fn, ms]);
+}
+
 /** One inbox row: avatar, name, a one-line preview of the last message, and time —
- *  the comment row (.cmt) with an unread dot. */
+ *  the comment row (.cmt) with an unread count. */
 function ConversationRow({ convo, active }: { convo: Conversation; active: boolean }) {
   const { peer, lastBody, lastAt, lastFromMe, lastDeleted, unread } = convo;
-  const preview = lastDeleted
-    ? "Message deleted"
-    : (lastFromMe ? "You: " : "") + (lastBody || "");
+  const preview = lastDeleted ? "Message deleted" : (lastFromMe ? "You: " : "") + (lastBody || "");
   return (
-    <Link
-      className={"cmt dm-convo" + (active ? " on" : "") + (unread ? " unread" : "")}
-      to={`/messages/${peer.id}`}
-    >
+    <Link className={"cmt dm-convo" + (active ? " on" : "") + (unread ? " unread" : "")} to={`/messages/${peer.id}`}>
       <Avatar of={peer} />
       <div className="meta">
         <div className="cmt-line">
@@ -109,7 +101,8 @@ function ConversationRow({ convo, active }: { convo: Conversation; active: boole
   );
 }
 
-/** The middle pane: the live thread with one peer, plus the composer. */
+/** The middle pane: the live thread with one peer, plus the composer. Keyed by peer
+ *  id in the parent, so switching conversations remounts it with fresh state. */
 function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }) {
   const { viewer } = useViewer();
   const navigate = useNavigate();
@@ -117,79 +110,44 @@ function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }
   const [missing, setMissing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Load (and poll) the thread. Polling replaces the message list wholesale; the
-  // composer draft + any in-progress edit live in their own state, so a refresh
-  // never clobbers what you're typing.
-  const loadThread = useCallback(() => {
-    getThread(peerId)
-      .then((t) => {
-        setThread(t);
-        setMissing(false);
-      })
-      .catch((e) => {
+  const loadThread = useCallback(
+    () =>
+      getThread(peerId).then(setThread, (e) => {
         if (e instanceof ApiError && e.status === 404) setMissing(true);
-      });
-  }, [peerId]);
+      }),
+    [peerId],
+  );
+  usePoll(loadThread, 5000);
 
-  useEffect(() => {
-    setThread(null);
-    loadThread();
-  }, [loadThread]);
-
-  useEffect(() => {
-    const tick = () => document.visibilityState === "visible" && loadThread();
-    const timer = setInterval(tick, 5000);
-    return () => clearInterval(timer);
-  }, [loadThread]);
-
-  // Replace one message in place (after edit / delete / react) without a refetch.
+  // Swap one message in place after an edit / delete / react, without a refetch.
   const patchMessage = useCallback((m: ChatMessage) => {
-    setThread((t) => (t ? { ...t, messages: t.messages.map((x) => (x.id === m.id ? m : x)) } : t));
+    setThread((t) => t && { ...t, messages: t.messages.map((x) => (x.id === m.id ? m : x)) });
   }, []);
 
-  // Keep the newest message in view as the thread grows or you send.
+  // Keep the newest message in view as the thread grows.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [thread?.messages.length, peerId]);
+  }, [thread?.messages.length]);
 
   if (missing) {
     return (
       <div className="dm-blank">
         <p>That person isn't on Den.</p>
-        <button className="btn sm" onClick={() => navigate("/messages")}>
-          Back to messages
-        </button>
+        <button className="btn sm" onClick={() => navigate("/messages")}>Back to messages</button>
       </div>
     );
   }
   if (!thread || !viewer) return <Loading />;
+  const me = viewer;
+  const { peer, messages } = thread;
 
-  const peer = thread.peer;
-
-  async function onSend(text: string) {
-    // Optimistic: drop the message in immediately, reconcile with the server row.
-    const temp: ChatMessage = {
-      id: "tmp_" + Math.random().toString(36).slice(2),
-      from: viewer!.id,
-      to: peer.id,
-      body: text,
-      created: new Date().toISOString(),
-      edited: null,
-      deleted: false,
-      reactions: [],
-    };
-    setThread((t) => (t ? { ...t, messages: [...t.messages, temp] } : t));
-    try {
-      const saved = await sendMessage(peer.id, text);
-      setThread((t) =>
-        t ? { ...t, messages: t.messages.map((m) => (m.id === temp.id ? saved : m)) } : t,
-      );
-      onActivity();
-    } catch {
-      // Roll the optimistic bubble back out on failure.
-      setThread((t) => (t ? { ...t, messages: t.messages.filter((m) => m.id !== temp.id) } : t));
-    }
-  }
+  // Send, then reload from the server — the one source of truth for the thread, so
+  // there's no optimistic copy to reconcile (and nothing for the poll to race).
+  const send = async (text: string) => {
+    await sendMessage(peer.id, text);
+    await loadThread();
+    onActivity();
+  };
 
   return (
     <div className="dm-chat">
@@ -204,16 +162,15 @@ function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }
       </header>
 
       <div className="dm-scroll">
-        {thread.messages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="empty dm-empty">Say hello to {peer.name || "them"}.</div>
         ) : (
-          thread.messages.map((m) => (
+          messages.map((m) => (
             <MessageRow
               key={m.id}
               message={m}
-              mine={m.from === viewer.id}
-              author={m.from === viewer.id ? viewer : peer}
-              viewerId={viewer.id}
+              me={me.id}
+              author={m.from === me.id ? me : peer}
               onChange={patchMessage}
             />
           ))
@@ -221,53 +178,42 @@ function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }
         <div ref={bottomRef} />
       </div>
 
-      <Composer onSend={onSend} peerName={peer.name || "them"} />
+      <Composer onSend={send} peerName={peer.name || "them"} />
     </div>
   );
 }
 
-/** One message — the comment row (.cmt) plus chat affordances: reactions beneath,
- *  and on hover an emoji tray + (for your own messages) edit / delete. */
+/** One message — the comment row (.cmt) plus chat affordances: reactions beneath, and
+ *  on hover an emoji tray + (for your own messages) edit / delete. */
 function MessageRow({
   message,
-  mine,
+  me,
   author,
-  viewerId,
   onChange,
 }: {
   message: ChatMessage;
-  mine: boolean;
+  me: string;
   author: { name: string; handle: string | null; avatar: string | null };
-  viewerId: string;
   onChange: (m: ChatMessage) => void;
 }) {
+  const mine = message.from === me;
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.body || "");
   const [trayOpen, setTrayOpen] = useState(false);
-  const pending = message.id.startsWith("tmp_");
 
-  async function saveEdit() {
-    const text = draft.trim();
-    if (!text || text === message.body) return setEditing(false);
-    try {
-      onChange(await editMessage(message.id, text));
-    } finally {
-      setEditing(false);
-    }
-  }
-
-  async function onDelete() {
-    if (!confirm("Delete this message?")) return;
-    onChange(await deleteMessage(message.id));
-  }
-
-  async function onReact(emoji: string) {
+  const react = async (emoji: string) => {
     setTrayOpen(false);
-    const reactions = await reactToMessage(message.id, emoji);
-    onChange({ ...message, reactions });
-  }
+    onChange({ ...message, reactions: await reactToMessage(message.id, emoji) });
+  };
+  const saveEdit = async (text: string) => {
+    if (text && text !== message.body) onChange(await editMessage(message.id, text));
+    setEditing(false);
+  };
+  const remove = async () => {
+    if (confirm("Delete this message?")) onChange(await deleteMessage(message.id));
+  };
 
-  const grouped = groupReactions(message.reactions, viewerId);
+  const reactions = groupReactions(message.reactions, me);
+  const myEmoji = new Set(reactions.filter((r) => r.mine).map((r) => r.emoji));
 
   return (
     <div className={"cmt dm-msg" + (mine ? " mine" : "")}>
@@ -282,69 +228,38 @@ function MessageRow({
         {message.deleted ? (
           <div className="body dm-deleted">Message deleted</div>
         ) : editing ? (
-          <div className="dm-edit">
-            <textarea
-              className="dm-edit-input"
-              value={draft}
-              autoFocus
-              rows={2}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  saveEdit();
-                }
-                if (e.key === "Escape") setEditing(false);
-              }}
-            />
-            <div className="dm-edit-actions">
-              <button className="btn sm primary" onClick={saveEdit}>Save</button>
-              <button className="btn sm naked" onClick={() => setEditing(false)}>Cancel</button>
-            </div>
-          </div>
+          <EditBox initial={message.body ?? ""} onSave={saveEdit} onCancel={() => setEditing(false)} />
         ) : (
           <div className="body dm-text">{message.body}</div>
         )}
 
-        {grouped.length > 0 && (
+        {reactions.length > 0 && (
           <div className="dm-reacts">
-            {grouped.map((g) => (
+            {reactions.map((r) => (
               <button
-                key={g.emoji}
-                className={"dm-chip" + (g.mine ? " on" : "")}
-                onClick={() => onReact(g.emoji)}
+                key={r.emoji}
+                className={"dm-chip" + (r.mine ? " on" : "")}
+                onClick={() => react(r.emoji)}
                 title="Toggle reaction"
               >
-                <span className="react-emoji">{g.emoji}</span>
-                {g.count > 1 && <span className="dm-chip-n">{g.count}</span>}
+                <span className="react-emoji">{r.emoji}</span>
+                {r.count > 1 && <span className="dm-chip-n">{r.count}</span>}
               </button>
             ))}
           </div>
         )}
       </div>
 
-      {!message.deleted && !editing && !pending && (
-        <div className="dm-actions">
+      {!message.deleted && !editing && (
+        <div className={"dm-actions" + (trayOpen ? " open" : "")}>
           <div className="dm-react-wrap">
-            <button className="dm-act" aria-label="React" onClick={() => setTrayOpen((v) => !v)}>
-              ☺
-            </button>
-            {trayOpen && (
-              <EmojiTray
-                onPick={onReact}
-                onClose={() => setTrayOpen(false)}
-                mine={new Set(message.reactions.filter((r) => r.by === viewerId).map((r) => r.emoji))}
-              />
-            )}
+            <button className="dm-act" aria-label="React" onClick={() => setTrayOpen((v) => !v)}>☺</button>
+            {trayOpen && <EmojiTray mine={myEmoji} onPick={react} onClose={() => setTrayOpen(false)} />}
           </div>
           {mine && (
             <>
-              <button className="dm-act" aria-label="Edit" onClick={() => { setDraft(message.body || ""); setEditing(true); }}>
-                Edit
-              </button>
-              <button className="dm-act" aria-label="Delete" onClick={onDelete}>
-                Delete
-              </button>
+              <button className="dm-act" onClick={() => setEditing(true)}>Edit</button>
+              <button className="dm-act" onClick={remove}>Delete</button>
             </>
           )}
         </div>
@@ -353,32 +268,61 @@ function MessageRow({
   );
 }
 
+/** Inline editor for a message: Enter saves, Shift+Enter newlines, Escape cancels. */
+function EditBox({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: string;
+  onSave: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  return (
+    <div className="dm-edit">
+      <textarea
+        className="dm-edit-input"
+        value={draft}
+        autoFocus
+        rows={2}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onSave(draft.trim());
+          }
+          if (e.key === "Escape") onCancel();
+        }}
+      />
+      <div className="dm-edit-actions">
+        <button className="btn sm primary" onClick={() => onSave(draft.trim())}>Save</button>
+        <button className="btn sm naked" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 /** The emoji picker popover — the canonical reaction set, closing on outside click. */
 function EmojiTray({
+  mine,
   onPick,
   onClose,
-  mine,
 }: {
+  mine: Set<string>;
   onPick: (emoji: string) => void;
   onClose: () => void;
-  mine: Set<string>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
+    const onDoc = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && onClose();
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [onClose]);
   return (
     <div className="dm-tray" ref={ref}>
       {REACTIONS.map((e) => (
-        <button
-          key={e}
-          className={"dm-tray-emoji" + (mine.has(e) ? " on" : "")}
-          onClick={() => onPick(e)}
-        >
+        <button key={e} className={"dm-tray-emoji" + (mine.has(e) ? " on" : "")} onClick={() => onPick(e)}>
           {e}
         </button>
       ))}
@@ -386,15 +330,27 @@ function EmojiTray({
   );
 }
 
-/** The bottom composer: a growing textarea; Enter sends, Shift+Enter newlines. */
-function Composer({ onSend, peerName }: { onSend: (text: string) => void; peerName: string }) {
+/** The bottom composer: Enter sends, Shift+Enter newlines. Keeps the draft if a send
+ *  fails so nothing is lost. */
+function Composer({ onSend, peerName }: { onSend: (text: string) => Promise<void>; peerName: string }) {
   const [text, setText] = useState("");
-  function send() {
+  const [sending, setSending] = useState(false);
+  const toast = useToast();
+
+  async function send() {
     const t = text.trim();
-    if (!t) return;
-    onSend(t);
-    setText("");
+    if (!t || sending) return;
+    setSending(true);
+    try {
+      await onSend(t);
+      setText("");
+    } catch {
+      toast("Couldn't send. Try again.");
+    } finally {
+      setSending(false);
+    }
   }
+
   return (
     <div className="dm-compose">
       <textarea
@@ -411,29 +367,40 @@ function Composer({ onSend, peerName }: { onSend: (text: string) => void; peerNa
           }
         }}
       />
-      <button className="btn primary dm-send" disabled={!text.trim()} onClick={send}>
-        Send
+      <button
+        className={"dm-send" + (text.trim() ? " ready" : "")}
+        aria-label="Send"
+        disabled={!text.trim() || sending}
+        onClick={send}
+      >
+        {sending ? <Spinner /> : <SendIcon />}
       </button>
     </div>
   );
 }
 
-/** Fold a flat (emoji, by) list into chips: one per emoji with a count + whether the
- *  viewer is among the reactors. */
+/** Up-arrow send glyph — mirrors the widget's composer button. */
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </svg>
+  );
+}
+
+/** Fold a flat (emoji, by) list into chips: one per emoji, in first-seen order, with a
+ *  count and whether the viewer is among the reactors. */
 function groupReactions(
   reactions: ChatReaction[],
-  viewerId: string,
+  me: string,
 ): Array<{ emoji: string; count: number; mine: boolean }> {
-  const order: string[] = [];
-  const map = new Map<string, { count: number; mine: boolean }>();
-  for (const r of reactions) {
-    if (!map.has(r.emoji)) {
-      map.set(r.emoji, { count: 0, mine: false });
-      order.push(r.emoji);
-    }
-    const g = map.get(r.emoji)!;
-    g.count++;
-    if (r.by === viewerId) g.mine = true;
+  const chips = new Map<string, { emoji: string; count: number; mine: boolean }>();
+  for (const { emoji, by } of reactions) {
+    const chip = chips.get(emoji) ?? { emoji, count: 0, mine: false };
+    chip.count++;
+    chip.mine ||= by === me;
+    chips.set(emoji, chip);
   }
-  return order.map((emoji) => ({ emoji, ...map.get(emoji)! }));
+  return [...chips.values()];
 }

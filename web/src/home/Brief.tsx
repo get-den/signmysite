@@ -7,9 +7,9 @@
  */
 import { Link } from "react-router-dom";
 import { compact, host, relTime } from "../lib";
-import { Avatar } from "../ui";
+import { Avatar, WidgetInstall } from "../ui";
 import type { HomeData } from "./data";
-import { Greeting, Hint, ReaderRow, WidgetLine } from "./parts";
+import { Greeting, Hint, ReaderRow } from "./parts";
 
 export function Brief({ data }: { data: HomeData }) {
   const { viewer, stats, analytics, unfollowedReaders, freshFollows, followBack } = data;
@@ -79,7 +79,7 @@ export function Brief({ data }: { data: HomeData }) {
           <span className="dot" /> <b>{compact(stats?.saved)}</b> saved
         </p>
         <div className="brief-foot-row">
-          <WidgetLine viewer={viewer} className="brief-widget" />
+          <WidgetInstall viewer={viewer} className="brief-widget" />
           <div className="brief-foot-links">
             <Link to="/edit">Edit profile</Link>
             {viewer.handle && <a href={`/@${viewer.handle}`}>View as visitor</a>}

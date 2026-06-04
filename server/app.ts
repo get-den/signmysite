@@ -45,12 +45,11 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
 import { newId, newHandle, newCohortId, newInviteCode, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken } from "./util.ts";
 import { inspectSite, siteHasWidget } from "./preview.ts";
-import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, type ActivityKind } from "./mail.ts";
+import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, notifyMessage, type ActivityKind } from "./mail.ts";
 import * as auth from "./auth.ts";
 import { renderProfileInner, siteHeader } from "./profile.ts";
+import { BASE } from "./config.ts";
 
-export const PORT = Number(process.env.PORT || 8787);
-export const BASE = (process.env.DEN_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const SECURE = BASE.startsWith("https://");
 const COOKIE = "den_session";
 const HAS_MAILER = MAIL_LIVE; // true when RESEND_API_KEY is set (see mail.ts)
@@ -622,6 +621,7 @@ const NOTIFY_KINDS: Array<[db.NotifyKind, string, string]> = [
   ["follow", "New followers", "When someone follows your site"],
   ["reaction", "Reactions", "When someone reacts to your site"],
   ["comment", "Notes", "When someone leaves a note on your site"],
+  ["message", "Direct messages", "When someone sends you a message"],
   ["save", "Saves", "When someone saves your site"],
   ["followedUpdate", "Sites you follow", "When a site you follow posts an update"],
   ["siteUpdated", "Your site updates", "When Den detects your own site changed"],
@@ -649,6 +649,38 @@ app.post("/api/notify", async (c) => {
   for (const [kind] of NOTIFY_KINDS) prefs[kind] = b?.prefs?.[kind] !== false;
   await db.setNotify(id, prefs);
   return c.json({ ok: true });
+});
+
+// ---- one-click unsubscribe (RFC 8058) ------------------------------------
+// The target of the List-Unsubscribe header AND the footer "Unsubscribe" link.
+// Token-gated like /notify (no sign-in needed, but a stranger can't mute you).
+// `k` names the kind to drop; absent ⇒ everything. GET shows a confirm page so a
+// mail scanner that pre-fetches links can't unsubscribe someone by accident; POST
+// does the deed — the path Gmail's one-click button and the confirm button share.
+const NOTIFY_LABEL: Record<string, string> = Object.fromEntries(NOTIFY_KINDS.map(([k, label]) => [k, label]));
+const unsubLabel = (k: string): string => NOTIFY_LABEL[k] ? `"${NOTIFY_LABEL[k]}" emails` : "all email notifications";
+const notifyHref = (id: string, t: string): string => `/notify?m=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}`;
+const unsubAction = (id: string, t: string, k: string): string =>
+  `/unsubscribe?m=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}${k ? `&k=${encodeURIComponent(k)}` : ""}`;
+const UNSUB_BTN = `style="font:inherit;font-size:15px;font-weight:600;padding:10px 18px;border:0;border-radius:10px;background:#0b0b0c;color:#fff;cursor:pointer"`;
+
+app.get("/unsubscribe", (c) => {
+  const id = c.req.query("m") || "", t = c.req.query("t") || "", k = c.req.query("k") || "";
+  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This unsubscribe link is no longer valid. Use the link in a recent Den email.</p>"), 400);
+  return c.html(page("Unsubscribe", `<h1>Unsubscribe</h1>
+    <p>Stop sending ${escapeHtml(unsubLabel(k))} to this address?</p>
+    <form method="post" action="${escapeHtml(unsubAction(id, t, k))}"><button type="submit" ${UNSUB_BTN}>Unsubscribe</button></form>
+    <p style="margin-top:16px"><a href="${escapeHtml(notifyHref(id, t))}">Choose which emails instead</a></p>`));
+});
+
+app.post("/unsubscribe", async (c) => {
+  const id = c.req.query("m") || "", t = c.req.query("t") || "", k = c.req.query("k") || "";
+  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This unsubscribe link is no longer valid.</p>"), 400);
+  const kind = (db.ALL_NOTIFY_KINDS as string[]).includes(k) ? (k as db.NotifyKind) : undefined;
+  await db.muteNotify(id, kind);
+  return c.html(page("Unsubscribed", `<h1>You're unsubscribed</h1>
+    <p>You won't get ${escapeHtml(unsubLabel(kind || ""))} anymore.</p>
+    <p style="margin-top:16px"><a href="${escapeHtml(notifyHref(id, t))}">Manage all notifications</a></p>`));
 });
 
 // The manage page, server-rendered with the shared styling (theme.css + app.css).
@@ -912,15 +944,17 @@ app.get("/api/inbox", async (c) => {
 // deliberately omitted — keep it simple, leave room to grow.
 const MESSAGE_MAX = 4000;
 
-// Shape a stored message for the client: a deleted body reads as null; reactions ride
-// along as a flat (emoji, by) list that the client groups per-viewer (count + "I
-// reacted"). `from`/`to` are member ids.
+// A reaction as the client sees it: the emoji + who left it. The client groups these
+// per-viewer (count + "I reacted"), so the wire shape stays a flat list.
+const reactionJson = (r: db.MsgReaction) => ({ emoji: r.emoji, by: r.member_id });
+// Shape a stored message for the client: a deleted body reads as null; `from`/`to`
+// are member ids.
 function messageJson(m: db.Message, reactions: db.MsgReaction[] = []) {
   return {
     id: m.id, from: m.sender_id, to: m.recipient_id,
     body: m.deleted ? null : m.body,
     created: m.created, edited: m.edited, deleted: m.deleted,
-    reactions: reactions.map((r) => ({ emoji: r.emoji, by: r.member_id })),
+    reactions: reactions.map(reactionJson),
   };
 }
 const peerJson = (m: db.Member) => ({ id: m.id, handle: m.handle, name: m.name, avatar: m.avatar, url: m.url });
@@ -959,10 +993,18 @@ app.post("/api/threads/:id", async (c) => {
   if (!viewer) return c.json({ error: "sign in" }, 401);
   const recipientId = c.req.param("id");
   if (recipientId === viewer.id) return c.json({ error: "cannot message yourself" }, 400);
-  if (!(await db.getMember(recipientId))) return c.json({ error: "not found" }, 404);
+  const recipient = await db.getMember(recipientId);
+  if (!recipient) return c.json({ error: "not found" }, 404);
   const text = String((await body(c))?.body || "").trim().slice(0, MESSAGE_MAX);
   if (!text) return c.json({ error: "empty message" }, 400);
+  // Email the recipient only on the first unread in the thread, so a burst of
+  // messages is one notification rather than one per line. Best-effort.
+  const firstUnread = (await db.unreadFrom(recipientId, viewer.id)) === 0;
   const m = await db.sendMessage({ id: "msg_" + token(8), sender_id: viewer.id, recipient_id: recipientId, body: text });
+  if (firstUnread) {
+    notifyMessage(recipient, { id: viewer.id, name: viewer.name, handle: viewer.handle, avatar: viewer.avatar, url: viewer.url }, text)
+      .catch(() => {});
+  }
   return c.json(messageJson(m));
 });
 
@@ -1002,7 +1044,7 @@ app.post("/api/messages/:id/react", async (c) => {
   const emoji = String((await body(c))?.emoji || "").trim().slice(0, 16);
   if (!emoji) return c.json({ error: "emoji required" }, 400);
   const reactions = await db.toggleMessageReaction(m.id, viewer.id, emoji);
-  return c.json(reactions.map((r) => ({ emoji: r.emoji, by: r.member_id })));
+  return c.json(reactions.map(reactionJson));
 });
 
 // ---- following list ------------------------------------------------------

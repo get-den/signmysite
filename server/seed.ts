@@ -36,19 +36,6 @@ function avatar(name: string, index: number): string {
   </svg>`);
 }
 
-function thumb(title: string, index: number): string {
-  const [bg, accent, ink] = palette[index % palette.length];
-  const shape = index % 3;
-  return svgData(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640">
-    <rect width="960" height="640" rx="44" fill="${bg}"/>
-    <rect x="52" y="52" width="856" height="536" rx="36" fill="#ffffff" opacity=".5"/>
-    ${shape === 0 ? `<circle cx="704" cy="210" r="134" fill="${accent}"/><rect x="104" y="340" width="448" height="56" rx="28" fill="${ink}"/><rect x="104" y="424" width="304" height="34" rx="17" fill="${ink}" opacity=".52"/>` : ""}
-    ${shape === 1 ? `<rect x="120" y="116" width="336" height="336" rx="60" fill="${accent}"/><rect x="512" y="154" width="276" height="46" rx="23" fill="${ink}"/><rect x="512" y="238" width="348" height="32" rx="16" fill="${ink}" opacity=".45"/><rect x="512" y="298" width="250" height="32" rx="16" fill="${ink}" opacity=".3"/>` : ""}
-    ${shape === 2 ? `<path d="M154 442C278 194 408 172 542 300s204 90 300-122v312H154z" fill="${accent}"/><circle cx="232" cy="156" r="74" fill="${ink}" opacity=".85"/>` : ""}
-    <text x="104" y="552" font-family="Inter,Arial,sans-serif" font-size="38" font-weight="800" fill="${ink}">${title}</text>
-  </svg>`);
-}
-
 // A site's favicon, via Google's resolver — a short, always-200, cacheable URL.
 const favicon = (host: string) => `https://www.google.com/s2/favicons?domain=${host}&sz=128`;
 
@@ -155,7 +142,7 @@ const messages: Dm[] = [
   { id: "msg_seed_0", from: ID.you, to: ID.maya, body: "Maya! Loved the dinosaur sketches on your site." },
   { id: "msg_seed_1", from: ID.maya, to: ID.you, body: "thank you!! that means a lot 🦕" },
   { id: "msg_seed_2", from: ID.maya, to: ID.you, body: "are you still adding Den to your site? happy to help." },
-  { id: "msg_seed_3", from: ID.you, to: ID.maya, body: "yes — pasting the one line now. want to swap webrings?" },
+  { id: "msg_seed_3", from: ID.you, to: ID.maya, body: "yes! pasting the one line now. want to swap webrings?" },
   { id: "msg_seed_4", from: ID.maya, to: ID.you, body: "always. send me your three and I'll pin one ✨" },
 ];
 
@@ -166,12 +153,12 @@ for (const [index, member] of members.entries()) {
   await db.updateMember(created.id, { views: 1200 + index * 1450 });
   // Seed an initial version: sets the live thumbnail + last_edited (staggered so
   // the "freshest" sites sort to the top of the demo feed). A real og:image when
-  // we have one, else the generated tile (or, for `thumb: null`, no thumbnail —
-  // the UI falls back to its placeholder).
+  // we have one, otherwise no thumbnail — every preview falls back to the one
+  // canonical grayscale placeholder.
   const capturedAt = new Date(Date.now() - index * 30 * 60 * 60 * 1000).toISOString();
   await db.recordSnapshot(created.id, {
     hash: "seed-" + created.id,
-    thumbnail: ogImage === undefined ? thumb(member.name, index) : ogImage,
+    thumbnail: ogImage === undefined ? null : ogImage,
     title: member.name,
     excerpt: null,
   }, capturedAt);

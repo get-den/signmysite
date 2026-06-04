@@ -301,11 +301,17 @@ export type Member = {
 };
 // The email kinds a member can mute (the /notify page renders one toggle each).
 export type NotifyKind =
-  | "follow" | "save" | "comment" | "reaction"
+  | "follow" | "save" | "comment" | "reaction" | "message"
   | "followedUpdate" | "siteUpdated" | "milestone";
 // Does this member want `kind` emails? Default on — only an explicit false mutes.
 export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: NotifyKind): boolean =>
   m.notify?.[kind] !== false;
+// The canonical list of mutable kinds (mirrors NotifyKind). Lets a global
+// one-click unsubscribe turn every stream off in one merge.
+export const ALL_NOTIFY_KINDS: NotifyKind[] = [
+  "follow", "save", "comment", "reaction", "message",
+  "followedUpdate", "siteUpdated", "milestone",
+];
 // One captured version of a site's front page (see the snapshots table).
 export type Snapshot = {
   id: string; member_id: string; content_hash: string;
@@ -327,6 +333,7 @@ export type ViewerVisit = {
 export type Analytics = {
   views: number;          // all-time running total (members.views)
   visitors: number;       // distinct sessions in the window
+  visitorsWeek: number;   // distinct sessions in the last 7 days
   knownVisitors: number;  // distinct signed-in Den members in the window
   avgDurationMs: number | null;
   recent: ViewerVisit[];
@@ -690,16 +697,18 @@ export async function importView(v: {
 // is the read that turns an anonymous counter into a discovery surface.
 export async function analytics(id: string): Promise<Analytics> {
   const since = windowStart();
+  const weekSince = new Date(Date.now() - 7 * 864e5).toISOString();
   const [totals, recent] = await Promise.all([
     pool.query(
       `SELECT
          (SELECT views FROM members WHERE id = $1)                                          AS views,
          COUNT(DISTINCT session) FILTER (WHERE started > $2)::int                            AS visitors,
+         COUNT(DISTINCT session) FILTER (WHERE started > $3)::int                            AS visitors_week,
          COUNT(DISTINCT viewer_id)
            FILTER (WHERE started > $2 AND viewer_id IS NOT NULL AND viewer_id <> $1)::int    AS known,
          AVG(duration_ms) FILTER (WHERE started > $2 AND duration_ms IS NOT NULL)            AS avg_ms
        FROM page_views WHERE target_id = $1`,
-      [id, since]
+      [id, since, weekSince]
     ),
     pool.query(
       `SELECT m.id, m.handle, m.name, m.avatar, m.url,
@@ -723,6 +732,7 @@ export async function analytics(id: string): Promise<Analytics> {
   return {
     views: Number(t.views || 0),
     visitors: Number(t.visitors || 0),
+    visitorsWeek: Number(t.visitors_week || 0),
     knownVisitors: Number(t.known || 0),
     avgDurationMs: t.avg_ms != null ? Math.round(Number(t.avg_ms)) : null,
     recent: recent.rows.map((r) => ({
@@ -795,6 +805,13 @@ export async function listCrawlable(): Promise<Member[]> {
 // Overwrite a member's email prefs (the /notify page posts the full map).
 export async function setNotify(id: string, prefs: Record<string, boolean>): Promise<void> {
   await pool.query("UPDATE members SET notify = $2::jsonb WHERE id = $1", [id, JSON.stringify(prefs)]);
+}
+// Turn OFF one notification kind — or every kind, if `kind` is omitted — by
+// MERGING into the existing prefs (notify || patch), never clobbering the others.
+// Backs the one-click email unsubscribe, so it must be idempotent.
+export async function muteNotify(id: string, kind?: NotifyKind): Promise<void> {
+  const off = kind ? { [kind]: false } : Object.fromEntries(ALL_NOTIFY_KINDS.map((k) => [k, false]));
+  await pool.query("UPDATE members SET notify = notify || $2::jsonb WHERE id = $1", [id, JSON.stringify(off)]);
 }
 // Atomically record that a one-time email (a milestone, the activation nudge) was
 // sent. Returns true only the FIRST time for a given key — so callers send exactly
@@ -1088,6 +1105,15 @@ export async function markThreadRead(viewerId: string, peerId: string): Promise<
     "UPDATE messages SET read = TRUE WHERE recipient_id = $1 AND sender_id = $2 AND read = FALSE",
     [viewerId, peerId]
   );
+}
+
+// How many unread messages the recipient already has from this sender — so the API
+// can email only on the FIRST unread (a burst of messages is one notification, not N).
+export async function unreadFrom(recipientId: string, senderId: string): Promise<number> {
+  return (await pool.query(
+    "SELECT COUNT(*)::int AS c FROM messages WHERE recipient_id = $1 AND sender_id = $2 AND read = FALSE AND deleted = FALSE",
+    [recipientId, senderId]
+  )).rows[0].c;
 }
 
 export async function listReactions(messageId: string): Promise<MsgReaction[]> {

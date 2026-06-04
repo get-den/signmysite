@@ -9,18 +9,18 @@
  *
  * Env:
  *   RESEND_API_KEY   — your Resend key (re_...). Absent ⇒ email disabled (logged).
- *   DEN_EMAIL_FROM   — verified sender, e.g. "Den <login@den.com>".
+ *   DEN_EMAIL_FROM   — verified sender, e.g. "Den <noreply@signmysite.com>".
  */
 import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind, type Snapshot } from "./db.ts";
 import { escapeHtml, notifyToken } from "./util.ts";
 import { theme } from "./theme.ts";
+import { BASE } from "./config.ts";
 
 // The fields every notification needs from a recipient: who to reach + their prefs.
 type Recipient = Pick<Member, "id" | "email" | "name" | "handle" | "notify">;
 
 const API_KEY = process.env.RESEND_API_KEY || "";
-const FROM = process.env.DEN_EMAIL_FROM || "Den <onboarding@resend.dev>";
-const BASE = (process.env.DEN_BASE_URL || "").replace(/\/$/, "");
+const FROM = process.env.DEN_EMAIL_FROM || "Den <noreply@signmysite.com>";
 
 export const MAIL_LIVE = !!API_KEY;
 
@@ -30,7 +30,7 @@ const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u
 // The one place we hit Resend. Returns true on a successful send; false — logged,
 // never thrown — when mail is off or the API rejects, so a fire-and-forget
 // notification can never break the request that triggered it.
-async function send(msg: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+async function send(msg: { to: string; subject: string; html: string; text: string; headers?: Record<string, string> }): Promise<boolean> {
   if (!API_KEY) {
     console.log(`[mail] (no RESEND_API_KEY) would send → ${msg.to}: ${msg.subject}`);
     return false;
@@ -39,7 +39,10 @@ async function send(msg: { to: string; subject: string; html: string; text: stri
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: "Bearer " + API_KEY, "content-type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text }),
+      body: JSON.stringify({
+        from: FROM, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+        ...(msg.headers && Object.keys(msg.headers).length ? { headers: msg.headers } : {}),
+      }),
     });
     if (!r.ok) {
       console.warn(`[mail] resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
@@ -103,10 +106,20 @@ function code(text: string): string {
 }
 // The tokenized "manage notifications" link — works from email with no sign-in.
 const manageUrl = (id: string): string => BASE ? `${BASE}/notify?m=${encodeURIComponent(id)}&t=${notifyToken(id)}` : "#";
-// The standard footer: why you got this + a one-click way to change it.
-function manageFootnote(id: string, reason: string): string {
-  const link = BASE ? ` <a href="${manageUrl(id)}" style="color:${theme.muted};text-decoration:underline">Manage notifications</a>.` : "";
-  return footnote(`${escapeHtml(reason)}${link}`);
+// One-click unsubscribe (RFC 8058). `kind` names the stream this email belongs to
+// (absent ⇒ everything). Backs BOTH the footer link and the List-Unsubscribe header,
+// so Gmail/Yahoo's native Unsubscribe button works and the mail stays out of spam.
+const unsubUrl = (id: string, kind?: NotifyKind): string =>
+  BASE ? `${BASE}/unsubscribe?m=${encodeURIComponent(id)}&t=${notifyToken(id)}${kind ? `&k=${kind}` : ""}` : "#";
+function unsubHeaders(id: string, kind?: NotifyKind): Record<string, string> {
+  if (!BASE) return {};
+  return { "List-Unsubscribe": `<${unsubUrl(id, kind)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
+}
+// The standard footer: why you got this, plus how to tune it OR leave entirely.
+function manageFootnote(id: string, reason: string, kind?: NotifyKind): string {
+  if (!BASE) return footnote(escapeHtml(reason));
+  const s = `color:${theme.muted};text-decoration:underline`;
+  return footnote(`${escapeHtml(reason)} <a href="${manageUrl(id)}" style="${s}">Manage notifications</a> · <a href="${unsubUrl(id, kind)}" style="${s}">Unsubscribe</a>.`);
 }
 
 // The actor line: avatar (external image, else an initial tile) + "<b>Name</b> verb".
@@ -157,9 +170,10 @@ export async function notifySiteUpdated(
       paragraph("We picked up a new version of your site. Anyone following you will see it flagged as new.") +
       (snap.thumbnail ? image(snap.thumbnail) : "") +
       (profile ? button("View your Den profile", profile) : "") +
-      manageFootnote(member.id, "You're getting this because your site is on Den."),
+      manageFootnote(member.id, "You're getting this because your site is on Den.", "siteUpdated"),
     ),
     text: `Den detected a new version of ${label}. Your followers will see it as new.${profile ? `\n\n${profile}` : ""}`,
+    headers: unsubHeaders(member.id, "siteUpdated"),
   });
 }
 
@@ -181,9 +195,10 @@ export async function notifyFollowedUpdate(
       actorLine(who, source.avatar, "posted a new version of their site.") +
       (snap.thumbnail ? image(snap.thumbnail) : "") +
       button(`View ${who}`, profile) +
-      manageFootnote(follower.id, `You follow ${who} on Den.`),
+      manageFootnote(follower.id, `You follow ${who} on Den.`, "followedUpdate"),
     ),
     text: `${who} just posted a new version of their site.\n\n${profile}`,
+    headers: unsubHeaders(follower.id, "followedUpdate"),
   });
 }
 
@@ -218,6 +233,7 @@ export async function notifyActivation(member: Recipient & Pick<Member, "url">):
       manageFootnote(member.id, "You're getting this because you started a Den profile."),
     ),
     text: `Add this line to your site to go live on Den:\n\n${tag}\n\n${editUrl}`,
+    headers: unsubHeaders(member.id),
   });
 }
 
@@ -243,9 +259,10 @@ export async function notifyMilestone(
       heading(headline) +
       paragraph(note) +
       button("See your profile", profile) +
-      manageFootnote(member.id, "You're getting this because you hit a milestone on Den."),
+      manageFootnote(member.id, "You're getting this because you hit a milestone on Den.", "milestone"),
     ),
     text: `${headline} on Den.\n\n${profile}`,
+    headers: unsubHeaders(member.id, "milestone"),
   });
 }
 
@@ -272,13 +289,12 @@ export async function notifyActivity(opts: {
   // your inbox (to read + reply).
   const actorUrl = BASE && actor.handle ? `${BASE}/@${actor.handle}` : (actor.url || BASE || "#");
   const ownerProfile = BASE && owner.handle ? `${BASE}/@${owner.handle}` : (BASE || "#");
-  const inbox = BASE ? `${BASE}/#/notes` : ownerProfile;
 
   const plan = {
     follow:   { verb: "followed your site.",        subject: `${who} followed you on Den`, cta: ["View their profile", actorUrl], extra: "",            text: `${who} followed your site.` },
     save:     { verb: "saved your site.",           subject: `${who} saved your site`,     cta: ["View their profile", actorUrl], extra: "",            text: `${who} saved your site.` },
     reaction: { verb: "reacted to your site:",      subject: `${who} reacted ${note}`.trim(), cta: ["See it on your profile", ownerProfile], extra: `<div style="margin:12px 0 0;font-size:40px;line-height:1">${escapeHtml(note)}</div>`, text: `${who} reacted ${note} to your site.` },
-    comment:  { verb: "left a note on your site:",  subject: `${who} left you a note`,      cta: ["Read & reply", inbox],          extra: quote(note),   text: `${who} left a note on your site:\n\n${note}` },
+    comment:  { verb: "left a note on your site:",  subject: `${who} left you a note`,      cta: ["See it on your profile", ownerProfile], extra: quote(note),   text: `${who} left a note on your site:\n\n${note}` },
   }[kind];
 
   await send({
@@ -288,8 +304,31 @@ export async function notifyActivity(opts: {
       actorLine(who, actor.avatar, plan.verb) +
       plan.extra +
       button(plan.cta[0], plan.cta[1]) +
-      manageFootnote(owner.id, "You're getting this because someone interacted with your site on Den."),
+      manageFootnote(owner.id, "You're getting this because someone interacted with your site on Den.", kind),
     ),
     text: `${plan.text}${BASE ? `\n\n${plan.cta[1]}` : ""}`,
+    headers: unsubHeaders(owner.id, kind),
+  });
+}
+
+// ---- direct messages -----------------------------------------------------
+// Tell a member someone sent them a DM. Best-effort + prefs-gated. The API calls
+// this only on the FIRST unread message in a thread, so a back-and-forth is one
+// email, not one per line.
+export async function notifyMessage(recipient: Recipient, sender: Actor, body: string): Promise<void> {
+  if (!recipient.email || !wantsNotify(recipient, "message")) return;
+  const who = sender.name || "Someone";
+  const reply = BASE ? `${BASE}/#/messages/${sender.id}` : "#";
+  await send({
+    to: recipient.email,
+    subject: `${who} messaged you on Den`,
+    html: layout(
+      actorLine(who, sender.avatar, "sent you a message:") +
+      quote(body) +
+      button("Reply", reply) +
+      manageFootnote(recipient.id, `You're getting this because ${who} messaged you on Den.`, "message"),
+    ),
+    text: `${who} sent you a message on Den:\n\n${body}\n\n${reply}`,
+    headers: unsubHeaders(recipient.id, "message"),
   });
 }

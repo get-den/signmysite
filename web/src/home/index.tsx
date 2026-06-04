@@ -11,15 +11,19 @@ import type { Member } from "../api";
 import { useHomeData, type HomeData } from "./data";
 import { VerifyNotice } from "./parts";
 import { Switcher } from "./Switcher";
+import { Console } from "./Console";
+import { Spotlight } from "./Spotlight";
 import { Brief } from "./Brief";
 import { Stream } from "./Stream";
 import { Orbit } from "./Orbit";
 import { Gallery } from "./Gallery";
 
-export type LayoutId = "brief" | "stream" | "orbit" | "gallery";
+export type LayoutId = "console" | "spotlight" | "brief" | "stream" | "orbit" | "gallery";
 export type LayoutMeta = { id: LayoutId; label: string; blurb: string };
 
 const LAYOUTS: Array<LayoutMeta & { Component: ComponentType<{ data: HomeData }> }> = [
+  { id: "console", label: "Console", blurb: "Your site at a glance. Views, visitors this week, new comments and saves — or a prompt to add your site.", Component: Console },
+  { id: "spotlight", label: "Spotlight", blurb: "The same numbers, staged around one dominant figure: your total reach.", Component: Spotlight },
   { id: "brief", label: "Brief", blurb: "Today, in one calm column. The single thing worth doing, then your numbers.", Component: Brief },
   { id: "stream", label: "Stream", blurb: "Every signal around your site as one thread. Read it top to bottom, clear it.", Component: Stream },
   { id: "orbit", label: "Orbit", blurb: "Your place in the graph. You at the center, your people in rings around you.", Component: Orbit },
@@ -33,7 +37,7 @@ function readStored(): LayoutId {
     const v = localStorage.getItem(STORE_KEY) as LayoutId | null;
     if (v && LAYOUTS.some((l) => l.id === v)) return v;
   } catch { /* private mode / no storage — fall through */ }
-  return "brief";
+  return "console";
 }
 
 export function HomeExperience({ viewer }: { viewer: Member }) {

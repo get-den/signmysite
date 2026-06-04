@@ -108,6 +108,32 @@ export function CopyField({ text, label = "Copy" }: { text: string; label?: stri
   );
 }
 
+/**
+ * The canonical "add the widget" control: one line, copied with a tap. Used
+ * everywhere someone installs Den (the dashboard nudge, the verify page). No
+ * variants — a label and a Copy button; the script is copied, never shown in full.
+ * `onCopied` lets a caller (the verify flow) start checking the moment it's copied.
+ */
+export function WidgetInstall({
+  viewer, label = "Add to your site", onCopied, className = "",
+}: {
+  viewer: { id: string };
+  label?: string;
+  onCopied?: () => void;
+  className?: string;
+}) {
+  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^den:/, "")}.js"></script>`;
+  const { copied, copy } = useCopy(tag);
+  return (
+    <div className={("widget-install " + className).trim()}>
+      <span className="widget-install-label">{label}</span>
+      <Button className="pink" onClick={() => { copy(); onCopied?.(); }}>
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
+  );
+}
+
 /** Round avatar — image if present, else the name/handle's first letter. */
 export function Avatar({
   of,
@@ -269,11 +295,22 @@ export function BlogRow({ blog }: { blog: Site }) {
   );
 }
 
-/** Gate a route on being signed in (and onboarded); bounce home otherwise. */
-export function Protected({ children }: { children: ReactNode }) {
+/**
+ * Gate a route on being signed in; bounce home otherwise. By default it also
+ * requires a finished signup, but setup pages reachable mid-onboarding (e.g.
+ * /verify, opened by "Add to my site" before a new member has picked a username)
+ * pass requireOnboarded={false} so a freshly signed-in visitor isn't kicked out.
+ */
+export function Protected({
+  children,
+  requireOnboarded = true,
+}: {
+  children: ReactNode;
+  requireOnboarded?: boolean;
+}) {
   const { viewer, loading } = useViewer();
   if (loading) return <Loading />;
   if (!viewer) return <Navigate to="/" replace />;
-  if (!viewer.onboarded) return <Navigate to="/" replace />; // finish signup first
+  if (requireOnboarded && !viewer.onboarded) return <Navigate to="/" replace />; // finish signup first
   return <>{children}</>;
 }

@@ -1,10 +1,11 @@
+import { useEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
-import { Protected } from "./ui";
+import { Protected, Loading } from "./ui";
+import { useViewer } from "./providers";
 import { Home } from "./pages/Home";
 import { Messages } from "./pages/Messages";
-import { Notes } from "./pages/Notes";
 import { Edit } from "./pages/Edit";
 import { Compose } from "./pages/Compose";
 import { Reacted } from "./pages/Reacted";
@@ -36,14 +37,7 @@ export function App() {
               </Protected>
             }
           />
-          <Route
-            path="/notes"
-            element={
-              <Protected>
-                <Notes />
-              </Protected>
-            }
-          />
+          <Route path="/notes" element={<NotesRedirect />} />
           <Route
             path="/edit"
             element={
@@ -55,7 +49,9 @@ export function App() {
           <Route
             path="/verify"
             element={
-              <Protected>
+              // Reachable mid-signup: "Add to my site" sends new members here
+              // before they've picked a username, so don't require onboarding.
+              <Protected requireOnboarded={false}>
                 <Verify />
               </Protected>
             }
@@ -71,4 +67,15 @@ export function App() {
       <Footer />
     </>
   );
+}
+
+/** The dedicated notes page is retired — comments live on your own profile now, and a
+ *  notification bell covers messages. This bounces any lingering /notes link (e.g. from
+ *  the home dashboard) to your profile, or home when signed out. */
+function NotesRedirect() {
+  const { viewer, loading } = useViewer();
+  useEffect(() => {
+    if (!loading) window.location.replace(viewer?.handle ? `/@${viewer.handle}` : "/");
+  }, [viewer, loading]);
+  return <Loading />;
 }

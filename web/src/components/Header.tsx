@@ -2,6 +2,7 @@ import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useViewer } from "../providers";
 import { logout } from "../api";
 import { authUrl } from "../lib";
+import { NotificationBell } from "./NotificationBell";
 
 export function Header() {
   const { viewer, loading, setViewer } = useViewer();
@@ -46,9 +47,7 @@ export function Header() {
             <NavLink className="navlink" to="/messages">
               Messages
             </NavLink>
-            <NavLink className="navlink" to="/notes">
-              Notes
-            </NavLink>
+            <NotificationBell />
             <button className="btn sm naked" onClick={signOut}>
               Sign out
             </button>

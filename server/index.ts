@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { app, PORT, BASE } from "./app.ts";
+import { app } from "./app.ts";
+import { PORT, BASE } from "./config.ts";
 import { startCrawler } from "./crawler.ts";
 import { startSweeps } from "./sweeps.ts";
 import { rewriteOrigin, widgetBanner, denManifest, robotsTxt } from "./meta.ts";
