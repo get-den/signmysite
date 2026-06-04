@@ -88,8 +88,9 @@ const members: Seed[] = [
   { id: ID.dan, handle: "dan", name: "Dan Abramov", url: "https://overreacted.io", avatar: favicon("overreacted.io"), thumb: "https://overreacted.io/opengraph-image?7c3850b1702447d4" },
   { id: ID.cassidy, handle: "cassidy", name: "Cassidy Williams", url: "https://cassidoo.co", avatar: favicon("cassidoo.co"), thumb: "https://cassidoo.co/base-card.png" },
   // paulgraham.com has no og:image — left to fall back to the neutral placeholder,
-  // a truthful demo of that case (and the canonical minimalist personal site).
-  { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", avatar: favicon("paulgraham.com"), thumb: null },
+  // a truthful demo of that case (and the canonical minimalist personal site). No
+  // avatar either, so the generated "PG" tile leads his (prominent) facepile face.
+  { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", thumb: null },
 ];
 
 // Public pins = a member's curated webring (max 3). Maya's three drive the widget
@@ -109,6 +110,21 @@ const edges: [string, string, string][] = [
   [ID.maggie, ID.lynn, "friend"], [ID.maggie, ID.robin, "follow"],
   [ID.lee, ID.swyx, "follow"], [ID.swyx, ID.lee, "follow"], [ID.swyx, ID.dan, "follow"],
   [ID.josh, ID.dan, "follow"], [ID.cassidy, ID.swyx, "follow"],
+  // Notable accounts following Maya — fills her "Followed by" facepile. Several
+  // (pg, lee, maggie) are people `you` also follow, so the signed-in view of her
+  // card additionally shows the "… you follow" mutuals row.
+  [ID.pg, ID.maya, "follow"], [ID.dan, ID.maya, "follow"], [ID.swyx, ID.maya, "follow"],
+  [ID.lee, ID.maya, "follow"], [ID.robin, ID.maya, "follow"], [ID.cassidy, ID.maya, "follow"], [ID.maggie, ID.maya, "follow"],
+];
+
+// Manual fame tiers (the prominence enum) — what ranks the "Followed by" facepile.
+// pg + dan are 'famous' despite modest seeded views, so they lead the pile: a clean
+// demo that the flag overrides the page-view heuristic. Set by hand in real life,
+// e.g. UPDATE members SET prominence='famous' WHERE handle='pg'.
+const prominence: Array<[string, "notable" | "famous"]> = [
+  [ID.pg, "famous"], [ID.dan, "famous"],
+  [ID.swyx, "notable"], [ID.lee, "notable"], [ID.maggie, "notable"],
+  [ID.lynn, "notable"], [ID.josh, "notable"], [ID.cassidy, "notable"], [ID.robin, "notable"],
 ];
 
 const saves: [string, string][] = [
@@ -149,6 +165,7 @@ for (const [index, member] of members.entries()) {
   }, capturedAt);
 }
 for (const [follower, target, rel] of edges) await db.setEdge(follower, target, rel);
+for (const [id, tier] of prominence) await db.updateMember(id, { prominence: tier });
 for (const [member, target] of saves) await db.setSave(member, target);
 for (const [member, target] of pins) await db.setPin(member, target);
 for (const [index, comment] of comments.entries()) await db.addComment({ id: `c_seed_${index}`, ...comment });

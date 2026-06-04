@@ -80,6 +80,8 @@ const pinnedRow = (p: db.PinnedSite) => ({
   id: p.id, handle: p.handle, name: p.name, avatar: p.avatar, url: p.url,
   thumbnail: p.thumbnail, notes: p.notes,
 });
+// A compact identity for the widget's facepile rows ("Followed by …" + mutuals).
+const faceJson = (m: db.Identity) => ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, url: m.url });
 // Resolve the signed-in member from either credential. The widget (embedded
 // cross-site, where cookies are blocked) sends a Bearer token; den.com itself
 // sends the first-party cookie. We try the Bearer token first, but FALL BACK to
@@ -725,10 +727,16 @@ async function cardPayload(c: Context, id: string) {
     }
     viewer = m;
   }
-  const [s, comments, pinned] = await Promise.all([
+  // Social proof on someone else's card: who notable follows them, and which of
+  // those the signed-in viewer also follows. Skipped on the owner's own card (they
+  // get analytics instead). Both ride the single card request — one round-trip.
+  const isOwnerView = !!viewer && viewer.id === m.id;
+  const [s, comments, pinned, followers, mutuals] = await Promise.all([
     db.stats(id, viewer?.id),
     db.listComments(id),
     db.listPinned(m.id),
+    isOwnerView ? Promise.resolve([] as db.Identity[]) : db.notableFollowers(m.id, 5),
+    viewer && !isOwnerView ? db.mutualFollowers(m.id, viewer.id, 5) : Promise.resolve({ faces: [] as db.Identity[], total: 0 }),
   ]);
   // A signed-in viewer opening the card = they've "seen" this site now, so it
   // stops showing as new to them until the next edit.
@@ -740,6 +748,10 @@ async function cardPayload(c: Context, id: string) {
     auth: auth.via, // "bearer" | "cookie" | null — which credential the server used
     comments: shapeComments(comments, id, viewer?.id),
     pinned: pinned.map(pinnedRow),
+    // "Followed by" facepile (notable followers; total = full follower count) and
+    // the viewer's mutuals among them.
+    followedBy: { faces: followers.map(faceJson), total: s.followers },
+    mutuals: { faces: mutuals.faces.map(faceJson), total: mutuals.total },
     script: `${BASE}/w/${m.id.replace(/^den:/, "")}.js`,
   });
 }
@@ -776,6 +788,8 @@ function emptyCard(url: string, name: string) {
     viewer: null,
     comments: [],
     pinned: [],
+    followedBy: { faces: [], total: 0 },
+    mutuals: { faces: [], total: 0 },
     script: `${BASE}/w.js`,
   };
 }

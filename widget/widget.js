@@ -26,9 +26,9 @@
     position: script.getAttribute("data-position") || "bottom-right",
     launcher: script.getAttribute("data-launcher") || "circle",
     collapsed: script.getAttribute("data-collapsed") === "true",
-    // How the owner's pinned sites (their webring) are shown: "stack" | "thumbs"
-    // | "ring". See paintPins(). Unknown values fall back to "stack".
-    pins: (script.getAttribute("data-pins") || "stack").toLowerCase(),
+    // How the owner's pinned sites (their webring) are shown: "ring" (default) |
+    // "stack" | "thumbs" | "spotlight" | "list". See paintPins().
+    pins: (script.getAttribute("data-pins") || "ring").toLowerCase(),
   };
   cfg.generic = !cfg.id;
 
@@ -345,6 +345,7 @@
     if (ui.stats) ui.stats.hidden = !SHOW_STATS;
     if (SHOW_STATS) paintStats();
     paintActions();
+    paintSocial();
     paintPins();
     paintNotes();
     paintCount();
@@ -403,22 +404,54 @@
     ui.pins.hidden = !items.length;
     if (!items.length) return;
     var render = { stack: pinsStack, thumbs: pinsThumbs, ring: pinsRing, spotlight: pinsSpotlight, list: pinsList };
-    var mode = render[cfg.pins] ? cfg.pins : "stack";
+    var mode = render[cfg.pins] ? cfg.pins : "ring";
     ui.pins.className = "pins " + mode;
     render[mode](items);
   }
 
-  // stack: identity-first and lightest — overlapping favicons + a count, the whole
-  // row a single link to the owner's Den profile, where the pins show full-size.
+  // A reusable FACEPILE: a row of overlapping avatars + a label, optionally the
+  // whole row a link with a trailing arrow. The generalized component behind the
+  // "stack" pins view AND the social-proof rows ("Followed by …", mutuals).
+  function facepile(people, label, href) {
+    var row = href ? pinAnchor("facepile", href) : node("div", "facepile");
+    var faces = node("span", "pin-faces");
+    people.slice(0, 4).forEach(function (p) { var f = node("span", "pin-face"); avatar(f, p); faces.append(f); });
+    row.append(faces, node("span", "facepile-label", label));
+    if (href) row.append(pinArrow());
+    return row;
+  }
+
+  // stack: identity-first and lightest — the facepile of pinned-site favicons + a
+  // count, the whole row a single doorway to the profile (pins show full-size there).
   function pinsStack(items) {
     var p = card.profile || {};
     var owner = firstName(p.name || p.handle || "");
-    var a = pinAnchor("pin-stack", profileUrl(p));
-    var faces = node("span", "pin-faces");
-    items.slice(0, 4).forEach(function (it) { var f = node("span", "pin-face"); avatar(f, it); faces.append(f); });
     var n = items.length, s = n === 1 ? "" : "s";
-    a.append(faces, node("span", "pin-stack-label", owner ? n + " site" + s + " " + owner + " loves" : n + " pinned site" + s), pinArrow());
-    ui.pins.append(a);
+    ui.pins.append(facepile(items, owner ? n + " site" + s + " " + owner + " loves" : n + " pinned site" + s, profileUrl(p)));
+  }
+
+  // Social proof, built from the same facepile: who notable follows this site
+  // ("Followed by …"), and — for a signed-in visitor — which of those people the
+  // viewer already follows ("… you follow"). Only on someone else's card (the
+  // owner gets analytics). The server ranks fame (manual prominence flag, then
+  // page views), so the recognizable faces lead.
+  function paintSocial() {
+    if (!ui.social) return;
+    ui.social.textContent = "";
+    if (!card || isOwner) { ui.social.hidden = true; return; }
+    var href = profileUrl(card.profile || {});
+    var fb = card.followedBy || { faces: [], total: 0 };
+    var mu = card.mutuals || { faces: [], total: 0 };
+    if (fb.faces && fb.faces.length) ui.social.append(facepile(fb.faces, "Followed by " + nameList(fb.faces, fb.total, 2), href));
+    // Mutuals lead with ONE name so the "you follow" framing survives truncation.
+    if (mu.faces && mu.faces.length) ui.social.append(facepile(mu.faces, nameList(mu.faces, mu.total, 1) + " you follow", href));
+    ui.social.hidden = !ui.social.children.length;
+  }
+  // "Maggie Appleton, Dan Abramov +5" — up to `max` names, then a "+N" remainder.
+  function nameList(faces, total, max) {
+    var named = faces.slice(0, max).map(function (p) { return p.name || p.handle || "Someone"; });
+    var rest = Math.max(0, (total || named.length) - named.length);
+    return named.join(", ") + (rest ? " +" + rest : "");
   }
 
   // thumbs: a vertical stack of site previews, each a labeled doorway straight to
@@ -437,11 +470,20 @@
     });
   }
 
+  // The heading above the pinned-site views, e.g. "Maya's pinned sites". One place
+  // to adjust the section copy.
+  function pinnedLabel() {
+    var p = card.profile || {};
+    var owner = firstName(p.name || p.handle || "");
+    var n = ((card && card.pinned) || []).length;
+    var noun = "pinned site" + (n === 1 ? "" : "s");
+    return owner ? owner + "’s " + noun : noun.charAt(0).toUpperCase() + noun.slice(1);
+  }
+
   // ring: a horizontal filmstrip you swipe through; the rail scroll-snaps and
   // peeks the next site, inviting the next hop.
   function pinsRing(items) {
-    var owner = firstName((card.profile || {}).name || "");
-    ui.pins.append(node("div", "pin-ring-head", owner ? owner + "’s webring" : "Webring"));
+    ui.pins.append(node("div", "pin-head", pinnedLabel()));
     var rail = node("div", "pin-rail");
     items.forEach(function (it) {
       var a = pinAnchor("ring-card", pinHref(it));
@@ -841,8 +883,11 @@
           '</div>' +
         '</header>' +
         '<a class="name"></a>' +
+        // Social proof: "Followed by …" + the viewer's mutuals (facepiles, visitors
+        // only). See paintSocial().
+        '<div class="social"></div>' +
         // The owner's pinned sites (their webring) — the traversal surface. One of
-        // three presentations renders in here; see paintPins().
+        // five presentations renders in here; see paintPins().
         '<div class="pins"></div>' +
         '<nav class="stats">' + stat("views", "Views") + stat("followers", "Followers") + '</nav>' +
         // Creator analytics — shown only on your own widget (see paint()).
@@ -912,7 +957,7 @@
     return {
       wrap: q(".den"), panel: q(".card"), open: q(".launcher"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
       pillName: q(".pill-name"), count: q(".notif"), save: q(".save"), follow: q(".follow"), name: q(".name"),
-      pins: q(".pins"), notes: q(".notes"), status: q(".status"), input: q(".input"),
+      social: q(".social"), pins: q(".pins"), notes: q(".notes"), status: q(".status"), input: q(".input"),
       composer: q(".composer"), react: q(".react"), send: q(".send"), tray: q(".tray"),
       privacy: q(".privacy"), privCheck: q(".priv-check"),
       stats: q(".stats"), views: q(".views"), followers: q(".followers"),
@@ -970,7 +1015,7 @@
       // into :host from the one source, server/theme.ts (see server/index.ts). The
       // widget keeps only its own semantics here: the font var, the soft fill, shadow.
       ':host{all:initial}.den,.den *{box-sizing:border-box}' +
-      '.den{position:fixed;z-index:2147483000;display:flex;flex-direction:column;align-items:flex-end;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--ff:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--soft:#f3f3f1;--shadow:0 24px 80px rgba(0,0,0,.16)}' +
+      '.den{position:fixed;z-index:2147483000;display:flex;flex-direction:column;align-items:flex-end;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--ff:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--vgap:22px;--soft:#f3f3f1;--shadow:0 24px 80px rgba(0,0,0,.16)}' +
       '.den button{font-family:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer;border:0}' +
       '.den svg{width:1em;height:1em;display:block}' +
       '.dark{--bg:#161616;--ink:#f6f6f2;--muted:#9a9a9a;--soft:#242424;--line:#2e2e2e;--shadow:0 24px 80px rgba(0,0,0,.5)}' +
@@ -991,7 +1036,7 @@
       // Following = quiet outline; hover reveals the destructive "Unfollow" in red.
       // .just suppresses that for one hover cycle after the click (set in armFollowGuard).
       '.follow.on{background:transparent;color:var(--ink);border:1px solid var(--line)}.follow.on:not(.just):hover{background:rgba(229,72,77,.12);color:#e5484d;border-color:rgba(229,72,77,.5);opacity:1}.follow.on:not(.just):hover .lbl{display:none}.follow.on:not(.just):hover::after{content:"Unfollow"}' +
-      '.name{display:inline-block;margin:14px 0 24px;color:var(--ink);font:600 28px/1.15 var(--ff);letter-spacing:-.02em;text-decoration:none}.name:hover{text-decoration:underline;text-underline-offset:4px}' +
+      '.name{display:inline-block;margin:14px 0 var(--vgap);color:var(--ink);font:600 28px/1.15 var(--ff);letter-spacing:-.02em;text-decoration:none}.name:hover{text-decoration:underline;text-underline-offset:4px}' +
       '.stats{display:flex;flex-wrap:wrap;gap:8px 22px;margin:16px 0 26px}.stats[hidden]{display:none}.stat{color:var(--muted);text-decoration:none;font-size:16px;font-weight:600}.stat b{color:var(--ink);font-weight:800;margin-right:5px}.stat:hover span{text-decoration:underline;text-underline-offset:3px}' +
       // Creator analytics: a clean 3-up row, hairline dividers between metrics.
       '.analytics{display:flex;margin:2px 0 16px}.analytics[hidden]{display:none}' +
@@ -1010,13 +1055,20 @@
       '.pin-go{flex:0 0 auto;display:grid;place-items:center;color:var(--muted);font-size:15px}' +
       '.pin-fav{width:20px;height:20px;flex:0 0 auto;border-radius:6px;background:#fff center/cover no-repeat;border:1px solid var(--line);display:grid;place-items:center;color:#111;font:800 9px/1 var(--ff)}' +
       // stack: one rounded row — overlapping favicons + a count → the full profile.
-      '.pins.stack{margin:18px 0 6px}' +
-      '.pin-stack{display:flex;align-items:center;gap:12px;padding:8px 14px 8px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);text-decoration:none}.pin-stack:hover{background:var(--soft)}' +
+      // facepile — the shared overlapping-avatars pill (stack pins + social proof).
+      // grid-template-columns:minmax(0,1fr) lets the facepile shrink so its label
+      // truncates instead of overflowing (grid items default to min-width:auto).
+      // Consistent vertical rhythm between card sections (name · social · pins ·
+      // comments) — one --vgap token; mode rules below carry NO margin of their own.
+      '.pins{margin:0 0 var(--vgap)}.social{display:grid;grid-template-columns:minmax(0,1fr);gap:9px;margin:0 0 var(--vgap)}.social[hidden]{display:none}' +
+      // No resting outline — borderless by default; the rounded pill shape appears
+      // only on hover (border-radius is kept so that hover background is rounded).
+      '.facepile{display:flex;align-items:center;gap:12px;padding:8px 14px 8px 10px;border-radius:999px;color:var(--ink);text-decoration:none}.facepile:hover{background:var(--soft)}' +
       '.pin-faces{display:flex;align-items:center;flex:0 0 auto}' +
       '.pin-face{width:30px;height:30px;border-radius:50%;margin-right:-10px;border:2px solid var(--bg);background:#fff center/cover no-repeat;display:grid;place-items:center;color:#111;font:700 12px/1 var(--ff)}.pin-face:last-child{margin-right:0}' +
-      '.pin-stack-label{flex:1;min-width:0;font:600 15px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.facepile-label{flex:1;min-width:0;font:600 14px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       // thumbs: a vertical list of site previews, each a doorway.
-      '.pins.thumbs{display:grid;gap:12px;margin:18px 0 4px}' +
+      '.pins.thumbs{display:grid;gap:12px}' +
       '.pin-thumb{display:block;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--bg);transition:box-shadow .15s ease,transform .15s ease}.pin-thumb:hover{box-shadow:0 12px 30px rgba(0,0,0,.10);transform:translateY(-2px)}' +
       '.pin-shot{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--soft)}' +
       '.pin-thumb-foot{display:flex;align-items:center;gap:10px;padding:10px 12px}' +
@@ -1025,15 +1077,13 @@
       '.pin-thumb-host{font:500 12px/1.35 var(--ff);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-thumb .pin-go{margin-left:auto;opacity:0;transition:opacity .15s ease}.pin-thumb:hover .pin-go{opacity:1}' +
       // ring: a horizontal filmstrip; the rail snaps and peeks the next card.
-      '.pins.ring{margin:18px 0 4px}' +
-      '.pin-ring-head{display:flex;align-items:center;gap:6px;margin:0 0 11px;font:700 13px/1 var(--ff);color:var(--muted)}.pin-ring-head::after{content:"\\2192"}' +
+      '.pin-head{margin:0 0 11px;font:700 13px/1 var(--ff);color:var(--muted)}' +
       '.pin-rail{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}.pin-rail::-webkit-scrollbar{display:none}' +
       '.ring-card{flex:0 0 auto;width:150px;scroll-snap-align:start;color:var(--ink);text-decoration:none}' +
       '.ring-shot{display:block;width:150px;height:95px;object-fit:cover;border-radius:14px;border:1px solid var(--line);background:var(--soft);transition:box-shadow .15s ease}.ring-card:hover .ring-shot{box-shadow:0 10px 24px rgba(0,0,0,.14)}' +
       '.ring-cap{display:flex;align-items:center;gap:7px;margin-top:8px}' +
       '.ring-name{font:700 13px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       // spotlight: one big card + a ‹ • • • › navigator; flip through one at a time.
-      '.pins.spotlight{margin:18px 0 4px}' +
       '.spot-card{display:block;color:var(--ink);text-decoration:none}' +
       '.spot-shot{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;border:1px solid var(--line);background:var(--soft)}' +
       '.spot-cap{display:flex;align-items:center;gap:9px;margin:11px 2px 0}' +
@@ -1046,7 +1096,6 @@
       '.spot-dots{display:flex;align-items:center;gap:7px}' +
       '.spot-dot{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s ease,transform .15s ease}.spot-dot.on{background:var(--accent);transform:scale(1.25)}' +
       // list: a typographic blogroll — favicon · name · host, hairline dividers.
-      '.pins.list{margin:18px 0 2px}' +
       '.pin-list-head{margin:0 0 2px;font:700 13px/1 var(--ff);color:var(--muted)}' +
       '.pin-row{display:flex;align-items:center;gap:11px;padding:12px 4px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none}.pin-row:hover{background:var(--soft)}' +
       '.pin-row-name{flex:0 1 auto;font:700 15px/1.3 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
@@ -1085,7 +1134,7 @@
       // Onboarding view (the generic /w.js front door). When .onboarding is on the
       // card, the profile chrome is hidden and this self-contained flow shows.
       '.onboard{display:none;text-align:center;padding:6px 2px 2px}.card.onboarding .onboard{display:block}' +
-      '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer,.card.onboarding>.privacy{display:none!important}' +
+      '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.social,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer,.card.onboarding>.privacy{display:none!important}' +
       '.ob-mark{width:56px;height:56px;margin:8px auto 18px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}.ob-mark .logo{font:950 16px/1 var(--ff);letter-spacing:-.03em}' +
       '.ob-mark.emoji{background:transparent;font-size:46px;line-height:1}' +
       '.ob-title{margin:0 0 10px;font:600 22px/1.2 var(--ff);letter-spacing:-.02em;color:var(--ink)}' +

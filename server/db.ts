@@ -53,6 +53,14 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS notify JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE members ADD COLUMN IF NOT EXISTS notified JSONB NOT NULL DEFAULT '{}';
+-- Prominence: a manual fame tier used to rank a member among someone's followers
+-- (the "Followed by …" facepile). An ORDERED enum, so ORDER BY sorts it directly;
+-- it's an OVERRIDE layered on the page-view heuristic (we sort by prominence, then
+-- views). Set by hand, e.g. UPDATE members SET prominence='famous' WHERE handle='pg'.
+DO $$ BEGIN
+  CREATE TYPE prominence AS ENUM ('normal', 'notable', 'famous');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS prominence prominence NOT NULL DEFAULT 'normal';
 
 -- Every captured version of a site's front page — append-only history. The newest
 -- row per member is the "live" one (members.current_snapshot_id points at it); the
@@ -217,10 +225,15 @@ export async function reset(): Promise<void> {
   await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, page_views, avatars");
 }
 
+// Manual fame tier (the prominence enum). Ordered: famous > notable > normal.
+export type Prominence = "normal" | "notable" | "famous";
+// A compact identity for facepiles ("Followed by …", mutuals) — just what a small
+// avatar+name chip needs.
+export type Identity = { id: string; handle: string | null; name: string; avatar: string | null; url: string | null };
 export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
   google_sub: string | null; url: string | null; avatar: string | null;
-  views: number; last_edited: string | null;
+  views: number; last_edited: string | null; prominence: Prominence;
   current_snapshot_id: string | null;
   thumbnail: string | null;   // from the member_cards view (the live snapshot's image)
   onboarded: boolean; verified: boolean;
@@ -307,7 +320,7 @@ export async function createMember(m: {
 // SQL against a column that no longer exists on the base table.
 const MUTABLE_MEMBER_COLS = new Set([
   "handle", "name", "email", "google_sub", "url", "avatar",
-  "views", "last_edited", "current_snapshot_id", "onboarded", "verified",
+  "views", "last_edited", "current_snapshot_id", "onboarded", "verified", "prominence",
 ]);
 export async function updateMember(id: string, patch: Partial<Member>): Promise<Member | undefined> {
   const keys = Object.keys(patch).filter((k) => MUTABLE_MEMBER_COLS.has(k));
@@ -416,6 +429,40 @@ export async function removeEdge(follower: string, target: string): Promise<void
 }
 export async function hasEdge(follower: string, target: string): Promise<boolean> {
   return (await pool.query("SELECT 1 FROM edges WHERE follower_id = $1 AND target_id = $2", [follower, target])).rowCount! > 0;
+}
+
+// The most prominent accounts following `target` — the "Followed by …" facepile.
+// Ranked by the manual prominence flag, then raw page-views, so the flag is an
+// override on the view heuristic. Joins members directly (for prominence/views).
+export async function notableFollowers(target: string, limit: number): Promise<Identity[]> {
+  return (await pool.query(
+    `SELECT m.id, m.handle, m.name, m.avatar, m.url
+       FROM edges e JOIN members m ON m.id = e.follower_id
+      WHERE e.target_id = $1
+      ORDER BY m.prominence DESC, m.views DESC, m.name ASC
+      LIMIT $2`,
+    [target, limit]
+  )).rows;
+}
+
+// Accounts that follow `target` AND that `viewer` also follows — the mutual
+// connections a signed-in visitor sees ("… you follow"). `total` (a window count,
+// computed before LIMIT) backs the "+N" in the label. Same fame ranking.
+export async function mutualFollowers(target: string, viewer: string, limit: number): Promise<{ faces: Identity[]; total: number }> {
+  const rows = (await pool.query(
+    `SELECT m.id, m.handle, m.name, m.avatar, m.url, COUNT(*) OVER()::int AS total
+       FROM edges ep
+       JOIN edges ev ON ev.target_id = ep.follower_id AND ev.follower_id = $2
+       JOIN members m ON m.id = ep.follower_id
+      WHERE ep.target_id = $1
+      ORDER BY m.prominence DESC, m.views DESC, m.name ASC
+      LIMIT $3`,
+    [target, viewer, limit]
+  )).rows as Array<Identity & { total: number }>;
+  return {
+    faces: rows.map((r) => ({ id: r.id, handle: r.handle, name: r.name, avatar: r.avatar, url: r.url })),
+    total: rows[0]?.total ?? 0,
+  };
 }
 
 // ---- saves ---------------------------------------------------------------
