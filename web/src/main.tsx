@@ -6,6 +6,7 @@ import { App } from "./App";
 import { ViewerProvider } from "./providers";
 import { TooltipProvider } from "./ui";
 import "../../site/app.css";
+import "./home/home.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
