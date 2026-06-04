@@ -214,6 +214,21 @@ const pool = new pg.Pool({
   connectionString,
   ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
+
+// One-time launch reset. The startup SCHEMA is CREATE TABLE IF NOT EXISTS, so it
+// never alters a table that already exists — fine for a fresh DB, useless against a
+// stale one. When SIGNMYSITE_RESET_DB=1, drop every object first (incl. objects from
+// older schema versions) so the next line recreates everything clean. Set the env on
+// the one deploy that ships a breaking schema change, then REMOVE it. Inert without it.
+if (process.env.SIGNMYSITE_RESET_DB === "1") {
+  await pool.query(`
+    DROP TABLE IF EXISTS members, snapshots, visits, page_views, edges, saves, pins,
+      comments, messages, message_reactions, sessions, magic_links, avatars,
+      cohorts, cohort_members CASCADE;
+    DROP VIEW IF EXISTS member_cards CASCADE;
+    DROP TYPE IF EXISTS prominence CASCADE;`);
+  console.warn("[db] SIGNMYSITE_RESET_DB=1 — dropped all objects before recreating the schema");
+}
 await pool.query(SCHEMA);
 
 export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
