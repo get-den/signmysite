@@ -148,8 +148,8 @@ export function Onboarding() {
       await claimHandle(handle);
       setStep(2);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) setCheck({ state: "bad", reason: "Just taken — try another." });
-      else toast("Couldn't save — try again.");
+      if (e instanceof ApiError && e.status === 409) setCheck({ state: "bad", reason: "Just taken. Try another." });
+      else toast("Couldn't save. Try again.");
     } finally {
       setClaiming(false);
     }
@@ -166,7 +166,7 @@ export function Onboarding() {
       setVerifyState("idle");
       setStep(3);
     } catch {
-      toast("Couldn't reach that site — check the address.");
+      toast("Couldn't reach that site. Check the address.");
     } finally {
       setScraping(false);
     }
@@ -184,9 +184,9 @@ export function Onboarding() {
       setSaving(false);
       if (e instanceof ApiError && e.status === 409) {
         setStep(1);
-        setCheck({ state: "bad", reason: "Just taken — try another." });
+        setCheck({ state: "bad", reason: "Just taken. Try another." });
       } else {
-        toast("Couldn't finish — try again.");
+        toast("Couldn't finish. Try again.");
       }
     }
   }
@@ -305,7 +305,7 @@ export function Onboarding() {
           <div className="onb-step" key="step3">
             <h1>Add your widget</h1>
             <p>
-              Add this line to <b>{scrape?.host ?? "your site"}</b>, then verify — it proves the site is
+              Add this line to <b>{scrape?.host ?? "your site"}</b>, then verify. It proves the site is
               yours and turns on your widget.
             </p>
 
@@ -322,7 +322,7 @@ export function Onboarding() {
               <div className="onb-pic-cap">
                 {pic === "loading" && "Finding your profile picture…"}
                 {pic === "ok" && <>Profile picture from <b>{scrape?.host}</b></>}
-                {pic === "none" && (scrape?.reachable ? "No picture found — add one later." : "We'll fetch your picture once your site is live.")}
+                {pic === "none" && (scrape?.reachable ? "No picture found. Add one later." : "We'll fetch your picture once your site is live.")}
               </div>
             </div>
 

@@ -6,7 +6,7 @@ import react from "@vitejs/plugin-react";
 // the server's routes (API, widget, auth, static docs) to the Hono server on
 // :8787 — so the whole app works from one origin in dev too.
 const PROXY_TO_SERVER = [
-  "/api", "/w", "/auth", "/site", "/widget", "/examples", "/schema", "/SPEC.md", "/skill.md", "/llms.txt",
+  "/api", "/w", "/auth", "/site", "/widget", "/examples", "/schema", "/skill.md", "/llms.txt",
 ];
 
 export default defineConfig({

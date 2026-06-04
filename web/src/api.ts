@@ -14,6 +14,9 @@ export type Member = {
   onboarded?: boolean;
   /** Present only on the signed-in viewer; true once their site is proven theirs. */
   verified?: boolean;
+  /** Present only on the signed-in viewer: the linked email + how they sign in. */
+  email?: string | null;
+  authMethod?: "google" | "email";
 };
 
 /** A followed/saved/discovered site card. */
@@ -50,6 +53,30 @@ export type Discovery = {
   recommended: Site[];
 };
 
+/** A Den member who has viewed your site, tagged with the relation to you. */
+export type ViewerVisit = {
+  id: string;
+  handle: string | null;
+  name: string;
+  avatar: string | null;
+  url: string | null;
+  views: number;
+  lastSeen: string;
+  /** You already follow them. */
+  viewerFollows: boolean;
+  /** They follow you. */
+  followsYou: boolean;
+};
+
+/** Relational analytics for your own site (owner-only). */
+export type Analytics = {
+  views: number;
+  visitors: number;
+  knownVisitors: number;
+  avgDurationMs: number | null;
+  recent: ViewerVisit[];
+};
+
 export type NoteAuthor = {
   id: string | null;
   name: string | null;
@@ -66,6 +93,17 @@ export type InboxNote = {
   created: string;
   author: NoteAuthor;
   site: { handle: string | null; name: string };
+};
+
+/** A single comment in context — the site it lives on + its author. Backs /note/:id. */
+export type NoteDetail = {
+  id: string;
+  body: string | null;
+  visibility: "public" | "private";
+  created: string;
+  redacted: boolean;
+  author: NoteAuthor | null;
+  site: { id: string; name: string; handle: string | null; avatar: string | null; url: string | null };
 };
 
 /** A note YOU left on someone else's site (outgoing). */
@@ -142,6 +180,13 @@ export const getProfile = (id: string) =>
   req<Member>(`/api/profile/${encodeURIComponent(id)}`);
 export const getStats = (id: string) =>
   req<Stats>(`/api/profile/${encodeURIComponent(id)}/stats`);
+
+/** Relational analytics for your own site: counts, avg engaged time, named visitors. */
+export const getAnalytics = () => req<Analytics>("/api/analytics");
+
+/** One comment in context (author + site). Backs the /note/:id view. */
+export const getComment = (id: string) =>
+  req<NoteDetail>(`/api/comments/${encodeURIComponent(id)}`);
 
 /** Leave a written note (postcard) on someone's site. Members only. */
 export const postComment = (id: string, body: string, visibility: "public" | "private") =>

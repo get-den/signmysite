@@ -1,65 +1,22 @@
-import { useState, type FormEvent } from "react";
-import { Button, CopyField, GoogleIcon } from "../ui";
-import { signinUrl } from "../lib";
-import { requestMagicLink } from "../api";
-import { useToast } from "../providers";
+import { authUrl } from "../lib";
+import { ProfileMock } from "../components/ProfileMock";
 
+/**
+ * The signed-out home: a left-aligned hero (headline + one "Join now" CTA) with
+ * a mock profile card alongside. Sign-in itself lives on the dedicated /auth
+ * page — the landing just funnels there.
+ */
 export function Landing() {
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState<{ devLink?: string } | null>(null);
-  const toast = useToast();
-
-  async function emailLink(e: FormEvent) {
-    e.preventDefault();
-    const addr = email.trim();
-    if (!addr || busy) return;
-    setBusy(true);
-    try {
-      const r = await requestMagicLink(addr, location.href);
-      setSent({ devLink: r.dev_link });
-    } catch {
-      toast("Couldn't send the link — check the address and try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <>
-      <div className="hero">
-        <h1>Your corner of the internet — connected.</h1>
-
-        <div className="signin">
-          <a className="google" href={signinUrl()}>
-            <GoogleIcon />
-            Continue with Google
-          </a>
-          <div className="signin-or"><span>or</span></div>
-          {sent ? (
-            <div className="signin-sent">
-              <b>Check your email</b> for a sign-in link.
-              {sent.devLink && <> <a href={sent.devLink}>Continue →</a></>}
-            </div>
-          ) : (
-            <form className="signin-email" onSubmit={emailLink}>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                aria-label="Email address"
-                required
-              />
-              <Button className="primary" type="submit" loading={busy}>Email me a link</Button>
-            </form>
-          )}
-        </div>
+    <div className="land">
+      <div className="land-hero">
+        <h1>Your corner of the internet</h1>
+        <p>One link for everything you make, and everyone who follows it. Your sites, your notes, and your people, tied into a single profile that's yours.</p>
+        <a className="btn pink lg" href={authUrl()}>Join now</a>
       </div>
-      <div className="section">
-        <h2>One line on your site</h2>
-        <CopyField text={`<script src="${location.origin}/w/you.js"></script>`} />
+      <div className="land-art">
+        <ProfileMock />
       </div>
-    </>
+    </div>
   );
 }

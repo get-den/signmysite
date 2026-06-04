@@ -1,6 +1,6 @@
 # Den server
 
-The reference backend for the [Den protocol](../SPEC.md). TypeScript on
+The reference backend for the Den protocol. TypeScript on
 [Hono](https://hono.dev) + Postgres. Raw SQL, no ORM. Run directly with Node —
 no build step (Node strips the types).
 
@@ -25,7 +25,7 @@ use `/w/<id>.js`. Launcher variants are visible at `/widget/launcher-gallery.htm
 | File | Role |
 |---|---|
 | `db.ts` | The only file that touches Postgres. Swap storage here; nothing else changes. |
-| `app.ts` | The API + the magic-link auth pages (the table from SPEC.md §8). |
+| `app.ts` | The API + the magic-link auth pages. |
 | `index.ts` | Starts the server and serves the repo's static files. |
 | `util.ts` | ids, handles, tokens, html-escaping. |
 
@@ -64,4 +64,4 @@ curl -s localhost:8787/api/profile/den:7f3a9c2e8b1d4f6a/stats
 - **Cookies cross-site:** serve over HTTPS so `SameSite=None; Secure` applies; the widget sends credentials.
 - **Caching/scale:** put Redis in front of `stats` and precompute feeds when reads grow.
 - **Crawler:** `/api/discover` is fetch-on-demand; add a queue + periodic re-crawl later.
-- **Verification:** today a site is trusted via the `id → url` binding; add `me.json` signatures (SPEC.md §5) for trustless checks.
+- **Verification:** today a site is trusted via the `id → url` binding; add `me.json` signatures for trustless checks.

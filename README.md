@@ -50,7 +50,6 @@ Sign-in uses a dev stub until you set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET
 ## Layout
 
 ```
-SPEC.md          the protocol — me.json, identity, the graph
 skill.md         how an AI agent adds Den to a site
 llms.txt         condensed agent-facing spec
 schema/          JSON Schema for me.json
@@ -63,7 +62,6 @@ docs/            short install guides, one per platform
 ## Docs
 
 - **Install the widget** → [docs/](docs/) (pick your platform, or the catchall)
-- **The protocol** → [SPEC.md](SPEC.md)
 - **For AI agents** → [skill.md](skill.md)
 - **The backend** → [server/README.md](server/README.md)
 

@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from "node:crypto";
+import { randomBytes, randomInt, createHmac, timingSafeEqual } from "node:crypto";
 
 export const now = (): string => new Date().toISOString();
 
@@ -76,4 +76,18 @@ export function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string
   );
+}
+
+// A stateless per-member token for email links (the /notify manage page), so a
+// recipient can change prefs WITHOUT signing in — yet a stranger can't mute someone
+// else's mail. HMAC of the id under DEN_SECRET; set DEN_SECRET in prod so links
+// survive restarts (a dev default keeps local links working).
+const NOTIFY_SECRET = process.env.DEN_SECRET || "den-dev-notify-secret";
+export function notifyToken(memberId: string): string {
+  return createHmac("sha256", NOTIFY_SECRET).update(memberId).digest("base64url").slice(0, 22);
+}
+export function checkNotifyToken(memberId: string, tok: string): boolean {
+  const a = Buffer.from(notifyToken(memberId));
+  const b = Buffer.from(String(tok || ""));
+  return a.length === b.length && timingSafeEqual(a, b);
 }

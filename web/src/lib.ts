@@ -56,30 +56,34 @@ export function isReaction(s: string | null | undefined): boolean {
   }
 }
 
-// Placeholder site thumbnails (in /site/thumbnails) to cycle through when a site
-// has no real preview image. Kept in sync with server/profile.ts.
-const PLACEHOLDER_THUMBS = ["andrew", "ilayda", "james", "justin"].map((n) => `/site/thumbnails/${n}.png`);
+// Shown when a site has no real preview image (og:image): a flat, neutral
+// wireframe of a webpage, inlined as a data URI — no network request, nothing to
+// keep on disk. Deliberately generic so a real og:image stands out beside it.
+const PLACEHOLDER_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">` +
+  `<rect width="400" height="300" fill="#f3f3f4"/>` +
+  `<rect x="72" y="58" width="256" height="184" rx="16" fill="#fff" stroke="#e6e6e9" stroke-width="2"/>` +
+  `<circle cx="92" cy="78" r="4.5" fill="#dcdce0"/><circle cx="107" cy="78" r="4.5" fill="#dcdce0"/><circle cx="122" cy="78" r="4.5" fill="#dcdce0"/>` +
+  `<line x1="72" y1="99" x2="328" y2="99" stroke="#ededf0" stroke-width="2"/>` +
+  `<rect x="96" y="120" width="208" height="64" rx="10" fill="#e9e9ec"/>` +
+  `<rect x="96" y="198" width="208" height="10" rx="5" fill="#e9e9ec"/>` +
+  `<rect x="96" y="216" width="132" height="10" rx="5" fill="#e9e9ec"/>` +
+  `</svg>`;
+const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;
 
-/**
- * The thumbnail a site card shows: its real one, else a placeholder picked
- * stably from the site id (same site → same placeholder, no flicker).
- */
-export function siteThumb(site: { id: string; thumbnail?: string | null }): string {
-  if (site.thumbnail) return site.thumbnail;
-  let h = 0;
-  const id = site.id || "";
-  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
-  return PLACEHOLDER_THUMBS[h % PLACEHOLDER_THUMBS.length];
+/** The thumbnail a site card shows: its real preview (og:image), else a generic placeholder. */
+export function siteThumb(site: { thumbnail?: string | null }): string {
+  return site.thumbnail || PLACEHOLDER_THUMB;
 }
 
-/** The Google OAuth start URL, returning to the current page (the Landing CTA). */
-export function signinUrl(): string {
-  return "/api/auth/google?return=" + encodeURIComponent(location.href);
+/** The Google OAuth start URL, returning to `to` after (default: this page). */
+export function signinUrl(to: string = location.href): string {
+  return "/api/auth/google?return=" + encodeURIComponent(to);
 }
 
-/** The combined sign-in page (Google + email magic link), returning here after. */
-export function authUrl(): string {
-  return "/auth?return=" + encodeURIComponent(location.href);
+/** The in-app sign-in page (Google + email magic link), returning to `to` after. */
+export function authUrl(to: string = location.href): string {
+  return "#/auth?return=" + encodeURIComponent(to);
 }
 
 /**

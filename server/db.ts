@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS members (
   -- changes. Guards against one account claiming another's site. Defaults FALSE
   -- (an unverified site shows "(unverified)" on the profile).
   verified    BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Email preferences: a per-kind override map, e.g. {"follow": false}. Absent /
+  -- true = on, so the default ({}) means every email is on. Open-ended — adding a
+  -- new notification kind needs no migration. Edited from the /notify page.
+  notify      JSONB NOT NULL DEFAULT '{}',
+  -- One-time-email bookkeeping: which milestones we've celebrated + whether the
+  -- activation nudge was sent, e.g. {"views:100": true, "activation": true}. Keeps
+  -- those emails idempotent without a separate table.
+  notified    JSONB NOT NULL DEFAULT '{}',
   created     TEXT NOT NULL
 );
 -- migrate older installs in place (idempotent)
@@ -43,6 +51,8 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS last_edited TEXT;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS current_snapshot_id TEXT;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS notify JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE members ADD COLUMN IF NOT EXISTS notified JSONB NOT NULL DEFAULT '{}';
 
 -- Every captured version of a site's front page — append-only history. The newest
 -- row per member is the "live" one (members.current_snapshot_id points at it); the
@@ -91,13 +101,35 @@ CREATE VIEW member_cards AS
     FROM members m
     LEFT JOIN snapshots s ON s.id = m.current_snapshot_id;
 
--- Per-viewer "last seen this site" — powers the "new"/"updated" badge.
+-- Per-viewer "last seen this site" — powers the "new"/"updated" badge. (Distinct
+-- from page_views below: this is one row per (viewer, site) tracking recency for
+-- the feed; page_views is the append-only impression log behind analytics.)
 CREATE TABLE IF NOT EXISTS visits (
   viewer_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
   last_seen TEXT NOT NULL,
   PRIMARY KEY (viewer_id, target_id)
 );
+
+-- Append-only page-view log — the substrate for relational analytics. One row per
+-- widget impression: WHO (viewer_id, set only when the visitor is a signed-in Den
+-- member — anonymous views keep it NULL), an opaque per-browser session, which
+-- page, the referring host, and an engaged-time estimate filled in later by the
+-- page-exit beacon (NULL until then). members.views stays the O(1) running total
+-- for hot reads; this table is queried only for the owner's analytics view.
+CREATE TABLE IF NOT EXISTS page_views (
+  id          TEXT PRIMARY KEY,
+  target_id   TEXT NOT NULL,
+  viewer_id   TEXT,
+  session     TEXT NOT NULL,
+  path        TEXT,
+  referrer    TEXT,
+  duration_ms INTEGER,
+  started     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS page_views_target ON page_views (target_id, started DESC);
+CREATE INDEX IF NOT EXISTS page_views_known ON page_views (target_id, viewer_id) WHERE viewer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS page_views_session ON page_views (target_id, session, started DESC);
 
 CREATE TABLE IF NOT EXISTS edges (
   follower_id TEXT NOT NULL,
@@ -182,7 +214,7 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, avatars");
+  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, page_views, avatars");
 }
 
 export type Member = {
@@ -191,8 +223,18 @@ export type Member = {
   views: number; last_edited: string | null;
   current_snapshot_id: string | null;
   thumbnail: string | null;   // from the member_cards view (the live snapshot's image)
-  onboarded: boolean; verified: boolean; created: string;
+  onboarded: boolean; verified: boolean;
+  notify: Record<string, boolean>;    // email prefs: per-kind override ({} = all on)
+  notified: Record<string, boolean>;  // one-time emails already sent (milestones, activation)
+  created: string;
 };
+// The email kinds a member can mute (the /notify page renders one toggle each).
+export type NotifyKind =
+  | "follow" | "save" | "comment" | "reaction"
+  | "followedUpdate" | "siteUpdated" | "milestone";
+// Does this member want `kind` emails? Default on — only an explicit false mutes.
+export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: NotifyKind): boolean =>
+  m.notify?.[kind] !== false;
 // One captured version of a site's front page (see the snapshots table).
 export type Snapshot = {
   id: string; member_id: string; content_hash: string;
@@ -201,6 +243,22 @@ export type Snapshot = {
 export type Stats = {
   views: number; followers: number; following: number; saved: number; pinned: number;
   viewerFollows: boolean; viewerSaved: boolean; viewerPinned: boolean;
+};
+// A Den member who has viewed your site, with the relation that makes analytics
+// relational: whether you already follow them (and they you). `views` is how many
+// times they've opened your site in the window; `lastSeen` is the most recent.
+export type ViewerVisit = {
+  id: string; handle: string | null; name: string; avatar: string | null; url: string | null;
+  views: number; lastSeen: string; viewerFollows: boolean; followsYou: boolean;
+};
+// The owner's analytics: headline counts, the real average engaged time (finally
+// not a placeholder), and the named Den members behind the anonymous view total.
+export type Analytics = {
+  views: number;          // all-time running total (members.views)
+  visitors: number;       // distinct sessions in the window
+  knownVisitors: number;  // distinct signed-in Den members in the window
+  avgDurationMs: number | null;
+  recent: ViewerVisit[];
 };
 export type Comment = {
   id: string; target_id: string; author_id: string; body: string; created: string;
@@ -447,10 +505,109 @@ export async function stats(id: string, viewerId?: string): Promise<Stats> {
   };
 }
 
-// ---- views ---------------------------------------------------------------
-export async function addView(id: string): Promise<number> {
-  const r = await pool.query("UPDATE members SET views = views + 1 WHERE id = $1 RETURNING views", [id]);
+// ---- views & analytics ---------------------------------------------------
+// How far back the named-visitor view looks. Counts/averages are windowed too so
+// "who's reading me lately" stays current rather than all-time noise.
+const ANALYTICS_WINDOW_DAYS = 30;
+const windowStart = () => new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 864e5).toISOString();
+
+// Record one page view: append the event (who/where/referrer) AND bump the site's
+// running counter, so every hot read stays a single-column lookup. `viewer` is set
+// only when the visitor is a signed-in Den member — that's what makes the analytics
+// relational. The caller drops self-views before calling. Returns the new total.
+export async function recordView(v: {
+  target: string; viewer?: string | null; session: string;
+  path?: string | null; referrer?: string | null;
+}): Promise<number> {
+  await pool.query(
+    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, started)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null, v.referrer ?? null, now()]
+  );
+  const r = await pool.query("UPDATE members SET views = views + 1 WHERE id = $1 RETURNING views", [v.target]);
   return r.rows[0]?.views ?? 0;
+}
+
+// Attach an engaged-time estimate to this session's most recent view of the site.
+// Sent by the page-exit beacon, which can't carry the auth header — so it's keyed
+// by the opaque session, not the viewer. Monotonic (only ever raises the figure,
+// since the beacon may fire several times) and scoped to the last few hours so a
+// recycled session id can't rewrite old history.
+export async function recordDuration(target: string, session: string, ms: number): Promise<void> {
+  const floor = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+  await pool.query(
+    `UPDATE page_views SET duration_ms = GREATEST(COALESCE(duration_ms, 0), $3)
+      WHERE id = (
+        SELECT id FROM page_views
+         WHERE target_id = $1 AND session = $2 AND started > $4
+         ORDER BY started DESC LIMIT 1
+      )`,
+    [target, session, Math.round(ms), floor]
+  );
+}
+
+// Seed/import helper: insert a fully-specified view event with its own timestamp
+// and known duration, WITHOUT bumping the counter (the seed sets that directly).
+// Production views go through recordView instead.
+export async function importView(v: {
+  target: string; viewer?: string | null; session: string;
+  path?: string | null; referrer?: string | null; durationMs?: number | null; at?: string;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, duration_ms, started)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null,
+     v.referrer ?? null, v.durationMs ?? null, v.at ?? now()]
+  );
+}
+
+// The owner's relational analytics for one site. Headline counts + average engaged
+// time, plus the named Den members behind the view total — each joined to the edge
+// table both ways so the UI can say "follows you / you don't follow back yet". This
+// is the read that turns an anonymous counter into a discovery surface.
+export async function analytics(id: string): Promise<Analytics> {
+  const since = windowStart();
+  const [totals, recent] = await Promise.all([
+    pool.query(
+      `SELECT
+         (SELECT views FROM members WHERE id = $1)                                          AS views,
+         COUNT(DISTINCT session) FILTER (WHERE started > $2)::int                            AS visitors,
+         COUNT(DISTINCT viewer_id)
+           FILTER (WHERE started > $2 AND viewer_id IS NOT NULL AND viewer_id <> $1)::int    AS known,
+         AVG(duration_ms) FILTER (WHERE started > $2 AND duration_ms IS NOT NULL)            AS avg_ms
+       FROM page_views WHERE target_id = $1`,
+      [id, since]
+    ),
+    pool.query(
+      `SELECT m.id, m.handle, m.name, m.avatar, m.url,
+              COUNT(*)::int                  AS views,
+              MAX(pv.started)                AS last_seen,
+              (fo.follower_id IS NOT NULL)   AS "viewerFollows",
+              (fi.follower_id IS NOT NULL)   AS "followsYou"
+         FROM page_views pv
+         JOIN members m ON m.id = pv.viewer_id
+         LEFT JOIN edges fo ON fo.follower_id = $1 AND fo.target_id = m.id
+         LEFT JOIN edges fi ON fi.follower_id = m.id AND fi.target_id = $1
+        WHERE pv.target_id = $1 AND pv.viewer_id IS NOT NULL AND pv.viewer_id <> $1
+          AND pv.started > $2
+        GROUP BY m.id, fo.follower_id, fi.follower_id
+        ORDER BY MAX(pv.started) DESC
+        LIMIT 24`,
+      [id, since]
+    ),
+  ]);
+  const t = totals.rows[0] || {};
+  return {
+    views: Number(t.views || 0),
+    visitors: Number(t.visitors || 0),
+    knownVisitors: Number(t.known || 0),
+    avgDurationMs: t.avg_ms != null ? Math.round(Number(t.avg_ms)) : null,
+    recent: recent.rows.map((r) => ({
+      id: r.id, handle: r.handle, name: r.name, avatar: r.avatar, url: r.url,
+      views: r.views, lastSeen: r.last_seen,
+      viewerFollows: r.viewerFollows, followsYou: r.followsYou,
+    })),
+  };
 }
 
 // ---- freshness + snapshots -----------------------------------------------
@@ -511,6 +668,43 @@ export async function listCrawlable(): Promise<Member[]> {
   return (await pool.query("SELECT * FROM member_cards WHERE url IS NOT NULL")).rows;
 }
 
+// ---- notifications: prefs + one-time bookkeeping -------------------------
+// Overwrite a member's email prefs (the /notify page posts the full map).
+export async function setNotify(id: string, prefs: Record<string, boolean>): Promise<void> {
+  await pool.query("UPDATE members SET notify = $2::jsonb WHERE id = $1", [id, JSON.stringify(prefs)]);
+}
+// Atomically record that a one-time email (a milestone, the activation nudge) was
+// sent. Returns true only the FIRST time for a given key — so callers send exactly
+// once even under concurrent triggers (e.g. two views landing on the 100th).
+export async function markNotified(id: string, key: string): Promise<boolean> {
+  const r = await pool.query(
+    `UPDATE members SET notified = notified || jsonb_build_object($2, true)
+      WHERE id = $1 AND NOT (notified ? $2) RETURNING id`,
+    [id, key]
+  );
+  return r.rowCount === 1;
+}
+// Followers of a site that have an email — recipients for "a site you follow updated".
+export async function listFollowersWithEmail(targetId: string): Promise<Member[]> {
+  return (await pool.query(
+    `SELECT m.* FROM edges e JOIN member_cards m ON m.id = e.follower_id
+      WHERE e.target_id = $1 AND m.email IS NOT NULL`,
+    [targetId]
+  )).rows;
+}
+// Members who signed up but never verified a site (no widget yet) and haven't been
+// nudged — for the activation sweep. `before` gates on signup age so we don't nudge
+// someone mid-onboarding.
+export async function listUnactivated(before: string, limit = 200): Promise<Member[]> {
+  return (await pool.query(
+    `SELECT * FROM member_cards
+      WHERE onboarded = TRUE AND verified = FALSE AND email IS NOT NULL
+        AND created < $1 AND NOT (notified ? 'activation')
+      LIMIT $2`,
+    [before, limit]
+  )).rows;
+}
+
 // ---- avatars (uploaded profile pictures) ---------------------------------
 // Stored as raw bytes, addressed by member id, served at /avatars/<id> (see
 // server/app.ts). Kept out of the members row so SELECT * and every list/card
@@ -543,6 +737,25 @@ type db_CommentRow = {
   author_avatar: string | null; author_url: string | null;
 };
 type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
+// A single comment joined with BOTH its author and the site (target) it lives on
+// — powers the standalone /note/:id view the widget links each comment to.
+export type db_NoteRow = db_CommentRow & {
+  target_id: string;
+  target_name: string; target_handle: string | null; target_avatar: string | null; target_url: string | null;
+};
+export async function getComment(id: string): Promise<db_NoteRow | undefined> {
+  const r = await pool.query(
+    `SELECT c.id, c.body, c.visibility, c.created, c.target_id, c.author_id,
+            m.name AS author_name, m.handle AS author_handle, m.avatar AS author_avatar, m.url AS author_url,
+            t.name AS target_name, t.handle AS target_handle, t.avatar AS target_avatar, t.url AS target_url
+       FROM comments c
+       LEFT JOIN members m ON m.id = c.author_id
+       JOIN members t ON t.id = c.target_id
+      WHERE c.id = $1`,
+    [id]
+  );
+  return r.rows[0];
+}
 
 export async function addComment(c: {
   id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility;

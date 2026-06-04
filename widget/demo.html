@@ -41,6 +41,8 @@
     tag.src = "/w/7f3a9c2e8b1d4f6a.js";
     if (params.has("launcher")) tag.dataset.launcher = params.get("launcher");
     if (params.has("collapsed")) tag.dataset.collapsed = params.get("collapsed");
+    // ?pins=stack|thumbs|ring — preview each pinned-sites presentation.
+    if (params.has("pins")) tag.dataset.pins = params.get("pins");
     document.body.append(tag);
   </script>
 </body>

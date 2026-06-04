@@ -11,7 +11,8 @@
  *   PATCH /api/profile           edit your own profile
  *   GET  /api/profile/:id        public profile
  *   GET  /api/profile/:id/stats  views / followers / following / viewer state
- *   POST /api/profile/:id/view   increment view count (widget impression)
+ *   POST /api/profile/:id/view   log a view (who/where/referrer), or attach exit duration
+ *   GET  /api/analytics          owner-only: counts, avg engaged time, named Den visitors
  *   GET  /api/profile/:id/history    the site's version timeline (snapshots)
  *   GET  /api/profile/:id/comments   list notes (private ones redacted unless owner/author)
  *   POST /api/profile/:id/comments   leave a note (members only; public|private)
@@ -30,9 +31,9 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, token, escapeHtml, normHandle, handleProblem } from "./util.ts";
+import { newId, newHandle, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken } from "./util.ts";
 import { inspectSite, siteHasWidget } from "./preview.ts";
-import { sendMagicLink, MAIL_LIVE, notifySiteUpdated } from "./mail.ts";
+import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, type ActivityKind } from "./mail.ts";
 import * as auth from "./auth.ts";
 import { renderProfileInner, siteHeader } from "./profile.ts";
 
@@ -70,11 +71,14 @@ const publicMember = (m: db.Member | db.SiteCard) => ({
 // The signed-in viewer's own record — adds the private-ish flags the SPA gates
 // signup + verify prompts on (kept off public profiles).
 const viewerJson = (m: db.Member) => ({ ...publicMember(m), onboarded: m.onboarded, verified: m.verified });
-// A pinned site shown in a profile/widget: identity + the pinner's own public
-// notes (the bubble). Where it links — own URL if any, else the Den profile.
+// A pinned site shown in a profile/widget: identity, its live preview image (for
+// the widget's thumbnail/webring views), + the pinner's own public notes (the
+// bubble). Where it links — own URL if any, else the Den profile. The thumbnail
+// is a short cacheable URL (og:image), never inline bytes, so it loads in
+// parallel off the critical path and the edge can cache it.
 const pinnedRow = (p: db.PinnedSite) => ({
   id: p.id, handle: p.handle, name: p.name, avatar: p.avatar, url: p.url,
-  notes: p.notes,
+  thumbnail: p.thumbnail, notes: p.notes,
 });
 // Resolve the signed-in member from either credential. The widget (embedded
 // cross-site, where cookies are blocked) sends a Bearer token; den.com itself
@@ -94,6 +98,23 @@ async function viewerAuth(c: Context): Promise<{ member?: db.Member; via: "beare
 }
 const viewerOf = async (c: Context): Promise<db.Member | undefined> => (await viewerAuth(c)).member;
 const body = (c: Context) => c.req.json().catch(() => ({} as any));
+
+// Fire-and-forget: email a site's owner that someone followed/saved/reacted/noted.
+// Best-effort by design — runs after the response, swallows every error, and skips
+// self-actions + owners with no email on file (mail.notifyActivity re-checks email).
+function notifyOwner(kind: ActivityKind, ownerId: string, actor: db.Member, body?: string): void {
+  if (actor.id === ownerId) return;
+  (async () => {
+    const owner = await db.getMember(ownerId);
+    if (!owner?.email) return;
+    await notifyActivity({
+      owner,
+      actor: { id: actor.id, name: actor.name, handle: actor.handle, avatar: actor.avatar, url: actor.url },
+      kind,
+      body,
+    });
+  })().catch(() => {});
+}
 
 async function uniqueHandle(): Promise<string> {
   for (let i = 0; i < 6; i++) {
@@ -293,9 +314,12 @@ app.post("/api/follow", async (c) => {
   const id = String((await body(c))?.id || "");
   if (!id) return c.json({ error: "id required" }, 400);
   if (id === viewer.id) return c.json({ error: "cannot follow yourself" }, 400);
+  let followed = false;
   if (await db.hasEdge(viewer.id, id)) await db.removeEdge(viewer.id, id);
-  else await db.setEdge(viewer.id, id, "follow");
-  return c.json(await db.stats(id, viewer.id));
+  else { await db.setEdge(viewer.id, id, "follow"); notifyOwner("follow", id, viewer); followed = true; } // email only on a new follow, not unfollow
+  const s = await db.stats(id, viewer.id);
+  if (followed) maybeMilestone("followers", id, s.followers); // celebrate on the way up only
+  return c.json(s);
 });
 
 app.post("/api/save", async (c) => {
@@ -304,7 +328,7 @@ app.post("/api/save", async (c) => {
   const id = String((await body(c))?.id || "");
   if (!id) return c.json({ error: "id required" }, 400);
   if (await db.hasSave(viewer.id, id)) await db.removeSave(viewer.id, id);
-  else await db.setSave(viewer.id, id);
+  else { await db.setSave(viewer.id, id); notifyOwner("save", id, viewer); } // email only on a new save, not unsave
   return c.json(await db.stats(id, viewer.id));
 });
 
@@ -484,11 +508,140 @@ app.post("/api/verify", async (c) => {
   return c.json({ verified: !!updated!.verified, reason: found ? null : "not-found" });
 });
 
-// ---- views ---------------------------------------------------------------
+// ---- views & analytics ---------------------------------------------------
+// Body parser that also accepts a sendBeacon payload: the page-exit duration ping
+// must use navigator.sendBeacon (it survives unload), which sends text/plain and
+// can't set headers — so we parse the raw text as JSON rather than trusting the
+// content-type the way c.req.json() does.
+async function beaconBody(c: Context): Promise<any> {
+  try { return JSON.parse(await c.req.text()); } catch { return {}; }
+}
+// Keep only the referrer's host (not the full URL) — enough for "came from X",
+// small, and less to retain. Drops same-origin Den referrers as noise.
+function refHost(ref: unknown): string | null {
+  if (typeof ref !== "string" || !ref) return null;
+  try {
+    const h = new URL(ref).hostname.replace(/^www\./, "");
+    return !h || ref.startsWith(BASE) ? null : h.slice(0, 120);
+  } catch { return null; }
+}
+
+// One URL, two jobs — because the duration ping rides navigator.sendBeacon, which
+// can't set the auth header, so it must be a header-free POST to a stable path:
+//   • initial view  → { session, path?, ref? }   record the impression + WHO
+//   • exit duration → { session, ms }             attach engaged time to that view
+// Self-views (the owner opening their own site) are counted by neither — they'd
+// just inflate your own numbers.
 app.post("/api/profile/:id/view", async (c) => {
-  const views = await db.addView(c.req.param("id"));
+  const id = c.req.param("id");
+  const b = await beaconBody(c);
+  const session = String(b?.session || "").slice(0, 64);
+  if (!session) return c.json({ ok: false });
+
+  // Duration ping: raise the engaged-time estimate on the existing view, nothing
+  // else. Capped at 6h so a backgrounded tab can't report an absurd figure.
+  if (typeof b?.ms === "number" && b.ms > 0) {
+    await db.recordDuration(id, session, Math.min(b.ms, 6 * 3600 * 1000));
+    return c.json({ ok: true });
+  }
+
+  // Initial view: goes through the authed path, so a signed-in Den visitor is
+  // attributed by id (anonymous visitors stay anonymous, viewer NULL).
+  const viewer = await viewerOf(c);
+  if (viewer?.id === id) return c.json({ self: true }); // don't count self-views
+  const views = await db.recordView({
+    target: id,
+    viewer: viewer?.id ?? null,
+    session,
+    path: typeof b?.path === "string" ? b.path.slice(0, 512) : null,
+    referrer: refHost(b?.ref),
+  });
+  maybeMilestone("views", id, views);
   return c.json({ views });
 });
+
+// Relational analytics — owner-only, your own site. Headline counts, the real
+// average engaged time, and the named Den members who've read you, each tagged
+// with whether you already follow them: the "people with Den sites visited you —
+// follow them back" discovery hook. Only ever returns the caller's own data.
+app.get("/api/analytics", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return c.json(await db.analytics(viewer.id));
+});
+
+// ---- email notification preferences --------------------------------------
+// The kinds shown on the manage page (one toggle each). Adding a kind here + in
+// the sender is all it takes — storage is the open-ended `notify` JSON.
+const NOTIFY_KINDS: Array<[db.NotifyKind, string, string]> = [
+  ["follow", "New followers", "When someone follows your site"],
+  ["reaction", "Reactions", "When someone reacts to your site"],
+  ["comment", "Notes", "When someone leaves a note on your site"],
+  ["save", "Saves", "When someone saves your site"],
+  ["followedUpdate", "Sites you follow", "When a site you follow posts an update"],
+  ["siteUpdated", "Your site updates", "When Den detects your own site changed"],
+  ["milestone", "Milestones", "When you pass 100 views, 10 followers, and so on"],
+];
+
+// Manage notifications — reached from any email's footer link. Token-gated, so it
+// works with NO sign-in (the recipient may not have a den.com session) yet a
+// stranger can't open it. See util.notifyToken.
+app.get("/notify", async (c) => {
+  const id = c.req.query("m") || "";
+  const t = c.req.query("t") || "";
+  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This settings link is no longer valid. Use the link in a recent Den email.</p>"), 400);
+  const m = await db.getMember(id);
+  if (!m) return c.html(page("Not found", "<h1>Not found</h1>"), 404);
+  return c.html(notifyPage(m, t));
+});
+
+app.post("/api/notify", async (c) => {
+  const b = await body(c);
+  const id = String(b?.m || "");
+  const t = String(b?.t || "");
+  if (!checkNotifyToken(id, t)) return c.json({ error: "invalid token" }, 401);
+  const prefs: Record<string, boolean> = {};
+  for (const [kind] of NOTIFY_KINDS) prefs[kind] = b?.prefs?.[kind] !== false;
+  await db.setNotify(id, prefs);
+  return c.json({ ok: true });
+});
+
+// The manage page, server-rendered with the shared styling (theme.css + app.css).
+function notifyPage(m: db.Member, t: string): string {
+  const rows = NOTIFY_KINDS.map(([kind, label, desc]) =>
+    `<label class="nrow">
+       <span class="ninfo"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span>
+       <input type="checkbox" data-kind="${kind}"${db.wantsNotify(m, kind) ? " checked" : ""}>
+     </label>`).join("");
+  const inner = `<div class="narrow">
+    <h1 class="ntitle">Email notifications</h1>
+    <p class="nsub">for ${escapeHtml(m.name || "your Den profile")}${m.email ? ` · ${escapeHtml(m.email)}` : ""}</p>
+    <div class="card nlist">${rows}</div>
+    <div class="nactions"><button id="nsave" class="btn pink">Save preferences</button><span id="nstatus" class="nstatus"></span></div>
+  </div>
+  <style>
+    .ntitle{margin:18px 0 4px;font-size:26px;font-weight:600;color:var(--ink)}
+    .nsub{margin:0 0 22px;color:var(--muted);font-size:14px}
+    .nlist{padding:6px 20px}
+    .nrow{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0;border-top:1px solid var(--line);cursor:pointer}
+    .nrow:first-child{border-top:0}
+    .ninfo{display:flex;flex-direction:column;gap:3px}.ninfo b{color:var(--ink);font-weight:600;font-size:15px}.ninfo span{color:var(--muted);font-size:13px}
+    .nrow input{width:20px;height:20px;accent-color:var(--accent);flex:0 0 auto;cursor:pointer}
+    .nactions{display:flex;align-items:center;gap:14px;margin-top:20px}
+    .nstatus{color:var(--muted);font-size:14px}
+  </style>
+  <script>
+    var M=${JSON.stringify(m.id)},T=${JSON.stringify(t)};
+    document.getElementById("nsave").addEventListener("click",function(){
+      var prefs={};document.querySelectorAll("[data-kind]").forEach(function(el){prefs[el.getAttribute("data-kind")]=el.checked;});
+      var s=document.getElementById("nstatus");s.textContent="Saving…";
+      fetch("/api/notify",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({m:M,t:T,prefs:prefs})})
+        .then(function(r){return r.json();}).then(function(j){s.textContent=j&&j.ok?"Saved.":(j&&j.error)||"Could not save.";})
+        .catch(function(){s.textContent="Could not save.";});
+    });
+  </script>`;
+  return sitePage("Notifications · Den", "Manage your Den email notifications.", null, inner);
+}
 
 // The site's version history, newest first — the timeline behind the live
 // thumbnail. Public + crawlable; the front-page preview is public anyway.
@@ -529,8 +682,24 @@ async function refreshPreview(id: string, url: string | null, when?: string): Pr
   );
   if (change && !change.isFirst) {
     const m = await db.getMember(id);
-    if (m) notifySiteUpdated(m, change.snapshot).catch(() => {});
+    if (m) notifyUpdate(m, change.snapshot).catch(() => {}); // owner + their followers
   }
+}
+
+// Celebrate a round-number milestone exactly once. The view counter and follower
+// count only ever rise by 1, so an exact-threshold match never skips one, and
+// markNotified keeps it idempotent under races. Fire-and-forget, prefs-gated.
+const MILESTONES: Record<"views" | "followers", number[]> = {
+  views: [100, 500, 1000, 5000, 10000, 50000, 100000],
+  followers: [1, 10, 25, 50, 100, 250, 500, 1000],
+};
+function maybeMilestone(metric: "views" | "followers", ownerId: string, count: number): void {
+  if (!MILESTONES[metric].includes(count)) return;
+  (async () => {
+    const owner = await db.getMember(ownerId);
+    if (!owner || !db.wantsNotify(owner, "milestone")) return;
+    if (await db.markNotified(ownerId, `${metric}:${count}`)) await notifyMilestone(owner, metric, count);
+  })().catch(() => {});
 }
 
 // ---- widget card ---------------------------------------------------------
@@ -654,7 +823,10 @@ app.post("/api/profile/:id/comments", async (c) => {
   const text = String(b?.body || "").trim();
   if (!text) return c.json({ error: "empty comment" }, 400);
   const visibility = b?.visibility === "private" ? "private" : "public";
-  await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: text.slice(0, 1000), visibility });
+  const note = text.slice(0, 1000);
+  await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: note, visibility });
+  // Tell the owner. An emoji-only body is a reaction; anything else is a note.
+  notifyOwner(isReaction(note) ? "reaction" : "comment", targetId, viewer, note);
   const rows = await db.listComments(targetId);
   return c.json(shapeComments(rows, targetId, viewer.id));
 });
@@ -868,11 +1040,12 @@ function sitePage(title: string, desc: string, image: string | null, inner: stri
 <meta property="og:type" content="profile">
 ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
 <meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/site/app.css">
 </head><body>
 ${header || `<header class="top"><a class="brand" href="/">den</a><nav><a class="btn sm" href="/">Home</a></nav></header>`}
 <main>${inner}</main>
-<footer class="foot"><span>Den is an open protocol.</span><a href="/SPEC.md">Spec</a><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
+<footer class="foot"><span>Den is an open protocol.</span><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
 </body></html>`;
 }
 

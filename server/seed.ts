@@ -1,6 +1,12 @@
 /*
  * Seed a deterministic demo graph for local dev.
  *   npm run seed     (wipes existing data first)
+ *
+ * The roster is REAL personal sites, with their real og:image as the live
+ * thumbnail and a favicon as the avatar — so the pinned-site UIs (the widget's
+ * webring) show genuine previews, and the demo looks like the actual web. Two
+ * Den-native accounts anchor it: `you` (the dev sign-in) and `maya` (the demo
+ * page's owner, whose widget shows her pinned webring).
  */
 import * as db from "./db.ts";
 
@@ -43,87 +49,140 @@ function thumb(title: string, index: number): string {
   </svg>`);
 }
 
-const members = [
-  { id: "den:you0000000000000", handle: "you", name: "You Example", email: "you@example.com", google_sub: "stub:you@example.com", url: "https://you.example" },
-  { id: "den:7f3a9c2e8b1d4f6a", handle: "maya", name: "Maya Chen", url: "https://maya.example" },
-  { id: "den:1a2b3c4d5e6f7a8b", handle: "leo", name: "Leo Park", url: "https://leo.example" },
-  { id: "den:9f8e7d6c5b4a3210", handle: "priya", name: "Priya Nair", url: "https://priya.example" },
-  { id: "den:abcdef0123456789", handle: "rivera", name: "Mr. Rivera", url: "https://rivera.example" },
-  { id: "den:aeon000000000001", handle: "aeon", name: "Aeon Atlas", url: "https://aeon.example" },
-  { id: "den:orbit0000000002", handle: "orbit", name: "Orbit Garden", url: "https://orbit.example" },
-  { id: "den:pixel0000000003", handle: "pixel", name: "Pixel Pantry", url: "https://pixel.example" },
-  { id: "den:soft00000000004", handle: "softspace", name: "Soft Space", url: "https://softspace.example" },
-  { id: "den:noon00000000005", handle: "noon", name: "Noon Studio", url: "https://noon.example" },
-  { id: "den:glow00000000006", handle: "glowlog", name: "Glowlog", url: "https://glowlog.example" },
-  { id: "den:fern00000000007", handle: "fern", name: "Fern Club", url: "https://fern.example" },
+// A site's favicon, via Google's resolver — a short, always-200, cacheable URL.
+const favicon = (host: string) => `https://www.google.com/s2/favicons?domain=${host}&sz=128`;
+
+// Stable ids (den:<16 hex>). `you` + `maya` keep their well-known ids (the demo
+// page loads maya by hers); the rest are the real sites.
+const ID = {
+  you: "den:you0000000000000",
+  maya: "den:7f3a9c2e8b1d4f6a",
+  maggie: "den:a9b1c0d2e3f40511",
+  josh: "den:b7c8d9e0f1a20622",
+  lynn: "den:c5d6e7f8a9b00733",
+  lee: "den:d3e4f5a6b7c80844",
+  swyx: "den:e1f2a3b4c5d60955",
+  robin: "den:f9a0b1c2d3e40a66",
+  pg: "den:0a1b2c3d4e5f0b77",
+  dan: "den:1b2c3d4e5f600c88",
+  cassidy: "den:2c3d4e5f60710d99",
+};
+
+type Seed = {
+  id: string; handle: string; name: string;
+  email?: string; google_sub?: string; url: string;
+  // Real avatar + og:image. Omitted ⇒ a generated SVG fallback (you/maya), or for
+  // a site that genuinely has no og:image (paulgraham.com), the placeholder.
+  avatar?: string; thumb?: string | null;
+};
+
+const members: Seed[] = [
+  { id: ID.you, handle: "you", name: "You Example", email: "you@example.com", google_sub: "stub:you@example.com", url: "https://you.example" },
+  { id: ID.maya, handle: "maya", name: "Maya Chen", url: "https://maya.example" },
+  { id: ID.maggie, handle: "maggie", name: "Maggie Appleton", url: "https://maggieappleton.com", avatar: favicon("maggieappleton.com"), thumb: "https://maggieappleton.com/og.png?title=Maggie+Appleton" },
+  { id: ID.josh, handle: "josh", name: "Josh W. Comeau", url: "https://www.joshwcomeau.com", avatar: favicon("joshwcomeau.com"), thumb: "https://www.joshwcomeau.com/opengraph-image.png?cac0cc658da9fd03" },
+  { id: ID.lynn, handle: "lynn", name: "Lynn Fisher", url: "https://lynnandtonic.com", avatar: favicon("lynnandtonic.com"), thumb: "https://lynnandtonic.com/assets/images/OG/vXIX.jpg" },
+  { id: ID.lee, handle: "leerob", name: "Lee Robinson", url: "https://leerob.com", avatar: favicon("leerob.com"), thumb: "https://leerob.com/opengraph-image.png?opengraph-image.e50fc1a6.png" },
+  { id: ID.swyx, handle: "swyx", name: "swyx", url: "https://www.swyx.io", avatar: favicon("swyx.io"), thumb: "https://www.swyx.io/swyx-ski.jpeg" },
+  { id: ID.robin, handle: "robin", name: "Robin Sloan", url: "https://www.robinsloan.com", avatar: favicon("robinsloan.com"), thumb: "https://www.robinsloan.com/img/moonbound-top-crop-v2.jpg" },
+  { id: ID.dan, handle: "dan", name: "Dan Abramov", url: "https://overreacted.io", avatar: favicon("overreacted.io"), thumb: "https://overreacted.io/opengraph-image?7c3850b1702447d4" },
+  { id: ID.cassidy, handle: "cassidy", name: "Cassidy Williams", url: "https://cassidoo.co", avatar: favicon("cassidoo.co"), thumb: "https://cassidoo.co/base-card.png" },
+  // paulgraham.com has no og:image — left to fall back to the neutral placeholder,
+  // a truthful demo of that case (and the canonical minimalist personal site).
+  { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", avatar: favicon("paulgraham.com"), thumb: null },
+];
+
+// Public pins = a member's curated webring (max 3). Maya's three drive the widget
+// demo, so they're the most visual real og:images; `you` and a couple of others
+// pin too, so every profile's showcase has something.
+const pins: [string, string][] = [
+  [ID.maya, ID.maggie], [ID.maya, ID.josh], [ID.maya, ID.lynn],
+  [ID.you, ID.lee], [ID.you, ID.swyx], [ID.you, ID.robin],
+  [ID.maggie, ID.lynn], [ID.maggie, ID.robin],
+  [ID.swyx, ID.lee], [ID.swyx, ID.dan], [ID.swyx, ID.cassidy],
 ];
 
 const edges: [string, string, string][] = [
-  ["den:you0000000000000", "den:7f3a9c2e8b1d4f6a", "friend"],
-  ["den:you0000000000000", "den:1a2b3c4d5e6f7a8b", "follow"],
-  ["den:you0000000000000", "den:9f8e7d6c5b4a3210", "follow"],
-  ["den:you0000000000000", "den:aeon000000000001", "follow"],
-  ["den:7f3a9c2e8b1d4f6a", "den:you0000000000000", "friend"],
-  ["den:7f3a9c2e8b1d4f6a", "den:orbit0000000002", "follow"],
-  ["den:7f3a9c2e8b1d4f6a", "den:pixel0000000003", "follow"],
-  ["den:1a2b3c4d5e6f7a8b", "den:you0000000000000", "friend"],
-  ["den:1a2b3c4d5e6f7a8b", "den:soft00000000004", "follow"],
-  ["den:1a2b3c4d5e6f7a8b", "den:noon00000000005", "follow"],
-  ["den:9f8e7d6c5b4a3210", "den:you0000000000000", "friend"],
-  ["den:9f8e7d6c5b4a3210", "den:orbit0000000002", "follow"],
-  ["den:aeon000000000001", "den:you0000000000000", "follow"],
-  ["den:aeon000000000001", "den:glow00000000006", "follow"],
-  ["den:orbit0000000002", "den:fern00000000007", "friend"],
-  ["den:pixel0000000003", "den:glow00000000006", "follow"],
-  ["den:noon00000000005", "den:soft00000000004", "follow"],
+  [ID.you, ID.maya, "friend"], [ID.maya, ID.you, "friend"],
+  [ID.you, ID.maggie, "follow"], [ID.you, ID.josh, "follow"], [ID.you, ID.lynn, "follow"], [ID.you, ID.lee, "follow"], [ID.you, ID.pg, "follow"],
+  [ID.maya, ID.maggie, "follow"], [ID.maya, ID.josh, "follow"], [ID.maya, ID.lynn, "follow"], [ID.maya, ID.dan, "follow"], [ID.maya, ID.pg, "follow"],
+  [ID.maggie, ID.lynn, "friend"], [ID.maggie, ID.robin, "follow"],
+  [ID.lee, ID.swyx, "follow"], [ID.swyx, ID.lee, "follow"], [ID.swyx, ID.dan, "follow"],
+  [ID.josh, ID.dan, "follow"], [ID.cassidy, ID.swyx, "follow"],
 ];
 
 const saves: [string, string][] = [
-  ["den:you0000000000000", "den:orbit0000000002"],
-  ["den:you0000000000000", "den:pixel0000000003"],
-  ["den:you0000000000000", "den:soft00000000004"],
-  ["den:7f3a9c2e8b1d4f6a", "den:orbit0000000002"],
-  ["den:7f3a9c2e8b1d4f6a", "den:pixel0000000003"],
-  ["den:1a2b3c4d5e6f7a8b", "den:noon00000000005"],
-  ["den:1a2b3c4d5e6f7a8b", "den:soft00000000004"],
-  ["den:9f8e7d6c5b4a3210", "den:orbit0000000002"],
-  ["den:9f8e7d6c5b4a3210", "den:glow00000000006"],
-  ["den:aeon000000000001", "den:glow00000000006"],
-  ["den:orbit0000000002", "den:fern00000000007"],
-  ["den:pixel0000000003", "den:soft00000000004"],
-  ["den:noon00000000005", "den:orbit0000000002"],
+  [ID.you, ID.lee], [ID.you, ID.swyx], [ID.you, ID.robin], [ID.you, ID.dan],
+  [ID.maya, ID.maggie], [ID.maya, ID.lynn], [ID.maya, ID.dan],
+  [ID.maggie, ID.robin], [ID.swyx, ID.cassidy], [ID.josh, ID.dan],
 ];
 
-const comments = [
-  { target_id: "den:you0000000000000", author_id: "den:7f3a9c2e8b1d4f6a", body: "Your link page feels like a tiny gallery wall.", visibility: "public" as const },
-  { target_id: "den:you0000000000000", author_id: "den:1a2b3c4d5e6f7a8b", body: "The rounded cards are extremely snackable.", visibility: "public" as const },
-  { target_id: "den:you0000000000000", author_id: "den:9f8e7d6c5b4a3210", body: "Private note: saved this for my next redesign.", visibility: "private" as const },
-  { target_id: "den:orbit0000000002", author_id: "den:you0000000000000", body: "The field recording archive is beautiful.", visibility: "public" as const },
-  { target_id: "den:pixel0000000003", author_id: "den:you0000000000000", body: "Recipe zines as a grid is such a good format.", visibility: "public" as const },
-  { target_id: "den:soft00000000004", author_id: "den:you0000000000000", body: "Quiet, useful, and gorgeous.", visibility: "private" as const },
+type Comment = { target_id: string; author_id: string; body: string; visibility: "public" | "private" };
+const comments: Comment[] = [
+  // Maya's own public notes on her pinned sites — the bubble shown under each pin
+  // on her public profile (the widget keeps its pins clean and omits these).
+  { target_id: ID.maggie, author_id: ID.maya, body: "her illustrated essays made me start sketching my own ideas.", visibility: "public" },
+  { target_id: ID.lynn, author_id: ID.maya, body: "i reload this every year just to see what it turns into.", visibility: "public" },
+  { target_id: ID.josh, author_id: ID.maya, body: "the little animations taught me so much.", visibility: "public" },
+  // A few notes left ON Maya's site (her widget's feed, under the webring).
+  { target_id: ID.maya, author_id: ID.maggie, body: "your dinosaurs are wonderful. keep going!", visibility: "public" },
+  { target_id: ID.maya, author_id: ID.you, body: "🔥", visibility: "public" },
+  { target_id: ID.maya, author_id: ID.lynn, body: "the lava-jump game is genuinely hard, i love it.", visibility: "public" },
+  { target_id: ID.maya, author_id: ID.dan, body: "private note: saving this for inspiration.", visibility: "private" },
 ];
 
 await db.reset();
 for (const [index, member] of members.entries()) {
-  const created = await db.createMember({
-    ...member,
-    avatar: avatar(member.name, index),
-  });
-  await db.updateMember(created.id, { views: 900 + index * 1370 });
+  const { thumb: ogImage, avatar: realAvatar, ...rest } = member;
+  const created = await db.createMember({ ...rest, avatar: realAvatar ?? avatar(member.name, index) });
+  await db.updateMember(created.id, { views: 1200 + index * 1450 });
   // Seed an initial version: sets the live thumbnail + last_edited (staggered so
-  // the "freshest" sites sort to the top of the demo feed).
-  const capturedAt = new Date(Date.now() - index * 36 * 60 * 60 * 1000).toISOString();
+  // the "freshest" sites sort to the top of the demo feed). A real og:image when
+  // we have one, else the generated tile (or, for `thumb: null`, no thumbnail —
+  // the UI falls back to its placeholder).
+  const capturedAt = new Date(Date.now() - index * 30 * 60 * 60 * 1000).toISOString();
   await db.recordSnapshot(created.id, {
     hash: "seed-" + created.id,
-    thumbnail: thumb(member.name, index),
+    thumbnail: ogImage === undefined ? thumb(member.name, index) : ogImage,
     title: member.name,
     excerpt: null,
   }, capturedAt);
 }
 for (const [follower, target, rel] of edges) await db.setEdge(follower, target, rel);
 for (const [member, target] of saves) await db.setSave(member, target);
+for (const [member, target] of pins) await db.setPin(member, target);
 for (const [index, comment] of comments.entries()) await db.addComment({ id: `c_seed_${index}`, ...comment });
 
-console.log(`seeded ${members.length} members, ${edges.length} follows, ${saves.length} saves`);
+// Page views OF "you", to populate the relational analytics demo: named Den members
+// (some you already follow, some you don't — the "follow back" nudge) mixed with
+// anonymous readers, each with an engaged-time estimate and a recent timestamp.
+const YOU = ID.you;
+const pageViews: Array<{ viewer: string | null; daysAgo: number; sec: number; ref?: string }> = [
+  { viewer: ID.maggie, daysAgo: 0.2, sec: 142 }, // Maggie — you follow
+  { viewer: ID.swyx, daysAgo: 0.5, sec: 210 },   // swyx — you DON'T follow back
+  { viewer: ID.dan, daysAgo: 1.1, sec: 38 },     // Dan — you DON'T follow back
+  { viewer: ID.lee, daysAgo: 2.3, sec: 167 },    // Lee — you follow
+  { viewer: ID.cassidy, daysAgo: 3.4, sec: 76 }, // Cassidy — you DON'T follow back
+  { viewer: ID.robin, daysAgo: 4.7, sec: 51 },   // Robin — you DON'T follow back
+  { viewer: ID.josh, daysAgo: 5.2, sec: 188 },   // Josh — you follow
+  { viewer: null, daysAgo: 0.1, sec: 64, ref: "news.ycombinator.com" },
+  { viewer: null, daysAgo: 0.8, sec: 23 },
+  { viewer: null, daysAgo: 1.9, sec: 119, ref: "google.com" },
+  { viewer: null, daysAgo: 8.0, sec: 12 },
+];
+for (const [i, v] of pageViews.entries()) {
+  await db.importView({
+    target: YOU,
+    viewer: v.viewer,
+    session: `seed-${v.viewer || "anon"}-${i}`,
+    path: "/",
+    referrer: v.ref ?? null,
+    durationMs: v.sec * 1000,
+    at: new Date(Date.now() - v.daysAgo * 864e5).toISOString(),
+  });
+}
+
+console.log(`seeded ${members.length} members, ${edges.length} follows, ${saves.length} saves, ${pins.length} pins, ${pageViews.length} views`);
 console.log("  dev sign-in → you@example.com");
+console.log("  widget demo → maya's webring (maggie · josh · lynn)");
 process.exit(0);

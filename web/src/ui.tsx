@@ -230,7 +230,7 @@ export function BlogRow({ blog }: { blog: Site }) {
       <Avatar of={blog} />
       <div className="meta">
         <div className="bn">
-          {blog.name || "—"}
+          {blog.name || "Untitled"}
           {blog.isNew && <span className="newdot" title="Updated since you last looked" />}
         </div>
         <div className="bh">{blog.url ? host(blog.url) : "@" + (blog.handle || "")}</div>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
+  follow,
+  getAnalytics,
   getDiscovery,
   getFollowing,
   getInbox,
@@ -9,17 +11,18 @@ import {
   getStats,
   orEmpty,
   togglePin,
-  verifySite,
+  type Analytics,
   type Discovery,
   type InboxNote,
   type Member,
   type PinnedSite,
   type Site,
   type Stats,
+  type ViewerVisit,
 } from "../api";
-import { compact, host, profileHref, siteThumb } from "../lib";
+import { compact, host, profileHref, relTime, siteThumb } from "../lib";
 import { mockDiscovery, mockFollowing } from "../mockData";
-import { useToast, useViewer } from "../providers";
+import { useToast } from "../providers";
 import { Avatar, Button, EyeIcon, HeartIcon, PinIcon, SearchIcon, Tip, useCopy } from "../ui";
 
 const PIN_LIMIT = 3;
@@ -45,6 +48,7 @@ export function Dashboard({ viewer }: { viewer: Member }) {
   const [shelf, setShelf] = useState<Shelf>("all");
   const [query, setQuery] = useState("");
   const [pinned, setPinned] = useState<PinnedSite[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -55,8 +59,21 @@ export function Dashboard({ viewer }: { viewer: Member }) {
     orEmpty(getFollowing()).then((sites) => alive && setFollowing(sites.length ? sites : mockFollowing));
     getDiscovery().then(keep(setDiscovery)).catch(() => {});
     orEmpty(getPinned()).then(keep(setPinned));
+    getAnalytics().then(keep(setAnalytics)).catch(() => {});
     return () => { alive = false; };
   }, [viewer.id]);
+
+  // Follow back a visitor without leaving the dashboard, flipping their row's state.
+  const onFollowBack = async (v: ViewerVisit) => {
+    setAnalytics((a) => a && { ...a, recent: a.recent.map((r) => r.id === v.id ? { ...r, viewerFollows: true } : r) });
+    try {
+      await follow(v.id);
+      toast(`Following ${v.name || "them"}`);
+    } catch {
+      setAnalytics((a) => a && { ...a, recent: a.recent.map((r) => r.id === v.id ? { ...r, viewerFollows: false } : r) });
+      toast("Couldn't follow. Try again.");
+    }
+  };
 
   const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned]);
 
@@ -68,7 +85,7 @@ export function Dashboard({ viewer }: { viewer: Member }) {
       setPinned(await getPinned());
     } catch (e) {
       if (e instanceof ApiError && e.status === 409)
-        toast(`Pin up to ${PIN_LIMIT} — unpin one first.`);
+        toast(`Pin up to ${PIN_LIMIT}. Unpin one first.`);
       else toast("Couldn't update pin.");
     }
   };
@@ -107,11 +124,13 @@ export function Dashboard({ viewer }: { viewer: Member }) {
       </header>
 
       <div className="stat-row">
-        <Stat n={stats?.views} l="Views" tip="Times your sites have been opened — every widget impression counts." />
+        <Stat n={stats?.views} l="Views" tip="Times your sites have been opened. Every widget impression counts." />
         <Stat n={stats?.followers} l="Followers" tip="People following you. Your updates show up in their Den feed." />
         <Stat n={stats?.following} l="Following" tip="Sites you follow. Their new posts appear in your feed." />
-        <Stat n={stats?.saved} l="Saved" tip="Sites you've saved to revisit later — private to you." />
+        <Stat n={stats?.saved} l="Saved" tip="Sites you've saved to revisit later, private to you." />
       </div>
+
+      <VisitorsFromDen analytics={analytics} onFollowBack={onFollowBack} />
 
       <div className="dash-grid">
         <RecentNotes notes={notes} />
@@ -182,6 +201,75 @@ function Stat({ n, l, tip }: { n: number | null | undefined; l: string; tip: str
   );
 }
 
+// ms → "45s" / "1m 12s" / "–". The honest average engaged time, not a placeholder.
+function fmtDuration(ms: number | null): string {
+  if (!ms || ms < 1000) return "–";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ""}`;
+}
+
+// The relational analytics hero: not just "how many views" but WHO — the Den
+// members who've read you, each one a person you can follow back in one click.
+// This is the wedge's payoff: page views that turn into connections.
+function VisitorsFromDen({
+  analytics, onFollowBack,
+}: {
+  analytics: Analytics | null; onFollowBack: (v: ViewerVisit) => void;
+}) {
+  if (!analytics) return null;
+  const { recent, knownVisitors, visitors, avgDurationMs } = analytics;
+  const toFollow = recent.filter((v) => !v.viewerFollows).length;
+
+  return (
+    <section className="visitors-card">
+      <div className="card-head">
+        <h3>Who's read you</h3>
+        <span className="muted">
+          {compact(knownVisitors)} from Den{visitors ? ` · ${compact(visitors)} visitors` : ""}
+          {avgDurationMs ? ` · ${fmtDuration(avgDurationMs)} avg` : ""} · 30 days
+        </span>
+      </div>
+
+      {recent.length ? (
+        <>
+          {toFollow > 0 && (
+            <p className="visitors-nudge">
+              {toFollow} {toFollow === 1 ? "reader has" : "readers have"} a Den site you don't follow yet.
+            </p>
+          )}
+          <ul className="visitor-list">
+            {recent.map((v) => (
+              <li className="visitor" key={v.id}>
+                <a className="visitor-id" href={profileHref(v)}>
+                  <Avatar of={v} />
+                  <span className="visitor-meta">
+                    <b>{v.name || `@${v.handle ?? "someone"}`}</b>
+                    <span className="visitor-sub">
+                      {v.views === 1 ? "viewed" : `${compact(v.views)} views`} · {relTime(v.lastSeen)}
+                      {v.followsYou && <span className="visitor-tag">follows you</span>}
+                    </span>
+                  </span>
+                </a>
+                {v.viewerFollows ? (
+                  <span className="visitor-following">Following</span>
+                ) : (
+                  <Button className="sm" onClick={() => onFollowBack(v)}>Follow back</Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <div className="empty">
+          No Den members have opened your site yet. Share it, and readers with their own
+          Den site will show up here, ready to follow back.
+        </div>
+      )}
+    </section>
+  );
+}
+
 // The pin showcase: the (max 3) sites featured on your public profile, each with
 // the notes you left on it. Empty state nudges the user to pin from the grid.
 function PinnedShelf({ pinned, onUnpin }: { pinned: PinnedSite[]; onUnpin: (s: Site) => void }) {
@@ -236,7 +324,7 @@ function SiteGrid({
           />
         ))
       ) : (
-        <div className="empty-card">No sites match — try a different search or filter.</div>
+        <div className="empty-card">No sites match. Try a different search or filter.</div>
       )}
     </div>
   );
@@ -322,38 +410,16 @@ function NoteLine({ note }: { note: InboxNote }) {
   );
 }
 
-// A quiet nudge while a linked site is unverified. Verifying re-checks the live
-// site for the widget; if it's not there yet, we point them at the widget card.
+// A quiet nudge while a linked site is unverified. The dedicated /verify page
+// walks them through adding the widget and runs the check.
 function VerifyNotice({ viewer }: { viewer: Member }) {
-  const { setViewer } = useViewer();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
   if (!viewer.url || viewer.verified) return null;
-
-  const verify = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const r = await verifySite();
-      if (r.verified) {
-        setViewer({ ...viewer, verified: true });
-        toast("Verified ✓");
-      } else {
-        toast("Add the Den script to your site, then verify.");
-      }
-    } catch {
-      toast("Couldn't verify — try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="verify-bar">
       <span>
-        Your site <b>{host(viewer.url)}</b> is <span className="unverified">unverified</span>. Add your widget to claim it.
+        Your site <b>{host(viewer.url)}</b> is unverified. Add your widget to claim it.
       </span>
-      <Button className="sm" loading={busy} onClick={verify}>Verify</Button>
+      <Link className="btn sm" to="/verify">Verify</Link>
     </div>
   );
 }
@@ -367,7 +433,7 @@ function InstallWidget({ viewer }: { viewer: Member }) {
         <h3>Your widget</h3>
         <a href={`/@${viewer.handle}`}>View on your site →</a>
       </div>
-      <p>One line — works on any site builder.</p>
+      <p>One line, works on any site builder.</p>
       <div className="snippet">{tag}</div>
       <button className="btn sm pink" type="button" onClick={copy}>{copied ? "Copied" : "Copy script"}</button>
     </div>

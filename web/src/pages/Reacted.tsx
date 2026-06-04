@@ -94,6 +94,9 @@ function Confirmed({
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  // After clicking Follow, hold off the red "Unfollow"-on-hover until the cursor
+  // leaves — so the button doesn't snap to red while still under the click.
+  const [justFollowed, setJustFollowed] = useState(false);
 
   const onFollow = async () => {
     if (busy) return;
@@ -101,6 +104,7 @@ function Confirmed({
     try {
       const next = await follow(to);
       setStats(next);
+      setJustFollowed(next.viewerFollows);
       toast(next.viewerFollows ? "Following" : "Unfollowed");
     } catch {
       toast("Something went wrong.");
@@ -131,10 +135,11 @@ function Confirmed({
           </div>
         )}
         <button
-          className={"btn" + (stats?.viewerFollows ? " following" : " primary")}
+          className={"btn" + (stats?.viewerFollows ? " following" : " primary") + (justFollowed ? " just" : "")}
           type="button"
           disabled={busy}
           onClick={onFollow}
+          onMouseLeave={() => setJustFollowed(false)}
         >
           {stats?.viewerFollows ? <span className="lbl">Following</span> : "Follow"}
         </button>
@@ -151,7 +156,7 @@ function SignInToSend({ isNote, emoji, name }: { isNote: boolean; emoji: string;
     <>
       <h1 className="confirm-title">{isNote ? "Almost there" : "One more step"}</h1>
       <p className="confirm-sub">
-        Sign in to add your {isNote ? "note" : emoji} to <b>{name}</b> — it posts as you, never anonymously.
+        Sign in to add your {isNote ? "note" : emoji} to <b>{name}</b>. It posts as you, never anonymously.
       </p>
       <div className="confirm-cta">
         <a className="btn pink lg" href={signin}>Sign in & send</a>

@@ -2,7 +2,7 @@
 
 You are an AI agent adding a personal site to Den. Den links personal websites
 into a social graph so people can follow/save/traverse each other's sites.
-Do these steps. The full spec is at /SPEC.md; this file is enough on its own.
+Do these steps. This file is enough on its own.
 
 ## What you create
 

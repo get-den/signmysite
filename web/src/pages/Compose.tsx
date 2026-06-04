@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, getProfile, postComment, type Member } from "../api";
 import { useViewer } from "../providers";
@@ -7,11 +7,12 @@ import { Avatar, Button, IconButton } from "../ui";
 /**
  * The postcard. A visitor types a note in someone's widget and is sent here to
  * finish and send it — full screen, like writing a postcard. They choose public
- * or private at the bottom, and sign in on the way out (the draft is preserved
- * across the sign-in round-trip via the URL).
+ * or private at the bottom. If they're not signed in, Send routes through the
+ * sign-in page with the draft preserved in the URL (+ send=1) — so the moment
+ * they're back, signed in, the note posts itself with nothing lost.
  */
 export function Compose() {
-  const { viewer } = useViewer();
+  const { viewer, loading } = useViewer();
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
@@ -25,36 +26,68 @@ export function Compose() {
   const [target, setTarget] = useState<Member | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Set when we come back from signing in (see send()): the draft should post
+  // itself rather than wait for a second click. Guarded so it fires exactly once.
+  const autosend = params.get("send") === "1";
+  const delivered = useRef(false);
 
   useEffect(() => {
     if (to) getProfile(to).then(setTarget).catch(() => {});
   }, [to]);
 
+  // Focus the draft with the caret AT THE END (autoFocus alone lands it at the
+  // start of the prefilled text), so the visitor can keep typing where they left
+  // off in the widget. Runs once on mount.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, []);
+
+  // Back from sign-in with the draft in the URL: post it automatically, once the
+  // viewer is known. deliver() is hoisted, so referencing it here is fine.
+  useEffect(() => {
+    if (autosend && !loading && viewer) deliver((params.get("body") || "").trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosend, loading, viewer]);
+
   if (!to) return <Navigate to="/" replace />;
 
   const recipient = target?.name || siteName;
 
-  async function send() {
-    const text = body.trim();
-    if (!text || sending) return;
-
-    // Not signed in yet: sign in on den.com, returning to this very postcard with
-    // the draft + chosen visibility preserved so nothing is lost.
-    if (!viewer) {
-      const ret = `${location.origin}/#/compose?${new URLSearchParams({ to, site: siteName, body: text, v: visibility })}`;
-      location.href = `/api/auth/google?return=${encodeURIComponent(ret)}`;
-      return;
-    }
-
+  // Post the note as the signed-in viewer, then land on the confirmation. Guarded
+  // so it runs once whether triggered by a click or the post-sign-in autosend.
+  async function deliver(text: string) {
+    if (!text || delivered.current) return;
+    delivered.current = true;
     setSending(true);
     setError("");
     try {
       await postComment(to, text, visibility);
       navigate(`/reacted?${new URLSearchParams({ kind: "note", to, site: recipient, v: visibility })}`, { replace: true });
     } catch (e) {
-      setError(e instanceof ApiError && e.status === 401 ? "Please sign in to send." : "Couldn't send — try again.");
+      delivered.current = false;
+      setError(e instanceof ApiError && e.status === 401 ? "Please sign in to send." : "Couldn't send. Try again.");
       setSending(false);
     }
+  }
+
+  function send() {
+    const text = body.trim();
+    if (!text || sending) return;
+    // Not signed in yet: head to the sign-in page (Google or an email magic link,
+    // which also creates an account), returning to this very postcard with the
+    // draft + visibility preserved and send=1 — so it posts itself on the way back.
+    if (!viewer) {
+      const ret = `${location.origin}/#/compose?${new URLSearchParams({ to, site: siteName, body: text, v: visibility, send: "1" })}`;
+      navigate(`/auth?return=${encodeURIComponent(ret)}`);
+      return;
+    }
+    deliver(text);
   }
 
   return (
@@ -81,11 +114,11 @@ export function Compose() {
 
       <div className="postcard">
         <textarea
+          ref={inputRef}
           className="postcard-body"
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder={`Say hello to ${recipient}…`}
-          autoFocus
           maxLength={1000}
         />
         <div className="postcard-foot">
@@ -108,14 +141,14 @@ export function Compose() {
             </button>
           </div>
           <Button className="pink send-btn" loading={sending} disabled={!body.trim()} onClick={send}>
-            {viewer ? "Send" : "Sign in & send"}
+            Send
           </Button>
         </div>
         <p className="postcard-hint">
           {error ? (
             <span className="formerr">{error}</span>
           ) : visibility === "private" ? (
-            "Only they will see this — a note just for them."
+            "Only they will see this. A note just for them."
           ) : (
             "Public notes appear on their profile for everyone to see."
           )}

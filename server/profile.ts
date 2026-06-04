@@ -51,10 +51,10 @@ function avatar(x: Identity, cls = ""): string {
     : `<div class="avatar ${cls}">${escapeHtml((x.name || x.handle || "?").charAt(0).toUpperCase())}</div>`;
 }
 
-// Bookmark / check icons for the Save control — the same Lucide glyphs the widget
-// uses, inlined so the server-rendered page needs no icon runtime.
+// Bookmark icon for the Save control — the same Lucide glyph the widget uses,
+// inlined so the server-rendered page needs no icon runtime. Saving just fills
+// it in (.psave-btn.on svg{fill}) — no icon swap.
 const BOOKMARK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
-const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;
 
 /* ---- components ---------------------------------------------------------- */
 
@@ -89,7 +89,7 @@ function preview(m: Member): string {
 }
 
 function actions(m: Member, s: Stats): string {
-  const view = m.url ? `<a class="btn pview" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ↗</a>` : "";
+  const view = m.url ? `<a class="btn pink" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ↗</a>` : "";
   return `<div class="pactions">${view}
     <span id="pcounts" class="pcounts">${num(s.views)} views</span>
   </div>`;
@@ -217,22 +217,26 @@ function profileScript(id: string, isOwner: boolean): string {
   return `
 (function(){
   var id=${JSON.stringify(id)};
-  var BOOKMARK=${JSON.stringify(BOOKMARK_SVG)};
-  var CHECK=${JSON.stringify(CHECK_SVG)};
   var followBtn=document.getElementById('pfollow');
   var saveBtn=document.getElementById('psave');
   var counts=document.getElementById('pcounts');
   function num(n){n=Number(n)||0;return n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0).replace(/\\.0$/,'')+'k':(n/1e6).toFixed(1).replace(/\\.0$/,'')+'m';}
   function renderCounts(s){if(counts)counts.textContent=num(s.views)+' views';}
   function setFollow(on){if(followBtn){followBtn.innerHTML=on?'<span class="lbl">Following</span>':'Follow';followBtn.classList.toggle('following',!!on);followBtn.classList.toggle('primary',!on);}}
-  function setSave(on){if(saveBtn){saveBtn.innerHTML=on?CHECK:BOOKMARK;saveBtn.classList.toggle('on',!!on);saveBtn.setAttribute('aria-label',on?'Saved':'Save this site');}}
+  function setSave(on){if(saveBtn){saveBtn.classList.toggle('on',!!on);saveBtn.setAttribute('aria-label',on?'Saved':'Save this site');}}
   function signin(){location.href='/api/auth/google?return='+encodeURIComponent(location.href);}
   function toggle(path,apply){
     fetch(path,{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})})
       .then(function(r){if(r.status===401){signin();return null;}return r.json();})
       .then(function(s){if(!s)return;apply(s);renderCounts(s);});
   }
-  if(followBtn)followBtn.addEventListener('click',function(){toggle('/api/follow',function(s){setFollow(s.viewerFollows);});});
+  if(followBtn)followBtn.addEventListener('click',function(){
+    // Suppress red "Unfollow"-on-hover for one hover cycle after the click, so the
+    // button doesn't snap to red under a cursor still resting on it post-click.
+    followBtn.classList.add('just');
+    followBtn.addEventListener('mouseleave',function off(){followBtn.classList.remove('just');followBtn.removeEventListener('mouseleave',off);});
+    toggle('/api/follow',function(s){setFollow(s.viewerFollows);});
+  });
   if(saveBtn)saveBtn.addEventListener('click',function(){toggle('/api/save',function(s){setSave(s.viewerSaved);});});
   fetch('/api/profile/'+encodeURIComponent(id)+'/stats',{credentials:'include'})
     .then(function(r){return r.json();}).catch(function(){return null;})

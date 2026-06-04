@@ -10,20 +10,16 @@
 @font-face { font-family: 'Sohne'; src: url('/site/fonts/sohne-600.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Sohne'; src: url('/site/fonts/sohne-700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
 
+/* Brand tokens (--accent, --ink, --text, --muted, --line, --surface,
+   --surface-2, --surface-3, --radius, --radius-sm) come from ONE source,
+   server/theme.ts, served at /theme.css and linked before this file. Edit colors
+   there, not here — so the app, the widget, and email never drift apart. The
+   tokens below are app-only (no other surface needs them). */
 :root {
   --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #f3f3f4;
-  --surface-3: #fafafa;
-  --ink: #0a0a0a;
-  --text: #2b2b2b;
-  --muted: #6e6e73;
   --faint: #9a9aa0;
-  --line: #ececec;
   --black: #0a0a0a;
   --white: #ffffff;
-  --accent: #ea4c89;        /* the pink action color */
-  --accent-ink: #ffffff;
   /* Thumbnail fallback tints */
   --pink: #f7d6e0;
   --mint: #c9f2e6;
@@ -35,8 +31,6 @@
   --w-normal: 400;
   --w-semibold: 600;
   --w-bold: 700;
-  --radius: 16px;
-  --radius-sm: 12px;
   --radius-lg: 22px;
   --shadow: 0 8px 30px rgba(20, 20, 20, 0.06);
   --shadow-card: 0 2px 14px rgba(20, 20, 20, 0.05);
@@ -156,16 +150,19 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--white); }
 .btn.primary:hover { background: #262626; }
 .btn.pink { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn.pink:hover { background: #e0397a; }
+.btn.pink:hover { background: #e5244f; }
 .btn.sm { min-height: 34px; padding: 0 11px; font-size: 13px; }
 .btn.naked { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.naked:hover { background: var(--surface-2); color: var(--ink); }
 /* Follow lifecycle: "Follow" (solid .primary) → "Following" (quiet outline) →
-   hover reveals the destructive "Unfollow" in red. */
+   hover reveals the destructive "Unfollow" in red. The .just guard (added on
+   click, cleared on the next mouseleave) suppresses that red-on-hover for one
+   cycle, so the button doesn't flip to "Unfollow" under a cursor still resting
+   on it right after the click. */
 .btn.following { background: transparent; border-color: var(--line); color: var(--ink); }
-.btn.following:hover { background: rgba(229,72,77,.1); border-color: rgba(229,72,77,.5); color: #e5484d; }
-.btn.following:hover .lbl { display: none; }
-.btn.following:hover::after { content: "Unfollow"; }
+.btn.following:not(.just):hover { background: rgba(229,72,77,.1); border-color: rgba(229,72,77,.5); color: #e5484d; }
+.btn.following:not(.just):hover .lbl { display: none; }
+.btn.following:not(.just):hover::after { content: "Unfollow"; }
 
 /* Canonical round nav button: a back chevron or a close ✕ in a soft circle.
    Shared by the sheet overlays (close), the wizard (back), and the public
@@ -187,7 +184,8 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 .iconbtn:hover { background: var(--line); text-decoration: none; }
 .iconbtn:active { transform: scale(.94); }
 
-/* ---- landing / shared hero + section ------------------------------------- */
+/* ---- landing / sign-in (marketing) --------------------------------------- */
+/* .hero is kept for the server-rendered 404 page; the SPA landing uses .land. */
 .hero { display: grid; gap: 22px; padding: 70px 0 40px; max-width: 860px; }
 .hero h1 {
   margin: 0;
@@ -200,25 +198,110 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 .hero p { margin: 0; color: var(--muted); font-size: 20px; line-height: 1.5; max-width: 620px; }
 .hero .google, .hero .btn { justify-self: start; }
 
-/* sign-in: Google + email magic link, side by side */
-.signin { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 420px; }
-.signin .google { justify-content: center; }
-.signin-or { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; }
-.signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.signin-email { display: flex; gap: 10px; }
+/* The landing: a left-aligned hero with a mock profile card alongside. */
+.land {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 48px;
+  align-items: center;
+  padding: 24px 0 64px;
+  min-height: calc(100vh - 220px);
+}
+.land-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 26px; }
+.land-hero h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(40px, 5.4vw, 70px);
+  line-height: 1.03;
+  letter-spacing: -0.035em;
+  font-weight: var(--w-bold);
+}
+.land-hero p { margin: 0; color: var(--muted); font-size: 19px; line-height: 1.5; max-width: 32ch; }
+.land-art {
+  align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  padding: 44px 40px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(150deg, #ffd6e0, #fff3f6);
+}
+
+/* The dedicated /auth sign-in page: focused form left, brand panel right. */
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  padding: 24px 0 64px;
+  min-height: calc(100vh - 220px);
+}
+.auth-form { width: 100%; max-width: 380px; margin-inline: auto; display: flex; flex-direction: column; gap: 18px; }
+.auth-title { margin: 0; color: var(--ink); font-size: 34px; line-height: 1.1; font-weight: var(--w-semibold); }
+.auth-sub { margin: -6px 0 4px; color: var(--muted); font-size: 16px; line-height: 1.5; }
+.auth-fine { margin: 2px 0 0; color: var(--faint); font-size: 13px; line-height: 1.5; }
+.auth-art {
+  align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px;
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  min-height: 460px;
+}
+@media (max-width: 860px) {
+  .land, .auth { grid-template-columns: 1fr; gap: 30px; min-height: 0; padding-top: 10px; }
+  .land-art, .auth-art { display: none; }
+}
+
+/* sign-in control: magic-link email (primary) on top, Google underneath —
+   full-width stacked. Shared by the landing funnel and the /auth page. */
+.signin { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.signin .google { width: 100%; justify-content: center; }
+.signin-email { display: flex; flex-direction: column; gap: 10px; }
 .signin-email input {
-  flex: 1; min-width: 0;
+  width: 100%;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--ink);
   font: var(--w-normal) 15px/1.4 'Sohne', system-ui, sans-serif;
-  padding: 12px 14px; outline: none;
+  padding: 13px 15px; outline: none;
 }
 .signin-email input:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
 .signin-email input::placeholder { color: var(--faint); }
-.signin-email .btn { flex: 0 0 auto; }
+.signin-email .btn { width: 100%; min-height: 48px; }
 .signin-email .btn:disabled { opacity: .6; cursor: default; }
-.signin-sent { color: var(--text); font-size: 15px; }
+.signin-or { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; }
+.signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.signin-sent { color: var(--text); font-size: 15px; line-height: 1.5; }
 .signin-sent a { color: var(--accent); font-weight: var(--w-semibold); }
+
+/* The decorative mock profile card (ProfileMock) on the landing/auth art. */
+.mock { width: 100%; max-width: 320px; }
+.mock-card {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(20, 20, 20, .14);
+}
+.mock-id { display: flex; align-items: center; gap: 14px; }
+.mock-av { width: 56px; height: 56px; border-radius: 50%; flex: 0 0 auto; }
+.mock-name { color: var(--ink); font-size: 18px; font-weight: var(--w-semibold); line-height: 1.1; }
+.mock-handle { color: var(--muted); font-size: 13px; margin-top: 3px; }
+.mock-rows { display: flex; flex-direction: column; gap: 10px; }
+.mock-row {
+  padding: 13px 16px; border-radius: 999px; text-align: center;
+  background: var(--surface-2); color: var(--ink);
+  font-size: 14px; font-weight: var(--w-semibold);
+}
+.mock-notes { display: flex; align-items: center; gap: 8px; }
+.mock-note {
+  padding: 7px 12px; border-radius: 14px 14px 14px 4px;
+  background: var(--surface-2); color: var(--text); font-size: 13px;
+}
+.mock-note.alt {
+  flex: 0 0 auto; width: 34px; height: 34px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-size: 16px;
+}
 
 .section {
   margin-top: 26px;
@@ -229,6 +312,14 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 }
 h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color: var(--ink); font-size: 30px; line-height: 1; font-weight: var(--w-semibold); }
 .section h2 { margin: 0 0 14px; color: var(--ink); font-size: 18px; font-weight: var(--w-semibold); }
+
+/* ---- troubleshooting page ------------------------------------------------ */
+.lead { color: var(--muted); font-size: 16px; line-height: 1.55; margin: 0 0 18px; }
+.help-item { margin-top: 14px; padding: 18px 20px; }
+.help-item h3 { margin: 0 0 8px; color: var(--ink); font-size: 16px; font-weight: var(--w-semibold); }
+.help-item p { margin: 0; color: var(--text); font-size: 14px; line-height: 1.6; }
+.help-item code { background: var(--surface-2); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; word-break: break-word; }
+.help-item a { color: var(--accent); font-weight: var(--w-semibold); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---- dashboard ----------------------------------------------------------- */
 /* Calm top-to-bottom flow: who you are → your numbers → notes + widget →
@@ -258,8 +349,24 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .card-head a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .card .empty { padding: 8px 0; color: var(--muted); font-size: 14px; }
 
+/* relational analytics — the Den members who've read you, ready to follow back */
+.visitors-card { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
+.visitors-card .card-head { margin-bottom: 14px; }
+.visitors-card .empty { padding: 4px 0; }
+.visitors-nudge { margin: 0 0 12px; color: var(--ink); font-size: 14px; }
+.visitor-list { list-style: none; margin: 0; padding: 0; }
+.visitor { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.visitor:first-child { border-top: 0; }
+.visitor-id { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; min-width: 0; color: inherit; }
+.visitor-id:hover { text-decoration: none; }
+.visitor-id .avatar { width: 40px; height: 40px; font-size: 14px; }
+.visitor-meta { display: flex; flex-direction: column; min-width: 0; }
+.visitor-meta b { color: var(--ink); font-weight: var(--w-semibold); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.visitor-sub { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.visitor-tag { padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: var(--w-semibold); }
+.visitor-following { flex: 0 0 auto; color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
+
 .note-line { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 0; color: inherit; }
-.note-line + .note-line { border-top: 1px solid var(--line); }
 .note-line:hover { text-decoration: none; }
 .note-line .avatar { width: 36px; height: 36px; font-size: 13px; }
 .note-line b { color: var(--ink); font-weight: var(--w-semibold); font-size: 14px; }
@@ -397,7 +504,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   background: var(--accent); color: var(--accent-ink);
   cursor: pointer;
 }
-.pin-card-unpin:hover { background: #e0397a; }
+.pin-card-unpin:hover { background: #e5244f; }
 .pin-card-unpin svg { width: 15px; height: 15px; }
 .pin-card-notes { display: flex; flex-direction: column; gap: 7px; }
 
@@ -442,20 +549,19 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .pfollow { min-height: 48px; padding: 0 34px; font-size: 16px; }
 .phero-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 /* Save: a round icon button in the header, mirroring the widget's save control —
-   a soft circle with a bookmark; once saved it's a quiet outline that turns red
-   on hover to signal "unsave". */
+   a soft circle with a bookmark that simply fills in once saved. No icon swap,
+   no unsave state; click again to unfill. */
 .psave-btn {
   width: 48px; height: 48px; flex: 0 0 auto;
   display: grid; place-items: center;
   border: 1px solid transparent; border-radius: 50%;
   background: var(--surface-2); color: var(--ink);
   cursor: pointer;
-  transition: background .14s ease, color .14s ease, border-color .14s ease;
+  transition: background 117ms ease;
 }
-.psave-btn svg { width: 21px; height: 21px; }
+.psave-btn svg { width: 21px; height: 21px; transition: fill 117ms ease; }
 .psave-btn:hover { background: var(--line); }
-.psave-btn.on { background: transparent; border-color: var(--line); }
-.psave-btn.on:hover { background: rgba(229, 72, 77, .12); color: #e5484d; border-color: rgba(229, 72, 77, .5); }
+.psave-btn.on svg { fill: currentColor; }
 
 .pgrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 30px; align-items: start; }
 .pcol-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -478,9 +584,9 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 /* actions + counts under the preview */
 .pactions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pactions .btn { min-height: 46px; padding: 0 26px; font-size: 15px; }
-.btn.pview { background: #f4796b; border-color: #f4796b; color: var(--ink); }
-.btn.pview:hover { background: #f0685a; }
-.pcounts { color: var(--muted); font-size: 14px; font-weight: var(--w-normal); }
+/* View site reuses the canonical accent button (.btn.pink); the view count sits
+   opposite it, pushed to the right edge of the row. */
+.pcounts { margin-left: auto; color: var(--muted); font-size: 14px; font-weight: var(--w-normal); }
 
 /* pinned blogs stack as a single readable column in the side rail */
 .pins.pins-col { grid-template-columns: 1fr; }
@@ -582,10 +688,28 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .field textarea { min-height: 110px; resize: vertical; }
 .field input:focus, .field textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
 .field input::placeholder, .field textarea::placeholder { color: var(--faint); }
+/* An input with a static "@"-style prefix inside the box. Looks like a normal
+   .field input, but the border + focus ring live on the wrapper so the prefix
+   sits flush inside (the username field on the edit page). */
+.field-affix {
+  display: flex; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); padding-left: 15px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.field-affix:focus-within { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
+.field-affix .affix { flex: 0 0 auto; color: var(--faint); font-size: 15px; }
+.field-affix input { flex: 1; min-width: 0; border: 0; box-shadow: none; padding-left: 4px; }
+.field-affix input:focus { border: 0; box-shadow: none; }
+.field-hint { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
 .formerr, .hint { color: var(--muted); align-self: center; }
 .avatar-edit { display: flex; align-items: center; gap: 16px; }
 .avatar-edit-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
 .avatar-edit-actions .hint { align-self: flex-start; font-size: 13px; }
+/* Read-only account row on the edit page: linked email + a small sign-in tag. */
+.acct { display: flex; align-items: center; color: var(--ink); font-size: 15px; }
+.acct-email { overflow-wrap: anywhere; }
+.acct + .hint { display: block; margin-top: 7px; font-size: 13px; align-self: flex-start; }
 
 .note {
   border: 1px solid var(--line);
@@ -756,6 +880,28 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   .send-btn { width: 100%; }
 }
 
+/* ---- single comment view (/note/:id) ------------------------------------- */
+.note-view { width: 100%; max-width: 480px; margin: auto 0; }
+.note-view-msg { text-align: center; color: var(--muted); font-size: 16px; }
+.note-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 24px 26px;
+}
+.note-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.note-card-who { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); }
+.note-card-who .avatar { width: 40px; height: 40px; font-size: 16px; }
+.note-card-who .who { font-weight: var(--w-semibold); }
+a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.note-card-when { margin-left: auto; color: var(--faint); font-size: 13px; }
+.note-card-body { margin: 0; color: var(--ink); font-size: 22px; line-height: 1.4; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.note-card-reaction { font-size: 56px; line-height: 1; text-align: center; padding: 10px 0; }
+.note-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--muted); font-size: 14px; }
+.note-card-on a { color: var(--ink); font-weight: var(--w-semibold); text-decoration: underline; text-underline-offset: 2px; }
+.note-card-on a:hover { color: var(--accent); }
+
 /* ---- tooltips (@radix-ui/react-tooltip) ---------------------------------- */
 .tip {
   max-width: 260px;
@@ -846,11 +992,20 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 /* Dashboard nudge while a linked site hasn't been proven yours. */
 .verify-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
-  padding: 12px 16px; border: 1px solid #f0d8a8; background: #fff8ec; border-radius: var(--radius);
+  padding: 14px 18px; background: #fff8ec; border-radius: var(--radius);
   color: #7a5a1e; font-size: 14px;
 }
 .verify-bar b { color: var(--ink); font-weight: var(--w-semibold); }
 .verify-bar .btn { flex: 0 0 auto; }
+
+/* The dedicated /verify page: copy the one line, paste it, verify. */
+.verify-page { padding-top: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.verify-page h1 { margin: 0; color: var(--ink); font-size: 34px; line-height: 1.1; font-weight: var(--w-semibold); }
+.verify-lead { margin: 0; color: var(--muted); font-size: 17px; line-height: 1.55; }
+.verify-lead b { color: var(--ink); font-weight: var(--w-semibold); }
+.verify-snippet { width: 100%; font-size: 13.5px; padding: 18px; }
+.verify-copy { align-self: stretch; }
+.verify-foot { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
 /* Onboarding: the inferred profile picture, with a shimmer while it loads. */
 .onb-pic-row { display: flex; align-items: center; gap: 14px; }

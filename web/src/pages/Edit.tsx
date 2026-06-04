@@ -43,7 +43,7 @@ export function Edit() {
       setViewer({ ...viewer, avatar: updated.avatar ?? null });
       toast("Photo updated");
     } catch {
-      setStatus("Couldn't upload that image — try a JPEG, PNG, or WebP.");
+      setStatus("Couldn't upload that image. Try a JPEG, PNG, or WebP.");
     } finally {
       setUploading(false);
     }
@@ -59,7 +59,7 @@ export function Edit() {
       toast("Saved");
       window.location.assign(profilePath(updated.handle));
     } catch (err) {
-      setStatus(err instanceof ApiError && err.status === 409 ? "That handle is taken." : "Couldn't save.");
+      setStatus(err instanceof ApiError && err.status === 409 ? "That username is taken." : "Couldn't save.");
       setSaving(false);
     }
   }
@@ -68,9 +68,6 @@ export function Edit() {
     <div className="narrow">
       <h2 className="section">Edit profile</h2>
       <form onSubmit={save}>
-        <Field label="Name" value={form.name} onChange={set("name")} />
-        <Field label="Handle" value={form.handle} onChange={set("handle")} />
-        <Field label="Your site URL" value={form.url} onChange={set("url")} placeholder="https://you.example" />
         <div className="field">
           <label>Photo</label>
           <div className="avatar-edit">
@@ -79,10 +76,40 @@ export function Edit() {
               <Button className="sm" loading={uploading} onClick={() => fileRef.current?.click()}>
                 {form.avatar ? "Change photo" : "Upload photo"}
               </Button>
-              <span className="hint">A square photo works best — JPEG, PNG, or WebP.</span>
+              <span className="hint">A square photo works best: JPEG, PNG, or WebP.</span>
             </div>
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pickAvatar} />
           </div>
+        </div>
+        <Field label="Name" value={form.name} onChange={set("name")} />
+        <div className="field">
+          <label htmlFor="username">Username</label>
+          <div className="field-affix">
+            <span className="affix">@</span>
+            <input
+              id="username"
+              value={form.handle}
+              onChange={set("handle")}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+          </div>
+        </div>
+        <Field
+          label="Your site URL"
+          value={form.url}
+          onChange={set("url")}
+          placeholder="https://you.example"
+          hint="Change this and you'll need to re-verify your site."
+        />
+        <div className="field">
+          <label>Account</label>
+          <div className="acct">
+            <span className="acct-email">{viewer.email ?? "No email linked"}</span>
+            <span className="tag">{viewer.authMethod === "google" ? "Google" : "Email link"}</span>
+          </div>
+          <span className="hint">This is how you sign in.</span>
         </div>
         <div className="row">
           <Button className="primary" type="submit" loading={saving}>Save</Button>
@@ -101,17 +128,20 @@ function Field({
   value,
   onChange,
   placeholder,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (e: { target: { value: string } }) => void;
   placeholder?: string;
+  hint?: string;
 }) {
   const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       <input id={id} value={value} onChange={onChange} placeholder={placeholder} />
+      {hint && <p className="field-hint">{hint}</p>}
     </div>
   );
 }
