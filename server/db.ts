@@ -6,6 +6,7 @@
  */
 import pg from "pg";
 import { now, token } from "./util.ts";
+import { CURATED } from "./curated.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS members (
@@ -262,6 +263,11 @@ if (process.env.SIGNMYSITE_RESET_DB === "1" && process.env.SIGNMYSITE_RESTORE) {
   }
   if (rows.length) console.warn(`[db] restored ${rows.length} account(s) from SIGNMYSITE_RESTORE`);
 }
+
+// Curated baseline — the recommended starter sites + their blanket recommendations,
+// upserted on every boot so a brand-new account's feed is never empty in ANY
+// environment (prod runs no dev seed). Idempotent and never fatal to boot.
+await seedCurated().catch((e) => console.error("[db] seedCurated failed:", e));
 
 export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
@@ -873,6 +879,27 @@ export async function addRecommendation(targetId: string, reason: string, forId?
     "INSERT INTO recommendations (id, target_id, for_id, reason, created) VALUES ($1, $2, $3, $4, $5)",
     ["rec_" + token(8), targetId, forId ?? null, reason, now()]
   );
+}
+
+// Upsert the curated starter set (see server/curated.ts): each recommended site as a
+// verified member carrying its preview, plus one blanket recommendation per site. Both
+// use stable ids + ON CONFLICT DO NOTHING, so this is safe to run on every boot and
+// never duplicates. Called from the boot baseline (so prod has it) and the dev seed.
+export async function seedCurated(): Promise<void> {
+  const t = now();
+  for (const c of CURATED) {
+    await pool.query(
+      `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
+       ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
+    );
+    await pool.query(
+      `INSERT INTO recommendations (id, target_id, for_id, reason, created)
+       VALUES ($1, $2, NULL, $3, $4) ON CONFLICT (id) DO NOTHING`,
+      ["rec_blanket_" + c.handle, c.id, c.reason, t]
+    );
+  }
 }
 
 // ---- freshness + snapshots -----------------------------------------------

@@ -8,43 +8,10 @@
  * `you` (the dev sign-in) and `maya` (the demo page's owner + widget webring).
  */
 import * as db from "./db.ts";
+// Curated recommended sites + the preview/avatar helpers live in one shared module, so
+// the dev seed and the boot-time baseline (db.seedCurated) never drift.
+import { siteCard, favicon, initialsAvatar } from "./curated.ts";
 
-const palette = [
-  ["#f7d6e0", "#f2b5d4", "#111111"],
-  ["#c9f2e6", "#7bd4bd", "#101820"],
-  ["#dbeafe", "#93c5fd", "#0f172a"],
-  ["#fde68a", "#fb923c", "#111827"],
-  ["#e9d5ff", "#a78bfa", "#171717"],
-  ["#cffafe", "#22d3ee", "#0f172a"],
-  ["#fee2e2", "#f97316", "#111111"],
-  ["#dcfce7", "#86efac", "#052e16"],
-];
-const svgData = (svg: string) => "data:image/svg+xml;utf8," + encodeURIComponent(svg);
-
-function avatar(name: string, index: number): string {
-  const [bg, accent, ink] = palette[index % palette.length];
-  const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  return svgData(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
-    <rect width="160" height="160" rx="80" fill="${bg}"/>
-    <circle cx="112" cy="44" r="30" fill="${accent}" opacity=".9"/>
-    <circle cx="48" cy="116" r="36" fill="${accent}" opacity=".55"/>
-    <text x="80" y="94" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="52" font-weight="800" fill="${ink}">${initials}</text>
-  </svg>`);
-}
-// A generated 1200×630 site preview for the .example accounts (you/maya), so even
-// the fake sites lead the feed with a real-looking og:image instead of the placeholder.
-function siteCard(name: string, index: number): string {
-  const [bg, accent, ink] = palette[index % palette.length];
-  return svgData(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
-    <rect width="1200" height="630" fill="${bg}"/>
-    <circle cx="1010" cy="150" r="150" fill="${accent}" opacity=".7"/>
-    <circle cx="240" cy="520" r="190" fill="${accent}" opacity=".4"/>
-    <text x="90" y="350" font-family="Inter,Arial,sans-serif" font-size="92" font-weight="800" fill="${ink}">${name}</text>
-  </svg>`);
-}
-
-// A site's favicon, via Google's resolver — a short, always-200, cacheable URL.
-const favicon = (host: string) => `https://www.google.com/s2/favicons?domain=${host}&sz=128`;
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
 
 // Stable ids (signmysite:<16 hex>). `you` + `maya` keep their well-known ids (the demo
@@ -61,10 +28,6 @@ const ID = {
   pg: "signmysite:0a1b2c3d4e5f0b77",
   dan: "signmysite:1b2c3d4e5f600c88",
   cassidy: "signmysite:2c3d4e5f60710d99",
-  // The starter recommendation set — classic personal sites every fresh feed leads with.
-  patrick: "signmysite:3d4e5f6071820eaa",
-  notboring: "signmysite:4e5f60718293afbb",
-  waitbutwhy: "signmysite:5f6071829304b0cc",
 };
 
 type Seed = {
@@ -87,20 +50,6 @@ const members: Seed[] = [
   // paulgraham.com has no og:image — falls back to the neutral placeholder, a
   // truthful demo of that case (and the canonical minimalist personal site).
   { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", thumb: null },
-  // The starter recommendation set (generated preview cards — we don't have their
-  // real og:images on hand). "Patrick Coulson" read as Patrick Collison.
-  { id: ID.patrick, handle: "patrick", name: "Patrick Collison", url: "https://patrickcollison.com", avatar: favicon("patrickcollison.com"), thumb: siteCard("Patrick Collison", 4) },
-  { id: ID.notboring, handle: "notboring", name: "Not Boring", url: "https://www.notboring.co", avatar: favicon("notboring.co"), thumb: siteCard("Not Boring", 3) },
-  { id: ID.waitbutwhy, handle: "waitbutwhy", name: "Wait But Why", url: "https://waitbutwhy.com", avatar: favicon("waitbutwhy.com"), thumb: siteCard("Wait But Why", 5) },
-];
-
-// Blanket recommendations (for_id NULL) — the curated starter set, so even a brand-new
-// account's feed has something. Real per-member ranking comes later.
-const recommendations: Array<[string, string]> = [
-  [ID.pg, "Essays on startups, work, and how to think clearly."],
-  [ID.patrick, "Reading lists and big open questions, from Stripe's cofounder."],
-  [ID.notboring, "Business strategy, made genuinely fun. by Packy McCormick."],
-  [ID.waitbutwhy, "Long, illustrated deep-dives by Tim Urban."],
 ];
 
 // Public pins = a member's curated webring (max 3). Maya's three drive the widget demo.
@@ -179,7 +128,7 @@ const messages: Dm[] = [
 await db.reset();
 for (const [index, member] of members.entries()) {
   const { thumb, avatar: realAvatar, ...rest } = member;
-  const created = await db.createMember({ ...rest, avatar: realAvatar ?? avatar(member.name, index) });
+  const created = await db.createMember({ ...rest, avatar: realAvatar ?? initialsAvatar(member.name, index) });
   // The demo roster is established, verified sites (real signups with the widget live).
   await db.updateMember(created.id, { views: 1200 + index * 1450, onboarded: true, verified: true });
   // Set the live thumbnail + a freshness clock (staggered so the freshest sites lead
@@ -195,7 +144,7 @@ for (const [index, member] of members.entries()) {
 for (const [follower, target] of edges) await db.setEdge(follower, target);
 for (const [id, tier] of prominence) await db.updateMember(id, { prominence: tier });
 for (const [member, target] of pins) await db.setPin(member, target);
-for (const [target, reason] of recommendations) await db.addRecommendation(target, reason);
+await db.seedCurated();  // curated recommended sites + blanket recommendations (shared with prod boot)
 let n = 0;
 for (const a of activity) {
   if (a.kind === "save") await db.setSave(a.by, a.on, hoursAgo(a.h));
