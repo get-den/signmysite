@@ -10,9 +10,9 @@
 import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
 import { compact, isReaction, profileHref, relTime } from "../lib";
-import { Avatar, Button, CloseIcon, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, CloseIcon, SiteThumbnail, Spinner } from "../ui";
 import { useSearch } from "../providers";
-import { Hint } from "./parts";
+import { FollowButton, Hint } from "./parts";
 import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
 
 export function Feed({ store }: { store: HomeStore }) {
@@ -107,7 +107,7 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
           <p className="feed-line"><b>{who}</b> {verb()}</p>
           <div className="feed-aside">
             <time className="feed-time">{relTime(it.at)}</time>
-            {!yours && it.target.id !== store.viewer.id && <FollowSite site={it.target} store={store} />}
+            {!yours && <FollowSite site={it.target} store={store} />}
           </div>
         </div>
         {/* Your own site's preview is redundant — you know what it looks like. */}
@@ -152,8 +152,7 @@ function SitePreview({ site }: { site: FeedSite }) {
   );
 }
 
-/** Follow the site shown — black, inline. Hidden once you follow it. */
+/** Follow the site shown — the shared control; stays put as "Following" once you do. */
 function FollowSite({ site, store }: { site: FeedSite; store: HomeStore }) {
-  if (store.isFollowing(site.id)) return null;
-  return <Button className="sm primary" onClick={() => store.follow(site)}>Follow</Button>;
+  return <FollowButton following={store.isFollowing(site.id)} onToggle={() => store.toggleFollow(site)} />;
 }

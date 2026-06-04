@@ -50,7 +50,7 @@ export type HomeStore = {
   // the shared follow graph
   followedIds: Set<string>;
   isFollowing: (id: string) => boolean;
-  follow: (m: { id: string; name?: string | null; handle?: string | null }) => void;
+  toggleFollow: (m: { id: string; name?: string | null; handle?: string | null }) => void;
 };
 
 export function useHome(viewer: Member): HomeStore {
@@ -115,15 +115,28 @@ export function useHome(viewer: Member): HomeStore {
       .finally(() => setLoadingMore(false));
   }, [cursor, loadingMore, done]);
 
-  const follow = useCallback((m: { id: string; name?: string | null; handle?: string | null }) => {
-    setFollowedIds((cur) => (cur.has(m.id) ? cur : new Set(cur).add(m.id)));
+  // /api/follow is a toggle (returns the refreshed stats with viewerFollows). We flip
+  // the shared set optimistically, then reconcile to the server's truth — so the same
+  // action follows or unfollows, and the button can stay put as "Following".
+  const toggleFollow = useCallback((m: { id: string; name?: string | null; handle?: string | null }) => {
+    const flip = (cur: Set<string>) => {
+      const next = new Set(cur);
+      next.has(m.id) ? next.delete(m.id) : next.add(m.id);
+      return next;
+    };
+    const willFollow = !followedIds.has(m.id);
+    setFollowedIds(flip);
     apiFollow(m.id)
-      .then(() => toast(`Following ${m.name || (m.handle ? "@" + m.handle : "them")}`))
-      .catch(() => {
-        setFollowedIds((cur) => { const next = new Set(cur); next.delete(m.id); return next; });
-        toast("Couldn't follow. Try again.");
-      });
-  }, [toast]);
+      .then((stats) => {
+        setFollowedIds((cur) => {
+          const next = new Set(cur);
+          stats.viewerFollows ? next.add(m.id) : next.delete(m.id);
+          return next;
+        });
+        if (willFollow && stats.viewerFollows) toast(`Following ${m.name || (m.handle ? "@" + m.handle : "them")}`);
+      })
+      .catch(() => { setFollowedIds(flip); toast("Couldn't update follow. Try again."); });
+  }, [followedIds, toast]);
 
   const isFollowing = useCallback((id: string) => followedIds.has(id), [followedIds]);
 
@@ -132,7 +145,7 @@ export function useHome(viewer: Member): HomeStore {
     items, digest, feedLoading, loadMore, loadingMore, done,
     analytics, range, setRange,
     recommended, followBack,
-    followedIds, isFollowing, follow,
+    followedIds, isFollowing, toggleFollow,
   };
 }
 

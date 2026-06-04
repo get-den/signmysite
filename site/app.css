@@ -1349,9 +1349,9 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .dm-preview { margin-top: 1px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dm-convo.unread .dm-preview { color: var(--text); font-weight: var(--w-semibold); }
 .dm-unread {
-  flex: 0 0 auto; min-width: 20px; height: 20px; padding: 0 6px;
+  flex: 0 0 auto; margin-left: 4px; min-width: 20px; height: 20px; padding: 0 6px;
   display: grid; place-items: center; border-radius: 999px;
-  background: var(--accent); color: var(--accent-ink);
+  background: linear-gradient(135deg, #ff6a8d, var(--accent)); color: var(--accent-ink);
   font: var(--w-semibold) 12px/1 'Sohne', system-ui, sans-serif;
 }
 

@@ -16,6 +16,27 @@ export function Hint({ children }: { children: ReactNode }) {
   return <p className="home-hint">{children}</p>;
 }
 
+/**
+ * The one follow control, shared by the feed and both rails — the same lifecycle as
+ * the widget + public profile: black "Follow" → quiet outline "Following" that reveals
+ * "Unfollow" (red) on hover, then click to unfollow. It never disappears. The
+ * inline-grid in .btn.following keeps "Following"/"Unfollow" the exact same width (no
+ * resize on hover); the .just guard (set on follow, cleared on the next mouseleave)
+ * stops it snapping to red under a cursor still resting on it right after you follow.
+ */
+export function FollowButton({ following, onToggle, sm = true }: { following: boolean; onToggle: () => void; sm?: boolean }) {
+  const [just, setJust] = useState(false);
+  const click = () => { if (!following) setJust(true); onToggle(); };
+  const base = "btn" + (sm ? " sm" : "");
+  return following ? (
+    <button type="button" className={base + " following" + (just ? " just" : "")} onClick={click} onMouseLeave={() => setJust(false)}>
+      <span className="lbl">Following</span>
+    </button>
+  ) : (
+    <button type="button" className={base + " primary"} onClick={click}>Follow</button>
+  );
+}
+
 /** A site preview tile for the saved wall: the og:image, name + avatar, and an
  *  optional pin toggle that writes through to your public profile. */
 export function SiteTile({

@@ -152,8 +152,14 @@ app.get("/api/auth/google", async (c) => {
   const state = token(12);
   oauthStates.add(state);
   // Stash return target + popup mode, keyed by state, in a short cookie.
+  // SameSite=None; Secure (on https), exactly like the session cookie: when the
+  // widget opens this in a popup over someone else's site, the cookie has to
+  // survive a cross-site round trip (host site -> Google -> our callback). A Lax
+  // cookie isn't sent on the redirect back from Google, so the callback saw no
+  // state and failed with "bad state". None+Secure rides the whole trip.
   setCookie(c, "signmysite_ret", JSON.stringify({ state, ret, popup }), {
-    httpOnly: true, path: "/", maxAge: 600, sameSite: "Lax", secure: SECURE,
+    httpOnly: true, path: "/", maxAge: 600,
+    sameSite: SECURE ? "None" : "Lax", secure: SECURE,
   });
 
   if (!auth.GOOGLE_LIVE) {
@@ -1257,58 +1263,80 @@ app.get("/api/auth/verify", async (c) => {
   return c.redirect(c.req.query("return") || "/");
 });
 
+// The widget opens this in a popup over someone else's site, so it's server
+// rendered (not the SPA). It links the same stylesheets as the app and reuses the
+// /#/auth markup (.auth-form + .signin) verbatim, so the popup is the focused
+// sign-in card with no second look to maintain.
 app.get("/auth", (c) => {
   const ret = c.req.query("return") || "/";
   const popup = c.req.query("popup") === "1";
   const gHref = `/api/auth/google?return=${encodeURIComponent(ret)}${popup ? "&popup=1" : ""}`;
-  const stub = auth.GOOGLE_LIVE ? "" : " (dev stub — no real Google needed)";
-  return c.html(page("Continue to signmysite", `
-    <h1>Sign in or create your account</h1>
-    <p class="sub">signmysite has no separate sign-up — continue with Google or email and your account is created if you're new.</p>
+  const stub = auth.GOOGLE_LIVE ? "" : " (dev stub)";
+  return c.html(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join signmysite</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/site/app.css">
+<style>
+  body { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 28px 22px; box-sizing: border-box; background: var(--surface); }
+  .auth-form { max-width: 360px; }
+  .auth-title { font-size: 28px; }
+</style>
+</head><body>
+<div class="auth-form">
+  <h1 class="auth-title">Join signmysite</h1>
+  <p class="auth-sub">Sign in to follow, comment, and claim your own page.</p>
+  <div class="signin">
     <a class="google" href="${gHref}">
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.5z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.6-2.1 15.5-5.6l-7.1-5.5c-2 1.4-4.6 2.2-8.4 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
       Continue with Google${stub}
     </a>
-    <div class="or">or</div>
-    <form id="f">
-      <input id="e" type="email" placeholder="you@example.com" required />
-      <button type="submit">Email me a link</button>
+    <div class="signin-or"><span>or</span></div>
+    <form class="signin-email" id="f">
+      <input id="e" type="email" placeholder="you@example.com" aria-label="Email address" autocomplete="email" required />
+      <button class="btn pink" type="submit">Email me a sign-in link</button>
     </form>
-    <div id="out"></div>
-    <p class="fine">No passwords. No keys. We never see your Google password.</p>
-    <script>
-      var ret = ${JSON.stringify(ret)}, popup = ${popup ? "true" : "false"};
-      document.getElementById("f").addEventListener("submit", async function (ev) {
-        ev.preventDefault();
-        var r = await fetch("/api/auth/magic-link", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: document.getElementById("e").value, return: ret, popup: popup })
-        });
+    <div class="signin-sent" id="out" hidden></div>
+  </div>
+  <p class="auth-fine">We'll email you a link, no password needed.</p>
+</div>
+<script>
+  var ret = ${JSON.stringify(ret)}, popup = ${popup ? "true" : "false"};
+  var form = document.getElementById("f"), out = document.getElementById("out");
+  function say(html) { out.innerHTML = html; out.hidden = false; }
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var btn = form.querySelector("button");
+    btn.disabled = true;
+    var r = await fetch("/api/auth/magic-link", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: document.getElementById("e").value, return: ret, popup: popup })
+    });
+    var j = await r.json();
+    if (j.dev_link) { say('Dev mode. <a href="' + j.dev_link + '">Continue &rarr;</a>'); if (popup) pollForSession(); }
+    else if (j.ok) { form.hidden = true; say("<b>Check your email.</b> Keep this window open."); if (popup) pollForSession(); }
+    else { btn.disabled = false; say(j.error || "Something went wrong, try again."); }
+  });
+  // The magic link lands in a separate tab that can't reach the widget, so poll
+  // here for the session it creates, then hand the token to the opener.
+  function pollForSession() {
+    var tries = 0;
+    var timer = setInterval(async function () {
+      if (++tries > 150) return clearInterval(timer); // ~5 min, then give up
+      try {
+        var r = await fetch("/api/auth/session-token", { credentials: "include" });
         var j = await r.json();
-        var out = document.getElementById("out");
-        if (j.dev_link) { out.innerHTML = '<p>Dev mode — <a href="' + j.dev_link + '">click to continue &rarr;</a></p>'; if (popup) pollForSession(out); }
-        else if (j.ok) { out.innerHTML = "<p>Check your email for the link — keep this window open.</p>"; if (popup) pollForSession(out); }
-        else out.innerHTML = "<p>" + (j.error || "Something went wrong, try again.") + "</p>";
-      });
-      // The magic link lands in a separate tab that can't reach the widget, so
-      // poll here for the session it creates, then hand the token to the opener.
-      function pollForSession(out) {
-        var tries = 0;
-        var timer = setInterval(async function () {
-          if (++tries > 150) return clearInterval(timer); // ~5 min, then give up
-          try {
-            var r = await fetch("/api/auth/session-token", { credentials: "include" });
-            var j = await r.json();
-            if (j && j.token) {
-              clearInterval(timer);
-              try { if (window.opener) window.opener.postMessage({ signmysite: "signed-in", token: j.token }, "*"); } catch (e) {}
-              out.innerHTML = "<p>Signed in. You can close this window.</p>";
-              setTimeout(function () { try { window.close(); } catch (e) {} }, 500);
-            }
-          } catch (e) {}
-        }, 2000);
-      }
-    </script>`));
+        if (j && j.token) {
+          clearInterval(timer);
+          try { if (window.opener) window.opener.postMessage({ signmysite: "signed-in", token: j.token }, "*"); } catch (e) {}
+          say("<b>Signed in.</b> You can close this window.");
+          setTimeout(function () { try { window.close(); } catch (e) {} }, 500);
+        }
+      } catch (e) {}
+    }, 2000);
+  }
+</script>
+</body></html>`);
 });
 
 // ---- join a crew (the shareable invite link) -----------------------------

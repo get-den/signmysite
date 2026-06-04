@@ -11,8 +11,8 @@
 import type { ReactNode } from "react";
 import type { AnalyticsRange, FeedActor, Site } from "../api";
 import { compact, fmtDuration, host, profileHref, relTime } from "../lib";
-import { Avatar, Button } from "../ui";
-import { SiteCTA } from "./parts";
+import { Avatar } from "../ui";
+import { FollowButton, SiteCTA } from "./parts";
 import { useMediaQuery, type HomeStore as Store } from "./hooks";
 import { WIDE } from "./FeedLayout";
 
@@ -120,10 +120,8 @@ function Person({ actor, sub, store }: { actor: FeedActor; sub: string; store: S
           <span className="person-sub">{sub}</span>
         </span>
       </a>
-      {actor.id === store.viewer.id ? null : store.isFollowing(actor.id) ? (
-        <span className="person-following">Following</span>
-      ) : (
-        <Button className="sm primary" onClick={() => store.follow(actor)}>Follow</Button>
+      {actor.id === store.viewer.id ? null : (
+        <FollowButton following={store.isFollowing(actor.id)} onToggle={() => store.toggleFollow(actor)} />
       )}
     </li>
   );

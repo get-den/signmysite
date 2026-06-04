@@ -40,7 +40,7 @@
 .nav-badge {
   position: absolute; top: -6px; right: -7px; min-width: 17px; height: 17px; padding: 0 4px;
   display: grid; place-items: center; border-radius: 999px; border: 2px solid var(--surface);
-  background: var(--accent); color: var(--accent-ink); font: var(--w-semibold) 10px/1 'Sohne', system-ui, sans-serif;
+  background: linear-gradient(135deg, #ff6a8d, var(--accent)); color: var(--accent-ink); font: var(--w-semibold) 10px/1 'Sohne', system-ui, sans-serif;
 }
 .rail-foot { margin-top: auto; padding-top: 12px; }
 
@@ -240,6 +240,7 @@
 .page-head .iconbtn { flex: 0 0 auto; }
 .page-title { margin: 0; color: var(--ink); font-size: 22px; line-height: 1.1; letter-spacing: -0.01em; font-weight: var(--w-semibold); }
 .page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.feed-sub { color: var(--muted); font-size: 14px; }
 
 .settings-page, .messages-page, .profile-page { display: flex; flex-direction: column; min-height: 0; }
 .profile-page { gap: 18px; }
