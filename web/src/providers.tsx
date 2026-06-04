@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import toast from "react-hot-toast";
 import { getViewer, type Member } from "./api";
@@ -9,6 +9,9 @@ type ViewerCtx = {
   viewer: Member | null;
   loading: boolean;
   setViewer: (m: Member | null) => void;
+  /** Re-fetch the signed-in member from the server (e.g. to pick up verification
+   *  that was auto-detected once their widget loaded). No-op-safe on failure. */
+  refreshViewer: () => Promise<void>;
 };
 
 const ViewerContext = createContext<ViewerCtx | null>(null);
@@ -28,8 +31,12 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const refreshViewer = useCallback(async () => {
+    try { setViewer(await getViewer()); } catch { /* keep what we have */ }
+  }, []);
+
   return (
-    <ViewerContext.Provider value={{ viewer, loading, setViewer }}>{children}</ViewerContext.Provider>
+    <ViewerContext.Provider value={{ viewer, loading, setViewer, refreshViewer }}>{children}</ViewerContext.Provider>
   );
 }
 

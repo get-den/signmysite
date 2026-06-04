@@ -306,8 +306,23 @@
   function toggleTray(on) {
     if (!ui.tray) return;
     var show = on === undefined ? ui.tray.hidden : on;
-    ui.tray.hidden = !show;
     ui.react.classList.toggle("on", show);
+    if (show) {
+      ui.tray.classList.remove("closing");
+      ui.tray.hidden = false;
+    } else if (!ui.tray.hidden && !ui.tray.classList.contains("closing")) {
+      // Reverse the open animation, then hide once it ends (mirrors the card's
+      // .closing). The guard keeps a re-open from being hidden by a stale timer.
+      var tray = ui.tray, t;
+      var done = function () {
+        clearTimeout(t);
+        tray.removeEventListener("animationend", done);
+        if (tray.classList.contains("closing")) { tray.classList.remove("closing"); tray.hidden = true; }
+      };
+      tray.classList.add("closing");
+      t = setTimeout(done, 240); // fallback if animationend never fires (reduced motion)
+      tray.addEventListener("animationend", done);
+    }
   }
 
   function paint() {
@@ -1163,7 +1178,7 @@
       '.signmysite button:focus{outline:none}.signmysite button:focus-visible{outline:2px solid rgba(0,0,0,.18);outline-offset:2px}' +
       '.input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:400 16px/1 var(--ff);padding:12px 8px 12px 14px;outline:none}.input::placeholder{color:var(--muted);font-weight:400}' +
       '.react{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;display:grid;place-items:center}.react:hover{background:var(--soft);color:var(--ink)}.react.on{background:var(--soft);color:var(--ink)}.react[hidden]{display:none}' +
-      '.tray{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-top:14px;padding:8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}.tray:not([hidden]){animation:trayUp .2s cubic-bezier(.2,.7,.3,1)}@keyframes trayUp{from{opacity:0;transform:translateY(10px)}}' +
+      '.tray{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-top:14px;padding:8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}.tray:not([hidden]){animation:trayUp .2s cubic-bezier(.2,.7,.3,1)}.tray.closing{animation:trayDown .17s cubic-bezier(.4,0,.7,.3) forwards;pointer-events:none}@keyframes trayUp{from{opacity:0;transform:translateY(10px)}}@keyframes trayDown{to{opacity:0;transform:translateY(10px)}}' +
       '.emoji{height:46px;border-radius:14px;background:transparent;font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .12s ease,background .12s ease}.emoji:hover{background:var(--soft);transform:translateY(-2px)}.emoji:active{transform:scale(.9)}' +
       '.send{width:42px;height:42px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:22px;display:grid;place-items:center;transition:background .15s ease,color .15s ease}.send.ready{background:var(--accent);color:var(--accent-ink)}.send:hover{color:var(--ink)}.send.ready:hover{color:var(--accent-ink);opacity:.9}' +
       // The private-note switch: collapsed by default, slides down (max-height +

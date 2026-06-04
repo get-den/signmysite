@@ -117,11 +117,15 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
   padding: 22px 32px 0;
   border-top: 1px solid var(--line);
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 18px;
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 13px;
 }
+.foot-brand { font-weight: var(--w-semibold); color: var(--ink); letter-spacing: -0.02em; }
+.foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
 .foot a { font-weight: var(--w-semibold); }
 .foot a:hover { color: var(--ink); }
 .loading { padding: 90px 0; color: var(--faint); font-size: 30px; text-align: center; }
@@ -247,6 +251,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 .land-claim-field input::placeholder { color: var(--faint); }
 .land-claim .btn { flex: 0 0 auto; }
 .land-hero .land-claim-hint { margin: 0; color: var(--faint); font-size: 14px; line-height: 1.5; max-width: 42ch; }
+.land-hero .land-claim-hint.bad { color: var(--accent); }
 
 /* The dedicated /auth sign-in page: focused form left, brand panel right. */
 .auth {
@@ -262,6 +267,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 .auth-back { align-self: flex-start; margin-bottom: -4px; }
 .auth-title { margin: 0; color: var(--ink); font-size: 34px; line-height: 1.1; font-weight: var(--w-semibold); }
 .auth-sub { margin: -6px 0 4px; color: var(--muted); font-size: 16px; line-height: 1.5; }
+.auth-sub b { color: var(--ink); font-weight: var(--w-semibold); }
 .auth-fine { margin: 2px 0 0; color: var(--faint); font-size: 13px; line-height: 1.5; }
 /* The supporting (not primary) panel: a quiet recessed neutral so the sign-in
    form to its left is the focal point, not this decorative card. */
@@ -338,7 +344,6 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
   padding: 24px;
   border-radius: var(--radius);
   background: var(--surface);
-  border: 1px solid var(--line);
 }
 h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color: var(--ink); font-size: 30px; line-height: 1; font-weight: var(--w-semibold); }
 .section h2 { margin: 0 0 14px; color: var(--ink); font-size: 18px; font-weight: var(--w-semibold); }
@@ -372,7 +377,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 
 /* notes + widget */
 .dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
-.card { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
+.card { min-width: 0; border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .card-head h3 { margin: 0; font-size: 16px; font-weight: var(--w-semibold); color: var(--ink); }
 .card-head a { color: var(--accent); font-size: 13px; font-weight: var(--w-semibold); }
@@ -380,7 +385,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .card .empty { padding: 8px 0; color: var(--muted); font-size: 14px; }
 
 /* relational analytics — the signmysite members who've read you, ready to follow back */
-.visitors-card { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
+.visitors-card { margin-top: 16px; border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
 .visitors-card .card-head { margin-bottom: 14px; }
 .visitors-card .empty { padding: 4px 0; }
 .visitors-nudge { margin: 0 0 12px; color: var(--ink); font-size: 14px; }
@@ -572,7 +577,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .pid { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .pid .avatar { width: 72px; height: 72px; font-size: 28px; }
 .phero .pname { font-size: 30px; line-height: 1.05; }
-.pfollow { min-height: 48px; padding: 0 34px; font-size: 16px; }
+.pfollow { min-height: 48px; padding: 0 18px; font-size: 16px; }
 .phero-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 /* Social links: a row of quiet pills under the name, each linking out (rel=me). */
 .plinks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
@@ -619,7 +624,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 
 /* actions + counts under the preview */
 .pactions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.pactions .btn { min-height: 46px; padding: 0 26px; font-size: 15px; }
+.pactions .btn { min-height: 46px; padding: 0 18px; font-size: 15px; }
 /* View site reuses the canonical accent button (.btn.pink); the view count sits
    opposite it, pushed to the right edge of the row. */
 .pcounts { margin-left: auto; color: var(--muted); font-size: 14px; font-weight: var(--w-normal); }
@@ -649,11 +654,12 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .bh { font-size: 13px; }
 .body { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 /* Comments as an activity feed: airy spacing, no dividers, dimmer verb + gray
-   timestamp — mirrors the embeddable widget's notes list exactly (round avatar,
-   16px name + time line at .9, 15px body at .8). The section has no card/border. */
+   timestamp — mirrors the embeddable widget's notes list exactly (42px round
+   avatar, 16px name + time line at .9, 15px body at .8). The widget (.note in
+   widget.js) is authoritative; keep these in sync. No card/border on the section. */
 .pcomments { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; padding-top: 24px; border-top: 1px solid var(--line); }
 .cmt { align-items: center; gap: 14px; padding: 11px 0; border-bottom: 0; }
-.cmt .avatar { width: 52px; height: 52px; font-size: 19px; }
+.cmt .avatar { width: 42px; height: 42px; font-size: 16px; }
 .cmt-line { font-size: 16px; line-height: 1.45; color: var(--ink); opacity: .9; overflow-wrap: anywhere; }
 .cmt-line .act { color: var(--muted); }
 .cmt-time { margin-left: 6px; color: var(--muted); font-size: 14px; white-space: nowrap; }
@@ -695,11 +701,11 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .pins { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .pin {
   display: flex; flex-direction: column; gap: 10px;
-  padding: 16px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface); color: inherit;
-  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+  padding: 12px; border-radius: var(--radius);
+  color: inherit;
+  transition: background .15s ease;
 }
-.pin:hover { transform: translateY(-3px); box-shadow: var(--shadow-card); border-color: transparent; text-decoration: none; }
+.pin:hover { background: var(--surface-2); text-decoration: none; }
 .pin .avatar { width: 48px; height: 48px; font-size: 18px; }
 .pin .meta { min-width: 0; }
 .pin:hover .bn { color: var(--accent); }
@@ -766,7 +772,6 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .acct + .hint { display: block; margin-top: 7px; font-size: 13px; align-self: flex-start; }
 
 .note {
-  border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-3);
   color: var(--text);
@@ -933,10 +938,10 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 }
 .confirm-who { display: inline-flex; align-items: center; gap: 10px; font-weight: var(--w-semibold); color: var(--ink); }
 .confirm-who .avatar { width: 38px; height: 38px; font-size: 16px; }
-.confirm-follow .btn { min-height: 46px; padding: 0 24px; font-size: 15px; }
+.confirm-follow .btn { min-height: 46px; padding: 0 18px; font-size: 15px; }
 .confirm-cta { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .confirm-cta p { margin: 0; color: var(--text); font-size: 17px; }
-.btn.lg { min-height: 50px; padding: 0 26px; font-size: 16px; }
+.btn.lg { min-height: 50px; padding: 0 20px; font-size: 16px; }
 .confirm-skip { margin-top: 8px; color: var(--muted); font-size: 14px; }
 
 /* The post-action buttons stack: back to where they came from (accent primary),
@@ -1074,10 +1079,13 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
    step 1 so the header sits in the same place on every step */
 .onb-back.is-hidden { visibility: hidden; }
 
-/* optional "your socials" block in the wizard's site step */
-.onb-socials { display: flex; flex-direction: column; gap: 10px; }
-.onb-sub { color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
-.onb-opt { color: var(--faint); font-weight: var(--w-normal); margin-left: 4px; }
+/* The final step adopts the wider /verify layout (same WidgetSetup component), so
+   the wizard widens for it and gives the install room to breathe. */
+.onb-card-wide { max-width: 860px; }
+.onb-widget { gap: 28px; }
+.onb-widget h1 { font-size: 34px; }
+/* Skip stays quiet on the left; Done leads on the right. */
+.onb-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
 
 /* ---- social links editor (shared: onboarding + edit profile) ------------- */
 .links-edit { display: flex; flex-direction: column; gap: 10px; }
@@ -1114,7 +1122,7 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 
 /* ---- site verification --------------------------------------------------- */
 /* The "(unverified)" flag on a profile, and matching word in the dashboard bar. */
-.unverified { color: #b4690e; font-weight: var(--w-semibold); font-size: 0.86em; }
+.unverified { color: var(--faint); font-weight: var(--w-normal); }
 
 /* Dashboard nudge while a linked site hasn't been proven yours. */
 .verify-bar {
@@ -1124,6 +1132,10 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 }
 .verify-bar b { color: var(--ink); font-weight: var(--w-semibold); }
 .verify-bar .btn { flex: 0 0 auto; }
+/* Spinner + status on the left (the ambient "we're listening"); the actions sit
+   together on the right. */
+.verify-bar-msg { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.verify-bar-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
 /* The dedicated /verify page: copy the one line, paste it, verify. */
 .verify-page { padding-top: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
@@ -1134,8 +1146,17 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 
 /* The redesigned /verify setup: numbered steps, a platform grid, then the
    paste-here guide (bullets left, a preview on the right). */
-.verify-setup { max-width: 860px; margin: 0 auto; padding-top: 10px; display: flex; flex-direction: column; gap: 34px; }
+.verify-setup { max-width: 860px; margin: 0 auto; padding-top: 10px; display: flex; flex-direction: column; gap: 28px; }
 .verify-setup h1 { margin: 0; color: var(--ink); font-size: 34px; line-height: 1.1; font-weight: var(--w-semibold); }
+/* The path of least resistance: a prominent prompt-for-your-agent shortcut above
+   the manual platform steps. The one filled block on the page, so it leads. */
+.agent-cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  padding: 22px 24px; border-radius: var(--radius-lg); background: var(--surface-2);
+}
+.agent-cta-head h2 { margin: 0; color: var(--ink); font-size: 19px; line-height: 1.15; font-weight: var(--w-semibold); }
+.agent-cta-head p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 48ch; }
+.agent-cta .btn { flex: 0 0 auto; }
 .vstep { display: flex; flex-direction: column; gap: 16px; }
 .vstep-head { display: flex; align-items: center; gap: 12px; }
 .vstep-num {
@@ -1149,13 +1170,17 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
    crisp ink outline. (Drop-in spot for real monochrome logos later.) */
 .platform-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
 .platform {
-  display: flex; align-items: center; justify-content: center; min-height: 62px; padding: 10px 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  min-height: 84px; padding: 14px 12px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink);
-  font: var(--w-semibold) 14px/1.2 'Sohne', system-ui, sans-serif; text-align: center; cursor: pointer;
-  transition: background 117ms ease, border-color 117ms ease, box-shadow 117ms ease;
+  font: var(--w-semibold) 13px/1.2 'Sohne', system-ui, sans-serif; text-align: center; cursor: pointer;
+  transition: background 117ms ease, border-color 117ms ease;
 }
+.platform-logo { display: grid; place-items: center; width: 26px; height: 26px; color: var(--muted); }
+.platform-logo img { width: 24px; height: 24px; object-fit: contain; border-radius: 5px; }
 .platform:hover { background: var(--surface-2); }
-.platform.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+/* Selected: a soft filled state, not a hard double outline. */
+.platform.on { border-color: var(--ink); background: var(--surface-2); }
 
 /* The paste-here guide: instructions left, a preview image right; stacks on narrow. */
 .vguide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
@@ -1165,7 +1190,6 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .vguide-shot { border-radius: var(--radius); overflow: hidden; background: var(--surface-2); }
 .vguide-shot .site-thumb { display: block; width: 100%; }
 .vcheck { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
-.vcheck-status { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); font-size: 14px; }
 .vcheck-miss { color: var(--muted); font-size: 14px; }
 @media (max-width: 720px) { .vguide { grid-template-columns: 1fr; } }
 

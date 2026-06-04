@@ -17,8 +17,11 @@ import { Brief } from "./Brief";
 import { Stream } from "./Stream";
 import { Orbit } from "./Orbit";
 import { Gallery } from "./Gallery";
+import { Command } from "./Command";
+import { Queue } from "./Queue";
+import { Directory } from "./Directory";
 
-export type LayoutId = "console" | "spotlight" | "brief" | "stream" | "orbit" | "gallery";
+export type LayoutId = "console" | "spotlight" | "brief" | "stream" | "orbit" | "gallery" | "command" | "queue" | "index";
 export type LayoutMeta = { id: LayoutId; label: string; blurb: string };
 
 const LAYOUTS: Array<LayoutMeta & { Component: ComponentType<{ data: HomeData }> }> = [
@@ -28,6 +31,9 @@ const LAYOUTS: Array<LayoutMeta & { Component: ComponentType<{ data: HomeData }>
   { id: "stream", label: "Stream", blurb: "Every signal around your site as one thread. Read it top to bottom, clear it.", Component: Stream },
   { id: "orbit", label: "Orbit", blurb: "Your place in the graph. You at the center, your people in rings around you.", Component: Orbit },
   { id: "gallery", label: "Gallery", blurb: "Just the sites. A wall of personal pages to browse, pin and collect.", Component: Gallery },
+  { id: "command", label: "Command", blurb: "Type to do anything. Jump to anyone, follow back, or run a command — keyboard first.", Component: Command },
+  { id: "queue", label: "Queue", blurb: "One thing at a time. The next reader, note or task as a single card — act or skip.", Component: Queue },
+  { id: "index", label: "Index", blurb: "The directory. Your whole graph as clean type, no images — scan and jump to anyone.", Component: Directory },
 ];
 
 const STORE_KEY = "signmysite:home-layout";

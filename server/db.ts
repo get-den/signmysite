@@ -309,7 +309,7 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
+  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, messages, message_reactions, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
 }
 
 // Manual fame tier (the prominence enum). Ordered: famous > notable > normal.

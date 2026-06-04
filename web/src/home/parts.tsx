@@ -4,13 +4,13 @@
  * own the look of a single thing (a reader, a stat, an identity chip). One pink
  * accent, hairline rules, Söhne; nothing here introduces a new color.
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { updateProfile } from "../api";
 import type { Member, Site, ViewerVisit } from "../api";
 import { compact, host, profileHref, relTime, validateSite } from "../lib";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Button, PinIcon, SiteThumbnail } from "../ui";
+import { Avatar, Button, PinIcon, SiteThumbnail, Spinner } from "../ui";
 import { firstName } from "./data";
 
 /** Date line + a greeting that follows the clock. The Brief's masthead. */
@@ -101,13 +101,50 @@ export function SiteTile({
   );
 }
 
-/** The quiet nudge shown (in every layout) while a linked site is unverified. */
+/**
+ * The nudge shown (in every layout) while a linked site is unverified. Rather than
+ * poll, it leans on auto-detection: the moment the widget loads on the member's own
+ * site, the server flips them verified (same-origin proof). So this just re-checks
+ * the viewer whenever the tab regains focus — they tab back from adding the widget
+ * and it clears itself. A manual Refresh and a path into the full setup sit beside it.
+ */
 export function VerifyNotice({ viewer }: { viewer: Member }) {
-  if (!viewer.url || viewer.verified) return null;
+  const { refreshViewer } = useViewer();
+  const [refreshing, setRefreshing] = useState(false);
+  const pending = !!viewer.url && !viewer.verified;
+
+  useEffect(() => {
+    if (!pending) return;
+    const recheck = () => { if (document.visibilityState === "visible") refreshViewer(); };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [pending, refreshViewer]);
+
+  if (!pending) return null;
+
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await refreshViewer();
+    setRefreshing(false);
+  };
+
   return (
     <div className="verify-bar">
-      <span>Your site <b>{host(viewer.url)}</b> is unverified. Add your widget to claim it.</span>
-      <Link className="btn sm" to="/verify">Verify</Link>
+      <span className="verify-bar-msg">
+        <Spinner />
+        Listening for your widget on <b>{host(viewer.url!)}</b>. It verifies itself once it loads.
+      </span>
+      <span className="verify-bar-actions">
+        <button type="button" className="btn sm naked" onClick={refresh} disabled={refreshing}>
+          {refreshing ? <Spinner /> : "Refresh"}
+        </button>
+        <Link className="btn sm primary" to="/verify">Add your site</Link>
+      </span>
     </div>
   );
 }

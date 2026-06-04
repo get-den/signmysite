@@ -109,16 +109,14 @@ export function CopyField({ text, label = "Copy" }: { text: string; label?: stri
 }
 
 /**
- * The canonical "add the widget" control: one line, copied with a tap. Used
- * everywhere someone installs signmysite (the dashboard nudge, the verify page). No
- * variants — a label and a Copy button; the script is copied, never shown in full.
- * `onCopied` lets a caller (the verify flow) start checking the moment it's copied.
+ * The canonical "add the widget" control: the one-line script shown in full (but
+ * truncated to one line, never scrolling) with a Copy button. Used wherever someone
+ * installs signmysite. `onCopied` lets a caller (the verify flow) react to a copy.
  */
 export function WidgetInstall({
-  viewer, label = "Add to your site", onCopied, className = "",
+  viewer, onCopied, className = "",
 }: {
   viewer: { id: string };
-  label?: string;
   onCopied?: () => void;
   className?: string;
 }) {
@@ -126,7 +124,7 @@ export function WidgetInstall({
   const { copied, copy } = useCopy(tag);
   return (
     <div className={("widget-install " + className).trim()}>
-      <span className="widget-install-label">{label}</span>
+      <span className="widget-install-tag" title={tag}>{tag}</span>
       <Button className="pink" onClick={() => { copy(); onCopied?.(); }}>
         {copied ? "Copied" : "Copy"}
       </Button>

@@ -802,6 +802,14 @@ async function cardPayload(c: Context, id: string) {
     }
     viewer = m;
   }
+  // Passive verification, no polling: the widget carrying this id is loading from
+  // the member's own site — exactly what /api/verify fetches the page to prove,
+  // observed live instead. Only the owner controls that origin, so even an
+  // anonymous visitor's load is valid proof. Flip verified once, the instant it runs.
+  if (m.url && !m.verified && sameOrigin(origin, m.url)) {
+    m = (await db.updateMember(m.id, { verified: true })) || m;
+    if (viewer && viewer.id === m.id) viewer = m;
+  }
   // Social proof on someone else's card: who notable follows them, and which of
   // those the signed-in viewer also follows. Skipped on the owner's own card (they
   // get analytics instead). Both ride the single card request — one round-trip.

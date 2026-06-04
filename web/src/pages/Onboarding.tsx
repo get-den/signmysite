@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, checkHandle, claimHandle, onboard, scrapeSite, verifySite } from "../api";
+import { ApiError, checkHandle, claimHandle, onboard, scrapeSite } from "../api";
 import { useToast, useViewer } from "../providers";
 import { host, handleFromSite, normHandle, validateSite, JOIN_SITE_KEY } from "../lib";
-import { Button, CopyField, IconButton, Spinner } from "../ui";
-import { LinksEditor } from "../components/LinksEditor";
+import { Button, IconButton, Spinner } from "../ui";
+import { WidgetSetup } from "../components/WidgetSetup";
 
 // Username candidates for the picker: a pasted website wins the top slot (it's
 // what they just told us), then their display name, broken into useful variants.
@@ -28,8 +28,11 @@ type Check =
   | { state: "ok" }
   | { state: "bad"; reason: string };
 
-type Scrape = { host: string; reachable: boolean; thumbnail: string | null; avatar: string | null };
-type Draft = { step: 1 | 2 | 3; handle: string; site: string; scrape: Scrape | null; links: string[] };
+// Everything the wizard collects, persisted verbatim so a reload (or coming back
+// later) never loses a step. `siteKnown` records that a site arrived before the
+// site step — pasted on the landing or already linked — so we skip asking for it
+// and the back button/progress dots stay honest across reloads.
+type Draft = { step: 1 | 2 | 3; handle: string; site: string; siteKnown: boolean };
 
 const draftKey = (id: string) => `signmysite:onboard:${id}`;
 function loadDraft(id: string): Draft | null {
@@ -43,12 +46,11 @@ export function Onboarding() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [handle, setHandle] = useState("");
   const [site, setSite] = useState("");
+  // Did we already have their site before the site step? Then we skip it.
+  const [siteKnown, setSiteKnown] = useState(false);
   const [check, setCheck] = useState<Check>({ state: "idle" });
   const [claiming, setClaiming] = useState(false);
   const [scraping, setScraping] = useState(false);
-  const [scrape, setScrape] = useState<Scrape | null>(null);
-  const [links, setLinks] = useState<string[]>([]);
-  const [verifyState, setVerifyState] = useState<"idle" | "verifying" | "failed">("idle");
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
 
@@ -75,18 +77,16 @@ export function Onboarding() {
     if (d) {
       setHandle(d.handle || picks[0] || "");
       setSite(d.site || "");
-      setScrape(d.scrape);
-      setLinks(d.links || []);
+      setSiteKnown(!!d.siteKnown);
       setStep(d.step || 1);
     } else if (viewer.url) {
-      const sc: Scrape = { host: host(viewer.url), reachable: true, thumbnail: null, avatar: viewer.avatar };
       setHandle(viewer.handle || picks[0] || "");
       setSite(host(viewer.url));
-      setScrape(sc);
+      setSiteKnown(true);
       setStep(3);
     } else {
       setHandle(picks[0] || "");
-      if (joinSite) setSite(joinSite);
+      if (joinSite) { setSite(joinSite); setSiteKnown(true); }
     }
     try { localStorage.removeItem(JOIN_SITE_KEY); } catch { /* ignore */ } // consume once
   }, [viewer, picks, joinSite]);
@@ -94,8 +94,8 @@ export function Onboarding() {
   // Persist the draft on every meaningful change (durable across reloads).
   useEffect(() => {
     if (!viewer || !restored.current) return;
-    try { localStorage.setItem(draftKey(viewer.id), JSON.stringify({ step, handle, site, scrape, links })); } catch { /* ignore */ }
-  }, [viewer, step, handle, site, scrape, links]);
+    try { localStorage.setItem(draftKey(viewer.id), JSON.stringify({ step, handle, site, siteKnown })); } catch { /* ignore */ }
+  }, [viewer, step, handle, site, siteKnown]);
 
   // Debounced live availability — the heart of the picker.
   useEffect(() => {
@@ -122,13 +122,22 @@ export function Onboarding() {
   const ready = check.state === "ok";
   const siteCheck = validateSite(site);
 
-  // Step 1 → 2: reserve the username server-side (durable), then advance.
+  // Step 1 → reserve the username server-side (durable). If we already have their
+  // site (pasted on the landing, or linked before), save it and jump straight to
+  // the widget step — no reason to ask again. Otherwise stop at the site step.
   async function toSite() {
     if (!ready || claiming) return;
     setClaiming(true);
     try {
       await claimHandle(handle);
-      setStep(2);
+      const sc = validateSite(site);
+      if (sc.ok) {
+        try { await scrapeSite(sc.url!); } catch { /* unreachable is fine — the url still saves */ }
+        setSiteKnown(true);
+        setStep(3);
+      } else {
+        setStep(2);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setCheck({ state: "bad", reason: "Just taken. Try another." });
       else toast("Couldn't save. Try again.");
@@ -137,14 +146,13 @@ export function Onboarding() {
     }
   }
 
-  // Step 2 → 3: optimistically scrape the site (thumbnail + inferred avatar).
+  // Step 2 → 3: save the site they typed (scrape captures a preview too), then on
+  // to the widget. Verification itself happens on the widget step / back home.
   async function toVerify() {
     if (!siteCheck.ok || scraping) return;
     setScraping(true);
     try {
-      const r = await scrapeSite(siteCheck.url!);
-      setScrape(r);
-      setVerifyState("idle");
+      await scrapeSite(siteCheck.url!);
       setStep(3);
     } catch {
       toast("Couldn't reach that site. Check the address.");
@@ -153,12 +161,14 @@ export function Onboarding() {
     }
   }
 
-  // Land in the app. Handle + site are already saved; this flips onboarded.
+  // Land in the app. The handle + site are already saved; this flips onboarded and
+  // lets them straight through — verification is non-blocking and finishes (auto-
+  // detected) once their widget loads, surfaced by the banner on the home page.
   async function finish() {
     if (saving) return;
     setSaving(true);
     try {
-      const updated = await onboard(handle, links);
+      const updated = await onboard(handle);
       try { localStorage.removeItem(draftKey(vid)); } catch { /* ignore */ }
       setViewer(updated);
     } catch (e) {
@@ -172,29 +182,19 @@ export function Onboarding() {
     }
   }
 
-  async function doVerify() {
-    if (verifyState === "verifying" || saving) return;
-    setVerifyState("verifying");
-    try {
-      const r = await verifySite();
-      if (r.verified) await finish();
-      else setVerifyState("failed");
-    } catch {
-      setVerifyState("failed");
-    }
-  }
-
-  const idShort = viewer.id.replace(/^signmysite:/, "");
-  const scriptTag = `<script src="${location.origin}/w/${idShort}.js"></script>`;
+  // When a site was known up front the site step is skipped, so back from the
+  // widget step returns to the username step and the dots drop the middle one.
+  const backFrom3 = siteKnown ? 1 : 2;
+  const dots: Array<1 | 2 | 3> = siteKnown ? [1, 3] : [1, 2, 3];
 
   return (
     <div className="onb">
-      <div className="onb-card">
+      <div className={"onb-card" + (step === 3 ? " onb-card-wide" : "")}>
         <div className="onb-head">
           <IconButton
             icon="back"
             className={"onb-back" + (step === 1 ? " is-hidden" : "")}
-            onClick={() => setStep(step === 3 ? 2 : 1)}
+            onClick={() => setStep(step === 3 ? backFrom3 : 1)}
           />
         </div>
 
@@ -264,11 +264,6 @@ export function Onboarding() {
               <div className="onb-msg bad slide-down" key={"site:" + siteCheck.error}>{siteCheck.error}</div>
             )}
 
-            <div className="onb-socials">
-              <span className="onb-sub">Your socials <span className="onb-opt">optional</span></span>
-              <LinksEditor value={links} onChange={setLinks} />
-            </div>
-
             <div className="onb-actions">
               <Button className="primary lg" loading={scraping} disabled={!siteCheck.ok} onClick={toVerify}>
                 Continue
@@ -281,32 +276,22 @@ export function Onboarding() {
         )}
 
         {step === 3 && (
-          <div className="onb-step" key="step3">
-            <h1>Add your widget</h1>
+          <div className="onb-step onb-widget" key="step3">
+            <h1>Add signmysite to your site</h1>
 
-            <CopyField text={scriptTag} />
+            <WidgetSetup viewer={viewer} onVerified={finish} />
 
-            {verifyState === "failed" && (
-              <div className="onb-msg bad slide-down" key="verify-failed">
-                Couldn't find the script on {scrape?.host ?? "your site"} yet. Add it, publish, then try again.
-              </div>
-            )}
-
-            <div className="onb-actions">
-              <Button className="primary lg" loading={verifyState === "verifying"} onClick={doVerify}>
-                Done
-              </Button>
-              <Button className="naked lg" loading={saving} disabled={verifyState === "verifying"} onClick={finish}>
-                Skip for now
-              </Button>
+            <div className="onb-foot">
+              <Button className="naked" onClick={finish}>Skip</Button>
+              <Button className="primary lg" loading={saving} onClick={finish}>Done</Button>
             </div>
           </div>
         )}
 
         <div className="onb-steps" aria-hidden="true">
-          <span className={"onb-dot" + (step === 1 ? " on" : "")} />
-          <span className={"onb-dot" + (step === 2 ? " on" : "")} />
-          <span className={"onb-dot" + (step === 3 ? " on" : "")} />
+          {dots.map((d) => (
+            <span key={d} className={"onb-dot" + (step === d ? " on" : "")} />
+          ))}
         </div>
       </div>
     </div>

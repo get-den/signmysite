@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authUrl, validateSite, JOIN_SITE_KEY } from "../lib";
 import { ProfileMock } from "../components/ProfileMock";
@@ -11,19 +11,29 @@ const bare = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/$/, "")
  * Join, and we carry it across sign-in so onboarding opens with your username
  * already guessed from the domain. No site yet? Join still works — empty just
  * funnels to sign-in like before. Sign-in itself lives on /auth.
+ *
+ * What you type is stored as you go, so backing out of sign-in (or a reload) drops
+ * you right back here with the site still in the box.
  */
 export function Landing() {
   const navigate = useNavigate();
-  const [site, setSite] = useState("");
+  const [site, setSite] = useState<string>(() => {
+    try { return localStorage.getItem(JOIN_SITE_KEY) || ""; } catch { return ""; }
+  });
   const check = validateSite(site);
   const touched = site.trim().length > 0;
 
-  function join() {
-    if (touched && !check.ok) return; // let the inline error stand; don't proceed
+  // Persist as they type: a valid address is stored bare; clearing the box clears
+  // it. A half-typed address is left alone so we never stash junk.
+  useEffect(() => {
     try {
       if (check.ok) localStorage.setItem(JOIN_SITE_KEY, bare(check.url!));
-      else localStorage.removeItem(JOIN_SITE_KEY);
+      else if (!touched) localStorage.removeItem(JOIN_SITE_KEY);
     } catch { /* ignore */ }
+  }, [site]);
+
+  function join() {
+    if (touched && !check.ok) return; // let the inline error stand; don't proceed
     navigate(authUrl().slice(1)); // "#/auth?return=…" → router path
   }
 
@@ -48,9 +58,7 @@ export function Landing() {
             </div>
             <button type="submit" className="btn pink lg" disabled={touched && !check.ok}>Join</button>
           </form>
-          <p className="land-claim-hint">
-            {touched && check.error ? check.error : "Paste your site to claim your profile. No site yet? Just hit Join."}
-          </p>
+          {touched && check.error && <p className="land-claim-hint bad">{check.error}</p>}
         </div>
       </div>
       <div className="land-art">

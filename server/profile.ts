@@ -98,7 +98,6 @@ function header(m: Member, isOwner: boolean): string {
   const actions = isOwner
     ? `<a class="btn primary pfollow" href="/#/edit">Edit profile</a>`
     : `<button id="psave" class="psave-btn" type="button" aria-label="Save this site">${BOOKMARK_SVG}</button>` +
-      `<a class="btn pmessage" href="/#/messages/${escapeHtml(m.id)}">Message</a>` +
       `<button id="pfollow" class="btn primary pfollow" type="button">Follow</button>`;
   // A linked-but-unverified site is flagged so a claim can't be taken at face
   // value. Verified sites get no badge — verification is the quiet default.
@@ -152,7 +151,9 @@ function commentsSection(rows: CommentRow[]): string {
   // Public + crawlable, so only public notes appear here. Rendered to mirror the
   // embeddable widget's notes list exactly (.cmt in app.css): a round avatar, a
   // name + relative-time line, and the body beneath — no surrounding card/border.
-  const pub = rows.filter((cm) => cm.visibility === "public");
+  // Newest first (listComments returns oldest-first); a hash deep-link still floats
+  // its target to the very top afterward (commentJumpScript).
+  const pub = rows.filter((cm) => cm.visibility === "public").reverse();
   const rowsHtml = pub.map((cm) => {
     const name = escapeHtml(cm.author_name || "Someone");
     const ident: Identity = { avatar: cm.author_avatar, name: cm.author_name || "", handle: cm.author_handle };
