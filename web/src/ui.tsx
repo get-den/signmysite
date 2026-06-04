@@ -2,7 +2,7 @@ import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link, Navigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useViewer } from "./providers";
-import { host, initials, profileHref } from "./lib";
+import { host, initials, profileHref, siteThumb, PLACEHOLDER_THUMB } from "./lib";
 import type { Site } from "./api";
 
 /** Wrap the app once so tooltips share hover-intent timing. */
@@ -95,15 +95,15 @@ export function useCopy(text: string, ms = 1400): { copied: boolean; copy: () =>
   return { copied, copy };
 }
 
-/** A code snippet with a rounded copy button that flips to "Copied". */
+/** A code snippet with a primary copy button below that flips to "Copied". */
 export function CopyField({ text, label = "Copy" }: { text: string; label?: string }) {
   const { copied, copy } = useCopy(text);
   return (
-    <div className="snippet">
-      {text}
-      <button className="btn sm copy" type="button" onClick={copy}>
+    <div className="copyfield">
+      <div className="snippet">{text}</div>
+      <Button className="primary lg" onClick={copy}>
         {copied ? "Copied" : label}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -122,6 +122,36 @@ export function Avatar({
 
 export function Loading() {
   return <div className="loading">…</div>;
+}
+
+/**
+ * A website's preview image, locked to the og:image aspect ratio (1200×630). Shows
+ * the site's real og:image when we have one, otherwise the canonical wireframe
+ * placeholder — and swaps to that same placeholder if a real image fails to load.
+ * One component, so every site thumbnail across the app shares the shape + fallback.
+ */
+export function SiteThumbnail({
+  site,
+  className = "",
+}: {
+  site: { thumbnail?: string | null };
+  className?: string;
+}) {
+  return (
+    <img
+      className={("site-thumb " + className).trim()}
+      src={siteThumb(site)}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={(e) => {
+        const img = e.currentTarget;
+        if (img.dataset.fallback) return; // already on the fallback — don't loop
+        img.dataset.fallback = "1";
+        img.src = PLACEHOLDER_THUMB;
+      }}
+    />
+  );
 }
 
 /* Lucide icons (https://lucide.dev), inlined as small components. */

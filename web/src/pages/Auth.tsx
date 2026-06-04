@@ -1,6 +1,6 @@
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewer } from "../providers";
-import { Loading } from "../ui";
+import { IconButton, Loading } from "../ui";
 import { SignIn } from "../components/SignIn";
 import { ProfileMock } from "../components/ProfileMock";
 
@@ -13,6 +13,7 @@ import { ProfileMock } from "../components/ProfileMock";
  */
 export function Auth() {
   const { viewer, loading } = useViewer();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const ret = params.get("return") || "/";
 
@@ -23,6 +24,7 @@ export function Auth() {
   return (
     <div className="auth">
       <div className="auth-form">
+        <IconButton icon="back" className="auth-back" onClick={() => navigate(backPath(ret))} />
         <h1 className="auth-title">Join Den</h1>
         <p className="auth-sub">
           Sign in or create your account. We'll email you a link, no password needed.
@@ -44,4 +46,20 @@ function inAppPath(ret: string): string {
     if (u.origin === location.origin && u.hash.startsWith("#/")) return u.hash.slice(1);
   } catch {}
   return ret.startsWith("/") ? ret : "/";
+}
+
+/**
+ * Where the back button goes: the same place we'd return to after signing in, with
+ * the draft preserved — but with `send` dropped, since backing out of sign-in means
+ * "let me keep writing", not "post it now". So nothing is lost and nothing auto-sends.
+ */
+function backPath(ret: string): string {
+  const path = inAppPath(ret);
+  try {
+    const u = new URL(path, location.origin);
+    u.searchParams.delete("send");
+    return u.pathname + u.search;
+  } catch {
+    return path;
+  }
 }

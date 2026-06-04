@@ -415,7 +415,7 @@
   function facepile(people, label, href) {
     var row = href ? pinAnchor("facepile", href) : node("div", "facepile");
     var faces = node("span", "pin-faces");
-    people.slice(0, 4).forEach(function (p) { var f = node("span", "pin-face"); avatar(f, p); faces.append(f); });
+    people.slice(0, 5).forEach(function (p) { var f = node("span", "pin-face"); avatar(f, p); faces.append(f); });
     row.append(faces, node("span", "facepile-label", label));
     if (href) row.append(pinArrow());
     return row;
@@ -442,9 +442,11 @@
     var href = profileUrl(card.profile || {});
     var fb = card.followedBy || { faces: [], total: 0 };
     var mu = card.mutuals || { faces: [], total: 0 };
-    if (fb.faces && fb.faces.length) ui.social.append(facepile(fb.faces, "Followed by " + nameList(fb.faces, fb.total, 2), href));
-    // Mutuals lead with ONE name so the "you follow" framing survives truncation.
+    // Only ONE row — the highest-priority signal: a signed-in viewer's mutuals
+    // ("people you follow") when there are any, otherwise the notable "Followed by"
+    // pile. Mutuals lead with ONE name so "you follow" survives truncation.
     if (mu.faces && mu.faces.length) ui.social.append(facepile(mu.faces, nameList(mu.faces, mu.total, 1) + " you follow", href));
+    else if (fb.faces && fb.faces.length) ui.social.append(facepile(fb.faces, "Followed by " + nameList(fb.faces, fb.total, 2), href));
     ui.social.hidden = !ui.social.children.length;
   }
   // "Maggie Appleton, Dan Abramov +5" — up to `max` names, then a "+N" remainder.
@@ -470,20 +472,17 @@
     });
   }
 
-  // The heading above the pinned-site views, e.g. "Maya's pinned sites". One place
-  // to adjust the section copy.
+  // The heading above the pinned-site views. One place to adjust the section copy.
   function pinnedLabel() {
-    var p = card.profile || {};
-    var owner = firstName(p.name || p.handle || "");
     var n = ((card && card.pinned) || []).length;
-    var noun = "pinned site" + (n === 1 ? "" : "s");
-    return owner ? owner + "’s " + noun : noun.charAt(0).toUpperCase() + noun.slice(1);
+    return "Pinned site" + (n === 1 ? "" : "s");
   }
 
   // ring: a horizontal filmstrip you swipe through; the rail scroll-snaps and
   // peeks the next site, inviting the next hop.
   function pinsRing(items) {
     ui.pins.append(node("div", "pin-head", pinnedLabel()));
+    var frame = node("div", "pin-frame");
     var rail = node("div", "pin-rail");
     items.forEach(function (it) {
       var a = pinAnchor("ring-card", pinHref(it));
@@ -493,7 +492,26 @@
       a.append(pinShot(it, "ring-shot"), cap);
       rail.append(a);
     });
-    ui.pins.append(rail);
+    // Minimal scroll arrows: only the right one shows at the start; the left fades
+    // in once you've scrolled, and each fades out at its end of the rail.
+    var prev = railArrow("ring-prev", "‹", "Previous");
+    var next = railArrow("ring-next", "›", "Next");
+    prev.onclick = function () { rail.scrollBy({ left: -165, behavior: "smooth" }); };
+    next.onclick = function () { rail.scrollBy({ left: 165, behavior: "smooth" }); };
+    var sync = function () {
+      prev.classList.toggle("on", rail.scrollLeft > 2);
+      next.classList.toggle("on", rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 2);
+    };
+    rail.addEventListener("scroll", sync, { passive: true });
+    frame.append(rail, prev, next);
+    ui.pins.append(frame);
+    sync(); // reflect the initial position (start ⇒ only the right arrow)
+  }
+  function railArrow(cls, glyph, label) {
+    var b = node("button", "ring-arrow " + cls, glyph);
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    return b;
   }
 
   // spotlight: one site at a time, big — the deliberate "next site" doorway, with
@@ -673,14 +691,6 @@
       return;
     }
     items.forEach(function (n) { ui.notes.append(note(n)); });
-    // More than fits here → a tappable link to the full profile on Den.
-    if (all.length > 3) {
-      var more = node("a", "see-all", "See all " + compact(all.length));
-      more.href = profileUrl(card.profile || {});
-      more.target = "_blank";
-      more.rel = "noopener";
-      ui.notes.append(more);
-    }
   }
 
   function paintCount() {
@@ -712,7 +722,6 @@
 
     if (n.redacted || anon) av.innerHTML = SILHOUETTE; // clean placeholder, no "?"
     else avatar(av, a);
-    if (n.redacted) av.append(badge("mail-badge", icon("mail")));
 
     // Activity-feed line: bold name, dimmer verb, then a gray timestamp. The name
     // is plain text now — the row itself is the link.

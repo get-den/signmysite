@@ -94,65 +94,70 @@ export function Compose() {
     <div className="sheet">
       <div className="sheet-bar">
         <IconButton icon="close" to="/" />
-        <span className="sheet-kicker">Writing to</span>
-        {target?.handle || target?.url ? (
-          // Open in a new tab so peeking at their profile never loses the draft.
-          <a
-            className="sheet-to"
-            href={target.handle ? `/@${target.handle}` : target.url!}
-            target="_blank"
-            rel="noopener"
-          >
-            <Avatar of={target} /> <span className="who">{recipient}</span>
-          </a>
-        ) : (
-          <span className="sheet-to">
-            <Avatar of={target || { name: recipient }} /> <span className="who">{recipient}</span>
-          </span>
-        )}
       </div>
 
-      <div className="postcard">
-        <textarea
-          ref={inputRef}
-          className="postcard-body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={`Say hello to ${recipient}…`}
-          maxLength={1000}
-        />
-        <div className="postcard-foot">
-          <div className="seg" role="radiogroup" aria-label="Who can see this note">
-            <button
-              type="button"
-              className={"seg-opt" + (visibility === "public" ? " on" : "")}
-              aria-pressed={visibility === "public"}
-              onClick={() => setVisibility("public")}
+      <div className="postcard-stack">
+        <div className="postcard-to">
+          <span className="postcard-to-label">Writing to</span>
+          {target?.handle || target?.url ? (
+            // Open in a new tab so peeking at their profile never loses the draft.
+            <a
+              className="sheet-to"
+              href={target.handle ? `/@${target.handle}` : target.url!}
+              target="_blank"
+              rel="noopener"
             >
-              Public
-            </button>
-            <button
-              type="button"
-              className={"seg-opt" + (visibility === "private" ? " on" : "")}
-              aria-pressed={visibility === "private"}
-              onClick={() => setVisibility("private")}
-            >
-              Private
-            </button>
-          </div>
-          <Button className="pink send-btn" loading={sending} disabled={!body.trim()} onClick={send}>
-            Send
-          </Button>
-        </div>
-        <p className="postcard-hint">
-          {error ? (
-            <span className="formerr">{error}</span>
-          ) : visibility === "private" ? (
-            "Only they will see this. A note just for them."
+              <Avatar of={target} /> <span className="who">{recipient}</span>
+            </a>
           ) : (
-            "Public notes appear on their profile for everyone to see."
+            <span className="sheet-to">
+              <Avatar of={target || { name: recipient }} /> <span className="who">{recipient}</span>
+            </span>
           )}
-        </p>
+        </div>
+
+        <div className="postcard">
+          <textarea
+            ref={inputRef}
+            className="postcard-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={`Say hello to ${recipient}…`}
+            maxLength={1000}
+          />
+          <div className="postcard-foot">
+            <div className="seg" role="radiogroup" aria-label="Who can see this note">
+              <button
+                type="button"
+                className={"seg-opt" + (visibility === "public" ? " on" : "")}
+                aria-pressed={visibility === "public"}
+                onClick={() => setVisibility("public")}
+              >
+                Public
+              </button>
+              <button
+                type="button"
+                className={"seg-opt" + (visibility === "private" ? " on" : "")}
+                aria-pressed={visibility === "private"}
+                onClick={() => setVisibility("private")}
+              >
+                Private
+              </button>
+            </div>
+            <Button className="pink send-btn" loading={sending} disabled={!body.trim()} onClick={send}>
+              {viewer || loading ? "Send" : "Sign in to continue"}
+            </Button>
+          </div>
+          <p className="postcard-hint">
+            {error ? (
+              <span className="formerr">{error}</span>
+            ) : visibility === "private" ? (
+              "Only they will see this. A note just for them."
+            ) : (
+              "Public notes appear on their profile for everyone to see."
+            )}
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -113,13 +113,20 @@ function Confirmed({
     }
   };
 
+  // Their site to slip back to: the linked site if we have it, else their Den profile.
+  const siteHref = target?.url || (target?.handle ? `/@${target.handle}` : "");
+
   return (
     <>
       <h1 className="confirm-title">
-        {isNote ? "Postcard sent" : sent ? "Reaction sent" : "Sending…"}
+        {isNote ? "Note sent" : sent ? "Reaction sent" : "Sending…"}
       </h1>
       <p className="confirm-sub">
-        <b>{name}</b> got your {isNote ? "note" : emoji}
+        {isNote ? (
+          siteHref && <a className="confirm-view" href={siteHref}>(view)</a>
+        ) : (
+          <><b>{name}</b> got your {emoji}</>
+        )}
       </p>
 
       <div className="confirm-follow">

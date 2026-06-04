@@ -58,20 +58,23 @@ export function isReaction(s: string | null | undefined): boolean {
 
 // Shown when a site has no real preview image (og:image): a flat, neutral
 // wireframe of a webpage, inlined as a data URI — no network request, nothing to
-// keep on disk. Deliberately generic so a real og:image stands out beside it.
+// keep on disk. Sized to the canonical og:image ratio (1200×630) so it drops into
+// the same box as a real preview. Deliberately generic so a real og:image stands
+// out beside it.
 const PLACEHOLDER_SVG =
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">` +
-  `<rect width="400" height="300" fill="#f3f3f4"/>` +
-  `<rect x="72" y="58" width="256" height="184" rx="16" fill="#fff" stroke="#e6e6e9" stroke-width="2"/>` +
-  `<circle cx="92" cy="78" r="4.5" fill="#dcdce0"/><circle cx="107" cy="78" r="4.5" fill="#dcdce0"/><circle cx="122" cy="78" r="4.5" fill="#dcdce0"/>` +
-  `<line x1="72" y1="99" x2="328" y2="99" stroke="#ededf0" stroke-width="2"/>` +
-  `<rect x="96" y="120" width="208" height="64" rx="10" fill="#e9e9ec"/>` +
-  `<rect x="96" y="198" width="208" height="10" rx="5" fill="#e9e9ec"/>` +
-  `<rect x="96" y="216" width="132" height="10" rx="5" fill="#e9e9ec"/>` +
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">` +
+  `<rect width="1200" height="630" fill="#f3f3f4"/>` +
+  `<rect x="220" y="115" width="760" height="400" rx="24" fill="#fff" stroke="#e6e6e9" stroke-width="2"/>` +
+  `<circle cx="256" cy="149" r="7" fill="#dcdce0"/><circle cx="282" cy="149" r="7" fill="#dcdce0"/><circle cx="308" cy="149" r="7" fill="#dcdce0"/>` +
+  `<line x1="220" y1="183" x2="980" y2="183" stroke="#ededf0" stroke-width="2"/>` +
+  `<rect x="260" y="220" width="680" height="170" rx="16" fill="#e9e9ec"/>` +
+  `<rect x="260" y="420" width="680" height="18" rx="9" fill="#e9e9ec"/>` +
+  `<rect x="260" y="452" width="430" height="18" rx="9" fill="#e9e9ec"/>` +
   `</svg>`;
-const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;
+/** Canonical fallback preview, used anywhere a site has no real thumbnail. */
+export const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;
 
-/** The thumbnail a site card shows: its real preview (og:image), else a generic placeholder. */
+/** The thumbnail a site card shows: its real preview (og:image), else the canonical placeholder. */
 export function siteThumb(site: { thumbnail?: string | null }): string {
   return site.thumbnail || PLACEHOLDER_THUMB;
 }

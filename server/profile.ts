@@ -189,10 +189,10 @@ export function renderProfileInner(opts: {
       <div class="pcol-main">
         ${preview(m)}
         ${actions(m, s)}
+        ${commentsSection(comments)}
       </div>
       <aside class="pcol-side">${side}</aside>
     </div>
-    ${commentsSection(comments)}
   </div>
   <script>${profileScript(m.id, isOwner)}</script>`;
 }

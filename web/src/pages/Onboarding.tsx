@@ -76,7 +76,6 @@ export function Onboarding() {
   const [claiming, setClaiming] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [scrape, setScrape] = useState<Scrape | null>(null);
-  const [pic, setPic] = useState<"loading" | "ok" | "none">("none");
   const [verifyState, setVerifyState] = useState<"idle" | "verifying" | "failed">("idle");
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
@@ -95,14 +94,12 @@ export function Onboarding() {
       setHandle(d.handle || picks[0] || "");
       setSite(d.site || "");
       setScrape(d.scrape);
-      setPic(d.scrape?.avatar ? "loading" : "none");
       setStep(d.step || 1);
     } else if (viewer.url) {
       const sc: Scrape = { host: host(viewer.url), reachable: true, thumbnail: null, avatar: viewer.avatar };
       setHandle(viewer.handle || picks[0] || "");
       setSite(host(viewer.url));
       setScrape(sc);
-      setPic(viewer.avatar ? "loading" : "none");
       setStep(3);
     } else {
       setHandle(picks[0] || "");
@@ -162,7 +159,6 @@ export function Onboarding() {
     try {
       const r = await scrapeSite(siteCheck.url!);
       setScrape(r);
-      setPic(r.avatar ? "loading" : "none");
       setVerifyState("idle");
       setStep(3);
     } catch {
@@ -205,17 +201,16 @@ export function Onboarding() {
 
   const idShort = viewer.id.replace(/^den:/, "");
   const scriptTag = `<script src="${location.origin}/w/${idShort}.js"></script>`;
-  const backBtn = (to: 1 | 2) => (
-    <IconButton icon="back" className="onb-back" onClick={() => setStep(to)} />
-  );
 
   return (
     <div className="onb">
       <div className="onb-card">
-        <div className="onb-steps" aria-hidden="true">
-          <span className={"onb-dot" + (step >= 1 ? " on" : "")} />
-          <span className={"onb-dot" + (step >= 2 ? " on" : "")} />
-          <span className={"onb-dot" + (step >= 3 ? " on" : "")} />
+        <div className="onb-head">
+          <IconButton
+            icon="back"
+            className={"onb-back" + (step === 1 ? " is-hidden" : "")}
+            onClick={() => setStep(step === 3 ? 2 : 1)}
+          />
         </div>
 
         {step === 1 && (
@@ -240,12 +235,9 @@ export function Onboarding() {
               </span>
             </div>
 
-            {(check.state === "ok" || check.state === "bad") && (
-              <div
-                className={"onb-msg slide-down " + check.state}
-                key={check.state === "bad" ? "bad:" + check.reason : "ok"}
-              >
-                {check.state === "ok" ? "Available" : check.reason}
+            {check.state === "bad" && (
+              <div className="onb-msg bad slide-down" key={"bad:" + check.reason}>
+                {check.reason}
               </div>
             )}
 
@@ -267,7 +259,6 @@ export function Onboarding() {
         {step === 2 && (
           <div className="onb-step" key="step2">
             <h1>Add your site</h1>
-            <p>Link your website so visitors can find it. We'll grab a preview and your picture.</p>
 
             <div className={"onb-site" + (site.trim() && !siteCheck.ok ? " bad" : "")}>
               <input
@@ -296,35 +287,12 @@ export function Onboarding() {
                 I don't have a site
               </Button>
             </div>
-
-            {backBtn(1)}
           </div>
         )}
 
         {step === 3 && (
           <div className="onb-step" key="step3">
             <h1>Add your widget</h1>
-            <p>
-              Add this line to <b>{scrape?.host ?? "your site"}</b>, then verify. It proves the site is
-              yours and turns on your widget.
-            </p>
-
-            <div className="onb-pic-row">
-              <div className={"onb-pic " + pic}>
-                {scrape?.avatar && pic !== "none" && (
-                  <img src={scrape.avatar} alt="" onLoad={() => setPic("ok")} onError={() => setPic("none")} />
-                )}
-                {pic === "loading" && <Spinner size={18} />}
-                {pic === "none" && (
-                  <span className="onb-pic-initial">{(viewer.name || viewer.handle || "?").charAt(0).toUpperCase()}</span>
-                )}
-              </div>
-              <div className="onb-pic-cap">
-                {pic === "loading" && "Finding your profile picture…"}
-                {pic === "ok" && <>Profile picture from <b>{scrape?.host}</b></>}
-                {pic === "none" && (scrape?.reachable ? "No picture found. Add one later." : "We'll fetch your picture once your site is live.")}
-              </div>
-            </div>
 
             <CopyField text={scriptTag} />
 
@@ -336,16 +304,20 @@ export function Onboarding() {
 
             <div className="onb-actions">
               <Button className="primary lg" loading={verifyState === "verifying"} onClick={doVerify}>
-                Verify
+                Done
               </Button>
               <Button className="naked lg" loading={saving} disabled={verifyState === "verifying"} onClick={finish}>
                 Skip for now
               </Button>
             </div>
-
-            {backBtn(2)}
           </div>
         )}
+
+        <div className="onb-steps" aria-hidden="true">
+          <span className={"onb-dot" + (step === 1 ? " on" : "")} />
+          <span className={"onb-dot" + (step === 2 ? " on" : "")} />
+          <span className={"onb-dot" + (step === 3 ? " on" : "")} />
+        </div>
       </div>
     </div>
   );

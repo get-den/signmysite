@@ -20,10 +20,10 @@ import {
   type Stats,
   type ViewerVisit,
 } from "../api";
-import { compact, host, profileHref, relTime, siteThumb } from "../lib";
+import { compact, host, profileHref, relTime } from "../lib";
 import { mockDiscovery, mockFollowing } from "../mockData";
 import { useToast } from "../providers";
-import { Avatar, Button, EyeIcon, HeartIcon, PinIcon, SearchIcon, Tip, useCopy } from "../ui";
+import { Avatar, Button, EyeIcon, HeartIcon, PinIcon, SearchIcon, SiteThumbnail, Tip, useCopy } from "../ui";
 
 const PIN_LIMIT = 3;
 
@@ -345,9 +345,9 @@ function SiteCard({
         href={siteHref}
         target={external ? "_blank" : undefined}
         rel="noopener"
-        style={{ backgroundImage: `url(${JSON.stringify(siteThumb(site))})` }}
         aria-label={`Open ${site.name}`}
       >
+        <SiteThumbnail site={site} />
         {site.isNew && <span className="shot-new">New</span>}
       </a>
       {canPin && (
