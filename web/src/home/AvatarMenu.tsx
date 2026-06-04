@@ -33,8 +33,6 @@ export function AvatarMenu({ viewer, compact = false }: { viewer: Member; compac
     try { await logout(); } finally { setViewer(null); navigate("/"); }
   }
 
-  const profileHref = viewer.handle ? `/@${viewer.handle}` : viewer.url || "#";
-
   return (
     <div className={"who-menu" + (compact ? " who-menu-compact" : "")} ref={ref}>
       <button
@@ -57,15 +55,15 @@ export function AvatarMenu({ viewer, compact = false }: { viewer: Member; compac
 
       {open && (
         <div className="who-pop" role="menu">
-          <a className="who-pop-id" href={profileHref}>
+          <Link className="who-pop-id" to="/profile">
             <Avatar of={viewer} />
             <span className="who-id">
               <span className="who-name">{viewer.name || "You"}</span>
               <span className="who-sub">{viewer.handle ? `@${viewer.handle}` : "Finish setup"}</span>
             </span>
-          </a>
+          </Link>
           <div className="who-pop-sep" />
-          <a className="who-pop-item" href={profileHref} role="menuitem">View profile</a>
+          <Link className="who-pop-item" to="/profile" role="menuitem">View profile</Link>
           <Link className="who-pop-item" to="/edit" role="menuitem">Settings</Link>
           <div className="who-pop-sep" />
           <button className="who-pop-item danger" type="button" role="menuitem" onClick={signOut}>

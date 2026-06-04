@@ -276,7 +276,8 @@ function profileScript(id: string, isOwner: boolean): string {
     // button doesn't snap to red under a cursor still resting on it post-click.
     followBtn.classList.add('just');
     followBtn.addEventListener('mouseleave',function off(){followBtn.classList.remove('just');followBtn.removeEventListener('mouseleave',off);});
-    toggle('/api/follow',function(s){setFollow(s.viewerFollows);});
+    // Following also saves the site (server seeds the save), so reflect both.
+    toggle('/api/follow',function(s){setFollow(s.viewerFollows);setSave(s.viewerSaved);});
   });
   if(saveBtn)saveBtn.addEventListener('click',function(){toggle('/api/save',function(s){setSave(s.viewerSaved);});});
   fetch('/api/profile/'+encodeURIComponent(id)+'/stats',{credentials:'include'})

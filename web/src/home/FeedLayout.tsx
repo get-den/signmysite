@@ -40,7 +40,7 @@ export function FeedLayout({
         </aside>
       )}
 
-      {!wide && <MobileTabs viewer={viewer} />}
+      {!wide && <MobileTabs />}
     </div>
   );
 }

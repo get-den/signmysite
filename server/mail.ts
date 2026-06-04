@@ -14,7 +14,7 @@
  * sending domain is named in exactly one place and can't drift from the live origin.
  * (That host must be a verified Resend sending domain.)
  */
-import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind, type Snapshot } from "./db.ts";
+import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind } from "./db.ts";
 import { escapeHtml, notifyToken } from "./util.ts";
 import { theme } from "./theme.ts";
 import { BASE } from "./config.ts";
@@ -159,8 +159,7 @@ export async function sendMagicLink(to: string, link: string): Promise<void> {
 // only emails members with an address, never throws (a failed notification must
 // never break a crawl or a ping).
 export async function notifySiteUpdated(
-  member: Recipient & Pick<Member, "url">,
-  snap: Snapshot,
+  member: Recipient & Pick<Member, "url" | "thumbnail">,
 ): Promise<void> {
   if (!member.email || !wantsNotify(member, "siteUpdated")) return; // claimed + opted-in only
   const label = member.url ? hostOf(member.url) : (member.name || "your site");
@@ -171,7 +170,7 @@ export async function notifySiteUpdated(
     html: layout(
       heading(`${label} updated`) +
       paragraph("We picked up a new version of your site. Anyone following you will see it flagged as new.") +
-      (snap.thumbnail ? image(snap.thumbnail) : "") +
+      (member.thumbnail ? image(member.thumbnail) : "") +
       (profile ? button("View your signmysite profile", profile) : "") +
       manageFootnote(member.id, "You're getting this because your site is on signmysite.", "siteUpdated"),
     ),
@@ -185,8 +184,7 @@ export async function notifySiteUpdated(
 // version, bring them back to look. Best-effort, fire-and-forget, prefs-gated.
 export async function notifyFollowedUpdate(
   follower: Recipient,
-  source: Pick<Member, "name" | "handle" | "url" | "avatar">,
-  snap: Snapshot,
+  source: Pick<Member, "name" | "handle" | "url" | "avatar" | "thumbnail">,
 ): Promise<void> {
   if (!follower.email || !wantsNotify(follower, "followedUpdate")) return;
   const who = source.name || (source.url ? hostOf(source.url) : "A site you follow");
@@ -196,7 +194,7 @@ export async function notifyFollowedUpdate(
     subject: `${who} just updated`,
     html: layout(
       actorLine(who, source.avatar, "posted a new version of their site.") +
-      (snap.thumbnail ? image(snap.thumbnail) : "") +
+      (source.thumbnail ? image(source.thumbnail) : "") +
       button(`View ${who}`, profile) +
       manageFootnote(follower.id, `You follow ${who} on signmysite.`, "followedUpdate"),
     ),
@@ -208,10 +206,10 @@ export async function notifyFollowedUpdate(
 // The whole "site updated" fan-out in one call: tell the OWNER, then each FOLLOWER.
 // Used by both the live path (ping / me.json refresh) and the crawler, so the two
 // can't drift. Fully best-effort — each recipient's prefs are checked downstream.
-export async function notifyUpdate(owner: Member, snap: Snapshot): Promise<void> {
-  await notifySiteUpdated(owner, snap);
+export async function notifyUpdate(owner: Member): Promise<void> {
+  await notifySiteUpdated(owner);
   for (const f of await listFollowersWithEmail(owner.id)) {
-    await notifyFollowedUpdate(f, owner, snap);
+    await notifyFollowedUpdate(f, owner);
   }
 }
 

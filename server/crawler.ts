@@ -34,12 +34,12 @@ export async function crawlOnce(): Promise<{ checked: number; changed: number }>
     if (!s.url) continue;
     const p = await inspectSite(s.url);
     if (!p) continue;
-    // Append a snapshot only on a real content change (bumps last_edited too).
-    const change = await db.recordSnapshot(s.id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt });
+    // Refresh the live preview only on a real content change (bumps last_edited too).
+    const change = await db.recordSiteContent(s.id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt });
     if (change) {
       changed++;
       // Don't email on a site's very first capture — that's just initial indexing.
-      if (!change.isFirst) notifySiteUpdated(s, change.snapshot).catch(() => {});
+      if (!change.isFirst) notifySiteUpdated(change.site).catch(() => {});
     }
   }
   if (sites.length) console.log(`[crawl] checked ${sites.length}, changed ${changed}`);

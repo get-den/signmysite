@@ -22,13 +22,16 @@ CREATE TABLE IF NOT EXISTS members (
   -- from snapshots) so an owner can assert "I changed something" even when our
   -- homepage hash didn't move (e.g. they edited a subpage).
   last_edited TEXT,
-  -- Points at the live row in 'snapshots' (the newest version). NULL until the
-  -- first capture; the member_cards view reads the live thumbnail through it.
-  current_snapshot_id TEXT,
-  -- has the member finished the signup wizard (username + optional site)?
-  -- defaults TRUE so existing rows aren't sent back through onboarding; new
-  -- members are inserted with FALSE (see createMember).
-  onboarded   BOOLEAN NOT NULL DEFAULT TRUE,
+  -- The live site preview (og:image) + the last-seen normalized content hash for
+  -- change detection. Kept right on the member — there is no snapshot/version table.
+  thumbnail    TEXT,
+  content_hash TEXT,
+  -- Manual fame tier ranking a member in someone's "Followed by" facepile:
+  -- 0 normal, 1 notable, 2 famous. ORDER BY prominence DESC sorts it directly.
+  prominence   INTEGER NOT NULL DEFAULT 0,
+  -- has the member finished the signup wizard? New sign-ups are inserted FALSE
+  -- (see createMember); crawled/indexed members never sign in, so theirs is moot.
+  onboarded   BOOLEAN NOT NULL DEFAULT FALSE,
   -- has the member proven they control members.url? Set true only after we fetch
   -- the site and find their own widget id in it; reset to false whenever the url
   -- changes. Guards against one account claiming another's site. Defaults FALSE
@@ -49,71 +52,6 @@ CREATE TABLE IF NOT EXISTS members (
   links       JSONB NOT NULL DEFAULT '[]',
   created     TEXT NOT NULL
 );
--- migrate older installs in place (idempotent)
-ALTER TABLE members ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS last_edited TEXT;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS current_snapshot_id TEXT;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS notify JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE members ADD COLUMN IF NOT EXISTS notified JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE members ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
--- Prominence: a manual fame tier used to rank a member among someone's followers
--- (the "Followed by …" facepile). An ORDERED enum, so ORDER BY sorts it directly;
--- it's an OVERRIDE layered on the page-view heuristic (we sort by prominence, then
--- views). Set by hand, e.g. UPDATE members SET prominence='famous' WHERE handle='pg'.
-DO $$ BEGIN
-  CREATE TYPE prominence AS ENUM ('normal', 'notable', 'famous');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-ALTER TABLE members ADD COLUMN IF NOT EXISTS prominence prominence NOT NULL DEFAULT 'normal';
-
--- Every captured version of a site's front page — append-only history. The newest
--- row per member is the "live" one (members.current_snapshot_id points at it); the
--- rest are the timeline. We append only when the (normalized) content hash actually
--- changes, so a static site never grows a no-op row. Each version keeps its OWN
--- thumbnail/title/excerpt, so history stays truthful even after the owner later
--- swaps the og:image the live thumbnail was sourced from.
-CREATE TABLE IF NOT EXISTS snapshots (
-  id           TEXT PRIMARY KEY,
-  member_id    TEXT NOT NULL,
-  content_hash TEXT NOT NULL,   -- normalized page hash; the dedupe key vs the previous version
-  thumbnail    TEXT,            -- preview image for THIS version (og:image today, screenshot later)
-  title        TEXT,            -- og:title / <title> at capture
-  excerpt      TEXT,            -- og:description / meta description at capture
-  captured     TEXT NOT NULL    -- when we first observed this version
-);
-CREATE INDEX IF NOT EXISTS snapshots_member ON snapshots (member_id, captured DESC);
-
--- One-time migration off the old in-place columns: fold each member's last-known
--- thumbnail + hash into a first snapshot, then drop the columns. Guarded so it only
--- runs on installs that still have them (fresh databases skip it entirely).
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_name = 'members' AND column_name = 'thumbnail') THEN
-    INSERT INTO snapshots (id, member_id, content_hash, thumbnail, title, excerpt, captured)
-      SELECT 'snap_legacy_' || m.id, m.id, COALESCE(m.content_hash, ''), m.thumbnail, NULL, NULL,
-             COALESCE(m.last_edited, m.created)
-        FROM members m
-       WHERE m.thumbnail IS NOT NULL OR m.content_hash IS NOT NULL
-      ON CONFLICT (id) DO NOTHING;
-    UPDATE members SET current_snapshot_id = 'snap_legacy_' || id
-      WHERE current_snapshot_id IS NULL AND (thumbnail IS NOT NULL OR content_hash IS NOT NULL);
-    ALTER TABLE members DROP COLUMN thumbnail;
-    ALTER TABLE members DROP COLUMN content_hash;
-  END IF;
-END $$;
-
--- Read model: a member flattened together with its live snapshot's thumbnail, so
--- every read can keep selecting a single row and find 'thumbnail' where it always
--- was. Writes target the base tables (members + snapshots); reads come from here.
--- DROP+CREATE (not REPLACE) so it survives any future change to the members columns.
-DROP VIEW IF EXISTS member_cards;
-CREATE VIEW member_cards AS
-  SELECT m.*, s.thumbnail
-    FROM members m
-    LEFT JOIN snapshots s ON s.id = m.current_snapshot_id;
 
 -- Per-viewer "last seen this site" — powers the "new"/"updated" badge. (Distinct
 -- from page_views below: this is one row per (viewer, site) tracking recency for
@@ -145,20 +83,22 @@ CREATE INDEX IF NOT EXISTS page_views_target ON page_views (target_id, started D
 CREATE INDEX IF NOT EXISTS page_views_known ON page_views (target_id, viewer_id) WHERE viewer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS page_views_session ON page_views (target_id, session, started DESC);
 
+-- Follows. One row per (follower → target); the whole social graph is this table.
 CREATE TABLE IF NOT EXISTS edges (
   follower_id TEXT NOT NULL,
   target_id   TEXT NOT NULL,
-  rel         TEXT NOT NULL DEFAULT 'follow',
   created     TEXT NOT NULL,
   PRIMARY KEY (follower_id, target_id)
 );
 CREATE INDEX IF NOT EXISTS edges_target ON edges (target_id);
+-- Saves: a private library (unbounded). Same shape as edges.
 CREATE TABLE IF NOT EXISTS saves (
   member_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
   created   TEXT NOT NULL,
   PRIMARY KEY (member_id, target_id)
 );
+CREATE INDEX IF NOT EXISTS saves_target ON saves (target_id);
 -- Public "pins": a tiny curated showcase (max 3, enforced in the API) of sites a
 -- member points visitors to from their profile. Same shape as saves, kept its own
 -- table because it's public + capped where saves are a private, unbounded bookmark.
@@ -169,18 +109,19 @@ CREATE TABLE IF NOT EXISTS pins (
   PRIMARY KEY (member_id, target_id)
 );
 CREATE INDEX IF NOT EXISTS pins_member ON pins (member_id, created);
+-- Notes + reactions left on a site. A reaction is just a comment whose body is a
+-- single emoji (see isReaction) — one table, no separate reactions store. author_id
+-- is null for an anonymous reaction.
 CREATE TABLE IF NOT EXISTS comments (
   id         TEXT PRIMARY KEY,
   target_id  TEXT NOT NULL,
-  author_id  TEXT NOT NULL,
+  author_id  TEXT,
   body       TEXT NOT NULL,
   visibility TEXT NOT NULL DEFAULT 'public',  -- 'public' | 'private'
   created    TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created);
-ALTER TABLE comments ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
--- Reactions (emoji taps) can be left anonymously, with no account behind them.
-ALTER TABLE comments ALTER COLUMN author_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created DESC);
+CREATE INDEX IF NOT EXISTS comments_author ON comments (author_id, created DESC);
 -- Direct messages between two members. A "conversation" is just every message
 -- exchanged by a pair, in either direction — there's no separate threads table, the
 -- (sender, recipient) pair IS the thread. Deliberately close to the comments shape.
@@ -255,36 +196,6 @@ CREATE TABLE IF NOT EXISTS cohort_members (
 );
 CREATE INDEX IF NOT EXISTS cohort_members_member ON cohort_members (member_id);
 CREATE INDEX IF NOT EXISTS cohort_members_cohort ON cohort_members (cohort_id, created);
-
--- One-time rebrand: the member-id prefix den: → signmysite: across every column
--- that stores one. Each UPDATE matches only den:-prefixed values, so it's idempotent
--- (a no-op once migrated) and safe to keep in the startup schema — existing prod data
--- is converted on the next deploy. There are no enforced FKs, so per-table updates are
--- independent; composite-PK tables can't collide (all rows are uniformly den:- today).
-DO $$
-BEGIN
-  UPDATE members           SET id           = 'signmysite:' || substring(id from 5)           WHERE id           LIKE 'den:%';
-  UPDATE snapshots         SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE visits            SET viewer_id    = 'signmysite:' || substring(viewer_id from 5)    WHERE viewer_id    LIKE 'den:%';
-  UPDATE visits            SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE page_views        SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE page_views        SET viewer_id    = 'signmysite:' || substring(viewer_id from 5)    WHERE viewer_id    LIKE 'den:%';
-  UPDATE edges             SET follower_id  = 'signmysite:' || substring(follower_id from 5)  WHERE follower_id  LIKE 'den:%';
-  UPDATE edges             SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE saves             SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE saves             SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE pins              SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE pins              SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE comments          SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
-  UPDATE comments          SET author_id    = 'signmysite:' || substring(author_id from 5)    WHERE author_id    LIKE 'den:%';
-  UPDATE messages          SET sender_id    = 'signmysite:' || substring(sender_id from 5)    WHERE sender_id    LIKE 'den:%';
-  UPDATE messages          SET recipient_id = 'signmysite:' || substring(recipient_id from 5) WHERE recipient_id LIKE 'den:%';
-  UPDATE message_reactions SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE sessions          SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE avatars           SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-  UPDATE cohorts           SET owner_id     = 'signmysite:' || substring(owner_id from 5)     WHERE owner_id     LIKE 'den:%';
-  UPDATE cohort_members    SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
-END $$;
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
@@ -309,11 +220,12 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, messages, message_reactions, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
+  await pool.query("TRUNCATE members, edges, saves, pins, comments, messages, message_reactions, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
 }
 
-// Manual fame tier (the prominence enum). Ordered: famous > notable > normal.
-export type Prominence = "normal" | "notable" | "famous";
+// Manual fame tier, ranking a member in someone's "Followed by" facepile:
+// 0 normal, 1 notable, 2 famous. ORDER BY prominence DESC sorts it directly.
+export type Prominence = number;
 // A compact identity for facepiles ("Followed by …", mutuals) — just what a small
 // avatar+name chip needs.
 export type Identity = { id: string; handle: string | null; name: string; avatar: string | null; url: string | null };
@@ -321,8 +233,8 @@ export type Member = {
   id: string; handle: string | null; name: string; email: string | null;
   google_sub: string | null; url: string | null; avatar: string | null;
   views: number; last_edited: string | null; prominence: Prominence;
-  current_snapshot_id: string | null;
-  thumbnail: string | null;   // from the member_cards view (the live snapshot's image)
+  thumbnail: string | null;       // live site preview (og:image), right on the member
+  content_hash: string | null;    // last-seen normalized page hash (change detection)
   onboarded: boolean; verified: boolean;
   notify: Record<string, boolean>;    // email prefs: per-kind override ({} = all on)
   notified: Record<string, boolean>;  // one-time emails already sent (milestones, activation)
@@ -342,11 +254,6 @@ export const ALL_NOTIFY_KINDS: NotifyKind[] = [
   "follow", "save", "comment", "reaction", "message",
   "followedUpdate", "siteUpdated", "milestone",
 ];
-// One captured version of a site's front page (see the snapshots table).
-export type Snapshot = {
-  id: string; member_id: string; content_hash: string;
-  thumbnail: string | null; title: string | null; excerpt: string | null; captured: string;
-};
 export type Stats = {
   views: number; followers: number; following: number; saved: number; pinned: number;
   viewerFollows: boolean; viewerSaved: boolean; viewerPinned: boolean;
@@ -373,27 +280,27 @@ export type Comment = {
 };
 
 // ---- members -------------------------------------------------------------
-// Reads go through member_cards (members + the live snapshot's thumbnail); writes
-// target the base members table.
+// Reads + writes both target the members table (thumbnail is a column on it now).
+
 export async function getMember(id: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM member_cards WHERE id = $1", [id])).rows[0];
+  return (await pool.query("SELECT * FROM members WHERE id = $1", [id])).rows[0];
 }
 export async function getMemberByEmail(email: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM member_cards WHERE email = $1", [email])).rows[0];
+  return (await pool.query("SELECT * FROM members WHERE email = $1", [email])).rows[0];
 }
 export async function getMemberByHandle(handle: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM member_cards WHERE handle = $1", [handle])).rows[0];
+  return (await pool.query("SELECT * FROM members WHERE handle = $1", [handle])).rows[0];
 }
 export async function getMemberByUrl(url: string): Promise<Member | undefined> {
   return (await pool.query(
-    `SELECT * FROM member_cards WHERE url = $1
+    `SELECT * FROM members WHERE url = $1
      ORDER BY (email IS NOT NULL OR google_sub IS NOT NULL) DESC, created DESC
      LIMIT 1`,
     [url]
   )).rows[0];
 }
 export async function getMemberByGoogleSub(sub: string): Promise<Member | undefined> {
-  return (await pool.query("SELECT * FROM member_cards WHERE google_sub = $1", [sub])).rows[0];
+  return (await pool.query("SELECT * FROM members WHERE google_sub = $1", [sub])).rows[0];
 }
 export async function createMember(m: {
   id: string; name: string; handle?: string | null; email?: string | null;
@@ -410,12 +317,11 @@ export async function createMember(m: {
   );
   return (await getMember(m.id))!;
 }
-// Columns a patch may write. Excludes id/created and the view-only `thumbnail`
-// (which lives on snapshots) — so a Partial<Member> can't accidentally generate
-// SQL against a column that no longer exists on the base table.
+// Columns a patch may write (excludes id/created) — so a Partial<Member> can't
+// accidentally generate SQL against a column that doesn't exist.
 const MUTABLE_MEMBER_COLS = new Set([
   "handle", "name", "email", "google_sub", "url", "avatar", "links",
-  "views", "last_edited", "current_snapshot_id", "onboarded", "verified", "prominence",
+  "views", "last_edited", "thumbnail", "content_hash", "onboarded", "verified", "prominence",
 ]);
 // JSONB columns need an explicit ::jsonb cast and a JSON-encoded value — pg would
 // otherwise try to coerce a JS array into a Postgres array literal.
@@ -456,9 +362,6 @@ export async function claimUnclaimedMember(targetId: string, sourceId: string): 
     await movePairs("saves", "member_id", "target_id", sourceId, targetId);
     await movePairs("pins", "member_id", "target_id", sourceId, targetId);
     await moveVisits(sourceId, targetId);
-    // Reparent any history the source accrued so deleting it orphans nothing; the
-    // target keeps its own current_snapshot_id as the live version.
-    await pool.query("UPDATE snapshots SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
     // Cohort memberships + ownership follow the surviving id. (An unclaimed member
     // is never in a crew in practice — joining needs a session — but remap anyway
     // so a merge can't orphan a membership or leave a dangling owner.) The NOT
@@ -498,10 +401,9 @@ async function movePairs(table: string, left: string, right: string, sourceId: s
 
 async function moveEdges(sourceId: string, targetId: string): Promise<void> {
   await pool.query(
-    `INSERT INTO edges (follower_id, target_id, rel, created)
+    `INSERT INTO edges (follower_id, target_id, created)
      SELECT CASE WHEN follower_id = $1 THEN $2 ELSE follower_id END,
             CASE WHEN target_id = $1 THEN $2 ELSE target_id END,
-            rel,
             created
        FROM edges
       WHERE (follower_id = $1 OR target_id = $1)
@@ -530,11 +432,11 @@ async function moveVisits(sourceId: string, targetId: string): Promise<void> {
 }
 
 // ---- edges (follow) ------------------------------------------------------
-export async function setEdge(follower: string, target: string, rel = "follow"): Promise<void> {
+export async function setEdge(follower: string, target: string): Promise<void> {
   await pool.query(
-    `INSERT INTO edges (follower_id, target_id, rel, created) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (follower_id, target_id) DO UPDATE SET rel = EXCLUDED.rel`,
-    [follower, target, rel, now()]
+    `INSERT INTO edges (follower_id, target_id, created) VALUES ($1, $2, $3)
+     ON CONFLICT (follower_id, target_id) DO NOTHING`,
+    [follower, target, now()]
   );
 }
 export async function removeEdge(follower: string, target: string): Promise<void> {
@@ -542,6 +444,26 @@ export async function removeEdge(follower: string, target: string): Promise<void
 }
 export async function hasEdge(follower: string, target: string): Promise<boolean> {
   return (await pool.query("SELECT 1 FROM edges WHERE follower_id = $1 AND target_id = $2", [follower, target])).rowCount! > 0;
+}
+
+// Follow a site AND save it. A follow is the strong signal ("keep up with this
+// site"); saving is the private library it lands in — so following a site puts it
+// in your saved collection by default, written together here so the two can never
+// drift. This is the deliberate user action: the low-level setEdge primitive
+// (used by discovery, cohort wiring, and migration) stays save-free, so only a
+// real follow seeds a save. Idempotent. The seeded save is independent afterward:
+// an explicit unsave can drop it while you keep following, and unfollowing
+// (removeEdge) leaves the save in your library to prune on its own.
+export async function follow(follower: string, target: string): Promise<void> {
+  await pool.query("BEGIN");
+  try {
+    await setEdge(follower, target);
+    await setSave(follower, target);
+    await pool.query("COMMIT");
+  } catch (e) {
+    await pool.query("ROLLBACK");
+    throw e;
+  }
 }
 
 // The most prominent accounts following `target` — the "Followed by …" facepile.
@@ -579,11 +501,11 @@ export async function mutualFollowers(target: string, viewer: string, limit: num
 }
 
 // ---- saves ---------------------------------------------------------------
-export async function setSave(member: string, target: string): Promise<void> {
+export async function setSave(member: string, target: string, created?: string): Promise<void> {
   await pool.query(
     `INSERT INTO saves (member_id, target_id, created) VALUES ($1, $2, $3)
      ON CONFLICT (member_id, target_id) DO NOTHING`,
-    [member, target, now()]
+    [member, target, created ?? now()]
   );
 }
 export async function removeSave(member: string, target: string): Promise<void> {
@@ -618,16 +540,15 @@ export async function countPins(member: string): Promise<number> {
 export type PinnedSite = SiteCard & { notes: Array<{ id: string; body: string; created: string }> };
 export async function listPinned(memberId: string): Promise<PinnedSite[]> {
   const sites = (await pool.query(
-    `SELECT m.*, snap.thumbnail,
+    `SELECT m.*,
             COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM pins p
        JOIN members m ON m.id = p.target_id
-       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves all_saves ON all_saves.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
       WHERE p.member_id = $1
-      GROUP BY m.id, snap.thumbnail, p.created
+      GROUP BY m.id, p.created
       ORDER BY p.created ASC
       LIMIT $2`,
     [memberId, PIN_LIMIT]
@@ -781,22 +702,20 @@ export async function analytics(id: string, range: Range = "all"): Promise<Analy
 }
 
 // ---- the home feed -------------------------------------------------------
-// One reverse-chron activity stream for the signed-in member, blending inbound
-// signals (who read you, notes on your site) with their network's outbound
-// activity (people they follow commenting, following, and updating their sites).
-// Each source is a small bounded query; we merge + sort in JS rather than one
-// giant UNION — easier to read, and every source stays independently tunable.
-export type FeedKind = "read" | "comment_in" | "comment_out" | "follow" | "update";
+// One reverse-chron activity stream: what your network does to sites, and what
+// happens to yours. Three kinds — saved / comment / update — each reads "A {did}
+// B's site" and carries B's og:image. Sources are small bounded queries merged +
+// sorted in JS (clearer than one giant UNION, and each stays independently tunable).
+export type FeedKind = "saved" | "comment" | "update";
+export type FeedSite = Identity & { thumbnail: string | null };
 export type FeedRow = {
   kind: FeedKind;
   at: string;                  // ISO; the sort + pagination key
-  id?: string;                 // comment id (stable react key + dedupe)
-  actor: Identity | null;      // who acted (null = an anonymous reaction)
-  target?: Identity;           // whose site (comment_out, follow)
-  body?: string;               // comment text
+  id?: string;                 // comment id (stable react key)
+  actor: Identity | null;      // A — who acted (null = an anonymous reaction)
+  target: FeedSite;            // B — the site acted on; carries the og:image
+  body?: string;               // comment text (kind="comment")
   visibility?: Visibility;     // comment visibility
-  views?: number;              // read count (read)
-  thumbnail?: string | null;   // site preview (update)
 };
 
 // Build an Identity from a prefixed result row (`a_id`/`a_name`…), or null when the
@@ -809,76 +728,63 @@ const ident = (r: Record<string, unknown>, p = ""): Identity | null =>
         url: (r[p + "url"] as string) ?? null,
       }
     : null;
+// A target site — an Identity plus its preview image (the og:image the feed shows).
+const identSite = (r: Record<string, unknown>, p = ""): FeedSite =>
+  ({ ...(ident(r, p) as Identity), thumbnail: (r[p + "thumbnail"] as string) ?? null });
+
+// Activity is either on YOUR site, or done by someone you follow to anyone else's —
+// this fragment expresses that for whichever "actor" column a source has.
+const NETWORK = (actorCol: string) =>
+  `(t.id = $1 OR (t.id <> $1 AND ${actorCol} IN (SELECT target_id FROM edges WHERE follower_id = $1)))`;
 
 export async function feed(
   viewerId: string, opts: { limit?: number; before?: string | null } = {}
 ): Promise<FeedRow[]> {
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 60);
   const before = opts.before || null;             // ISO cursor; null = newest page
-  const p = [viewerId, before, limit];            // shared params: $1 viewer, $2 before, $3 limit
+  const p = [viewerId, before, limit];            // $1 viewer, $2 before, $3 limit
+  const cols = (alias: string, pre: string) =>
+    `${alias}.id AS ${pre}id, ${alias}.handle AS ${pre}handle, ${alias}.name AS ${pre}name, ${alias}.avatar AS ${pre}avatar, ${alias}.url AS ${pre}url`;
 
-  const [reads, inbound, outbound, follows, updates] = await Promise.all([
-    // Members who read YOUR site, one row each (most recent + how many times).
-    pool.query(
-      `SELECT m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url,
-              COUNT(*)::int AS views, MAX(pv.started) AS at
-         FROM page_views pv JOIN members m ON m.id = pv.viewer_id
-        WHERE pv.target_id = $1 AND pv.viewer_id IS NOT NULL AND pv.viewer_id <> $1
-        GROUP BY m.id
-        HAVING ($2::text IS NULL OR MAX(pv.started) < $2)
-        ORDER BY at DESC LIMIT $3`, p),
-    // Notes + reactions left on YOUR site (author may be anonymous).
+  const [comments, saves, updates] = await Promise.all([
+    // Notes + reactions on your site (incl. private), and the public ones people you
+    // follow leave anywhere else.
     pool.query(
       `SELECT c.id, c.body, c.visibility, c.created AS at,
-              m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url
-         FROM comments c LEFT JOIN members m ON m.id = c.author_id
-        WHERE c.target_id = $1 AND ($2::text IS NULL OR c.created < $2)
-        ORDER BY c.created DESC LIMIT $3`, p),
-    // Public notes the people you follow left on OTHER people's sites.
-    pool.query(
-      `SELECT c.id, c.body, c.visibility, c.created AS at,
-              a.id AS a_id, a.handle AS a_handle, a.name AS a_name, a.avatar AS a_avatar, a.url AS a_url,
-              t.id AS t_id, t.handle AS t_handle, t.name AS t_name, t.avatar AS t_avatar, t.url AS t_url
+              ${cols("a", "a_")}, ${cols("t", "t_")}, t.thumbnail AS t_thumbnail
          FROM comments c
-         JOIN edges e ON e.follower_id = $1 AND e.target_id = c.author_id
-         JOIN members a ON a.id = c.author_id
+         LEFT JOIN members a ON a.id = c.author_id
          JOIN members t ON t.id = c.target_id
-        WHERE c.visibility = 'public' AND c.target_id <> $1 AND c.author_id <> $1
+        WHERE (c.target_id = $1 OR (c.visibility = 'public' AND ${NETWORK("c.author_id")}))
+          AND c.author_id IS DISTINCT FROM $1
           AND ($2::text IS NULL OR c.created < $2)
         ORDER BY c.created DESC LIMIT $3`, p),
-    // New follows made by the people you follow (the graph growing around you).
+    // Saves of your site, and the ones people you follow make anywhere else.
     pool.query(
-      `SELECT e.created AS at,
-              a.id AS a_id, a.handle AS a_handle, a.name AS a_name, a.avatar AS a_avatar, a.url AS a_url,
-              t.id AS t_id, t.handle AS t_handle, t.name AS t_name, t.avatar AS t_avatar, t.url AS t_url
-         FROM edges e
-         JOIN edges mine ON mine.follower_id = $1 AND mine.target_id = e.follower_id
-         JOIN members a ON a.id = e.follower_id
-         JOIN members t ON t.id = e.target_id
-        WHERE e.target_id <> $1 AND e.target_id <> e.follower_id
-          AND ($2::text IS NULL OR e.created < $2)
-        ORDER BY e.created DESC LIMIT $3`, p),
-    // Sites you follow that posted a new version (each snapshot is one update event).
+      `SELECT sv.created AS at, ${cols("a", "a_")}, ${cols("t", "t_")}, t.thumbnail AS t_thumbnail
+         FROM saves sv
+         JOIN members a ON a.id = sv.member_id
+         JOIN members t ON t.id = sv.target_id
+        WHERE sv.member_id <> $1 AND ${NETWORK("sv.member_id")}
+          AND ($2::text IS NULL OR sv.created < $2)
+        ORDER BY sv.created DESC LIMIT $3`, p),
+    // Sites you follow whose freshness clock advanced (actor = target = the site).
     pool.query(
-      `SELECT s.captured AS at, s.thumbnail,
-              m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url
-         FROM snapshots s
-         JOIN edges e ON e.follower_id = $1 AND e.target_id = s.member_id
-         JOIN members m ON m.id = s.member_id
-        WHERE ($2::text IS NULL OR s.captured < $2)
-        ORDER BY s.captured DESC LIMIT $3`, p),
+      `SELECT m.last_edited AS at, ${cols("m", "a_")}, ${cols("m", "t_")}, m.thumbnail AS t_thumbnail
+         FROM edges e JOIN members m ON m.id = e.target_id
+        WHERE e.follower_id = $1 AND m.last_edited IS NOT NULL
+          AND ($2::text IS NULL OR m.last_edited < $2)
+        ORDER BY m.last_edited DESC LIMIT $3`, p),
   ]);
 
   const rows: FeedRow[] = [
-    ...reads.rows.map((r): FeedRow => ({ kind: "read", at: r.at, actor: ident(r, "a_"), views: r.views })),
-    ...inbound.rows.map((r): FeedRow => ({
-      kind: "comment_in", at: r.at, id: r.id, actor: ident(r, "a_"), body: r.body, visibility: r.visibility })),
-    ...outbound.rows.map((r): FeedRow => ({
-      kind: "comment_out", at: r.at, id: r.id, actor: ident(r, "a_"), target: ident(r, "t_") ?? undefined,
+    ...comments.rows.map((r): FeedRow => ({
+      kind: "comment", at: r.at, id: r.id, actor: ident(r, "a_"), target: identSite(r, "t_"),
       body: r.body, visibility: r.visibility })),
-    ...follows.rows.map((r): FeedRow => ({
-      kind: "follow", at: r.at, actor: ident(r, "a_"), target: ident(r, "t_") ?? undefined })),
-    ...updates.rows.map((r): FeedRow => ({ kind: "update", at: r.at, actor: ident(r, "a_"), thumbnail: r.thumbnail })),
+    ...saves.rows.map((r): FeedRow => ({
+      kind: "saved", at: r.at, actor: ident(r, "a_"), target: identSite(r, "t_") })),
+    ...updates.rows.map((r): FeedRow => ({
+      kind: "update", at: r.at, actor: ident(r, "a_"), target: identSite(r, "t_") })),
   ];
   rows.sort((x, y) => (Date.parse(y.at) || 0) - (Date.parse(x.at) || 0));
   return rows.slice(0, limit);
@@ -904,59 +810,37 @@ export async function feedDigest(
 // ---- freshness + snapshots -----------------------------------------------
 // Mark a site as edited (monotonically — never moves freshness backwards). For
 // owner-asserted edits with no observable content change: a ping, or me.json
-// `updated`. Content changes we detect ourselves go through recordSnapshot.
+// `updated`. Content changes we detect ourselves go through recordSiteContent.
 export async function markEdited(id: string, when?: string): Promise<void> {
   await pool.query("UPDATE members SET last_edited = GREATEST(last_edited, $2) WHERE id = $1", [id, when || now()]);
 }
 
-export type SnapshotInput = { hash: string; thumbnail?: string | null; title?: string | null; excerpt?: string | null };
-// Append a new version IFF the page content actually changed since the last one.
-// On a real change it inserts a snapshot, repoints members.current_snapshot_id at
-// it, and bumps last_edited. Returns the new snapshot plus whether it was the
-// member's first ever (so callers can skip "your site changed" on initial index).
-// Returns null when the content is unchanged — the dedupe that keeps history clean.
-export async function recordSnapshot(
-  id: string, snap: SnapshotInput, when?: string
-): Promise<{ snapshot: Snapshot; isFirst: boolean } | null> {
-  const prev = (await pool.query(
-    "SELECT content_hash FROM snapshots WHERE member_id = $1 ORDER BY captured DESC LIMIT 1", [id]
-  )).rows[0];
-  if (prev && prev.content_hash === snap.hash) return null;
-  const captured = when || now();
-  const row: Snapshot = {
-    id: "snap_" + token(8), member_id: id, content_hash: snap.hash,
-    thumbnail: snap.thumbnail ?? null, title: snap.title ?? null, excerpt: snap.excerpt ?? null, captured,
-  };
-  await pool.query("BEGIN");
-  try {
-    await pool.query(
-      `INSERT INTO snapshots (id, member_id, content_hash, thumbnail, title, excerpt, captured)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [row.id, row.member_id, row.content_hash, row.thumbnail, row.title, row.excerpt, row.captured]
-    );
-    await pool.query(
-      "UPDATE members SET current_snapshot_id = $2, last_edited = GREATEST(last_edited, $3) WHERE id = $1",
-      [id, row.id, captured]
-    );
-    await pool.query("COMMIT");
-  } catch (e) {
-    await pool.query("ROLLBACK");
-    throw e;
-  }
-  return { snapshot: row, isFirst: !prev };
+export type SiteContent = { hash: string; thumbnail?: string | null; title?: string | null; excerpt?: string | null };
+// Record the site's current content directly on the member: its preview image +
+// content hash, bumping last_edited only when the hash actually changed (so a static
+// page never looks "updated"). Returns the refreshed member + whether this was its
+// first-ever capture (callers skip "your site changed" on initial index), or null
+// when nothing changed. One row, no version history — the deliberate simplification.
+export async function recordSiteContent(
+  id: string, snap: SiteContent, when?: string
+): Promise<{ site: Member; isFirst: boolean } | null> {
+  const prev = (await pool.query("SELECT content_hash FROM members WHERE id = $1", [id])).rows[0];
+  if (!prev) return null;
+  const wasFirst = prev.content_hash == null;
+  if (prev.content_hash === snap.hash) return null;   // unchanged → no-op
+  const edited = when || now();
+  await pool.query(
+    `UPDATE members
+        SET content_hash = $2, thumbnail = $3, last_edited = GREATEST(last_edited, $4)
+      WHERE id = $1`,
+    [id, snap.hash, snap.thumbnail ?? null, edited]
+  );
+  return { site: (await getMember(id))!, isFirst: wasFirst };
 }
 
-// A site's version history, newest first — the timeline behind the live thumbnail.
-export async function listSnapshots(id: string, limit = 50): Promise<Snapshot[]> {
-  return (await pool.query(
-    "SELECT * FROM snapshots WHERE member_id = $1 ORDER BY captured DESC LIMIT $2", [id, limit]
-  )).rows;
-}
-
-// All sites with a URL — for the crawler to walk. (Reads the view so each row
-// still carries its live thumbnail, keeping the Member shape intact.)
+// All sites with a URL — for the crawler to walk.
 export async function listCrawlable(): Promise<Member[]> {
-  return (await pool.query("SELECT * FROM member_cards WHERE url IS NOT NULL")).rows;
+  return (await pool.query("SELECT * FROM members WHERE url IS NOT NULL")).rows;
 }
 
 // ---- notifications: prefs + one-time bookkeeping -------------------------
@@ -985,7 +869,7 @@ export async function markNotified(id: string, key: string): Promise<boolean> {
 // Followers of a site that have an email — recipients for "a site you follow updated".
 export async function listFollowersWithEmail(targetId: string): Promise<Member[]> {
   return (await pool.query(
-    `SELECT m.* FROM edges e JOIN member_cards m ON m.id = e.follower_id
+    `SELECT m.* FROM edges e JOIN members m ON m.id = e.follower_id
       WHERE e.target_id = $1 AND m.email IS NOT NULL`,
     [targetId]
   )).rows;
@@ -995,7 +879,7 @@ export async function listFollowersWithEmail(targetId: string): Promise<Member[]
 // someone mid-onboarding.
 export async function listUnactivated(before: string, limit = 200): Promise<Member[]> {
   return (await pool.query(
-    `SELECT * FROM member_cards
+    `SELECT * FROM members
       WHERE onboarded = TRUE AND verified = FALSE AND email IS NOT NULL
         AND created < $1 AND NOT (notified ? 'activation')
       LIMIT $2`,
@@ -1037,11 +921,11 @@ type db_CommentRow = {
 type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
 
 export async function addComment(c: {
-  id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility;
+  id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility; created?: string;
 }): Promise<void> {
   await pool.query(
     "INSERT INTO comments (id, target_id, author_id, body, visibility, created) VALUES ($1, $2, $3, $4, $5, $6)",
-    [c.id, c.target_id, c.author_id, c.body, c.visibility === "private" ? "private" : "public", now()]
+    [c.id, c.target_id, c.author_id, c.body, c.visibility === "private" ? "private" : "public", c.created ?? now()]
   );
 }
 // Comments joined with their author's public identity — so each comment can
@@ -1090,11 +974,31 @@ export async function listFollowing(memberId: string): Promise<FollowedSite[]> {
             (m.last_edited IS NOT NULL
              AND (v.last_seen IS NULL OR m.last_edited > v.last_seen)) AS "isNew"
        FROM edges e
-       JOIN member_cards m ON m.id = e.target_id
+       JOIN members m ON m.id = e.target_id
        LEFT JOIN visits v ON v.viewer_id = $1 AND v.target_id = m.id
       WHERE e.follower_id = $1
       ORDER BY (m.last_edited IS NOT NULL) DESC, m.last_edited DESC NULLS LAST, e.created DESC`,
     [memberId]
+  );
+  return r.rows;
+}
+
+// The members who follow YOU, each tagged with whether you follow them back and
+// when they followed — the real source for the "Follow back" rail (people who
+// followed you, not merely viewed you). Newest follow first.
+export type FollowerRow = Identity & { followedAt: string; viewerFollows: boolean };
+export async function followers(memberId: string, limit = 50): Promise<FollowerRow[]> {
+  const r = await pool.query(
+    `SELECT m.id, m.handle, m.name, m.avatar, m.url,
+            e.created                    AS "followedAt",
+            (back.follower_id IS NOT NULL) AS "viewerFollows"
+       FROM edges e
+       JOIN members m ON m.id = e.follower_id
+       LEFT JOIN edges back ON back.follower_id = $1 AND back.target_id = m.id
+      WHERE e.target_id = $1
+      ORDER BY e.created DESC
+      LIMIT $2`,
+    [memberId, limit]
   );
   return r.rows;
 }
@@ -1108,16 +1012,15 @@ export type SiteCard = Member & {
 
 export async function listSaved(memberId: string): Promise<SiteCard[]> {
   const r = await pool.query(
-    `SELECT m.*, snap.thumbnail,
+    `SELECT m.*,
             COUNT(DISTINCT all_saves.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM saves viewer_saves
        JOIN members m ON m.id = viewer_saves.target_id
-       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves all_saves ON all_saves.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
       WHERE viewer_saves.member_id = $1
-      GROUP BY m.id, snap.thumbnail, viewer_saves.created
+      GROUP BY m.id, viewer_saves.created
       ORDER BY viewer_saves.created DESC`,
     [memberId]
   );
@@ -1126,14 +1029,13 @@ export async function listSaved(memberId: string): Promise<SiteCard[]> {
 
 export async function listMostSaved(limit = 12): Promise<SiteCard[]> {
   const r = await pool.query(
-    `SELECT m.*, snap.thumbnail,
+    `SELECT m.*,
             COUNT(DISTINCT s.member_id)::int AS saved_count,
             COUNT(DISTINCT e.follower_id)::int AS follower_count
        FROM members m
-       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN saves s ON s.target_id = m.id
        LEFT JOIN edges e ON e.target_id = m.id
-      GROUP BY m.id, snap.thumbnail
+      GROUP BY m.id
       ORDER BY saved_count DESC, m.views DESC, follower_count DESC
       LIMIT $1`,
     [limit]
@@ -1156,18 +1058,17 @@ export async function listRecommended(memberId: string, limit = 12): Promise<Sit
         WHERE e.target_id <> $1
         GROUP BY e.target_id
      )
-     SELECT m.*, snap.thumbnail,
+     SELECT m.*,
             COALESCE(ff.mutual_count, 0)::int AS mutual_count,
             COUNT(DISTINCT s.member_id)::int AS saved_count,
             COUNT(DISTINCT followers.follower_id)::int AS follower_count
        FROM members m
-       LEFT JOIN snapshots snap ON snap.id = m.current_snapshot_id
        LEFT JOIN friend_follows ff ON ff.target_id = m.id
        LEFT JOIN saves s ON s.target_id = m.id
        LEFT JOIN edges followers ON followers.target_id = m.id
        LEFT JOIN mine ON mine.target_id = m.id
       WHERE m.id <> $1 AND mine.target_id IS NULL
-      GROUP BY m.id, snap.thumbnail, ff.mutual_count
+      GROUP BY m.id, ff.mutual_count
       ORDER BY mutual_count DESC, saved_count DESC, m.views DESC
       LIMIT $2`,
     [memberId, limit]
@@ -1328,7 +1229,7 @@ export async function listConversations(viewerId: string): Promise<Conversation[
             l.body AS last_body, l.created AS last_at, l.sender_id AS last_sender,
             l.deleted AS last_deleted, COALESCE(u.n, 0)::int AS unread
        FROM latest l
-       JOIN member_cards m ON m.id = l.peer_id
+       JOIN members m ON m.id = l.peer_id
        LEFT JOIN unread u ON u.peer_id = l.peer_id
       ORDER BY l.created DESC`,
     [viewerId]
@@ -1430,7 +1331,7 @@ export async function addCohortMember(cohortId: string, memberId: string, role =
 // The cohort contract: everyone in a crew follows everyone. On a real join we add
 // the mutual follow edges between the newcomer and every existing member — so the
 // newcomer's feed is alive at once, and every member gains them. One bulk upsert:
-// idempotent (an existing edge, including a richer 'friend' rel, is left intact),
+// idempotent (an existing edge is left intact),
 // self excluded, and bounded by COHORT_MAX. Leaving a crew does NOT undo these — a
 // follow, once made, is the member's to keep or drop.
 export async function wireCohortFollows(cohortId: string, memberId: string): Promise<void> {
@@ -1445,9 +1346,9 @@ export async function wireCohortFollows(cohortId: string, memberId: string): Pro
   for (const o of others) { flat.push(memberId, o, o, memberId); }
   const tupleCount = flat.length / 2;
   const tuples = Array.from({ length: tupleCount }, (_, i) =>
-    `($${2 * i + 1}, $${2 * i + 2}, 'follow', $${flat.length + 1})`).join(", ");
+    `($${2 * i + 1}, $${2 * i + 2}, $${flat.length + 1})`).join(", ");
   await pool.query(
-    `INSERT INTO edges (follower_id, target_id, rel, created) VALUES ${tuples}
+    `INSERT INTO edges (follower_id, target_id, created) VALUES ${tuples}
      ON CONFLICT (follower_id, target_id) DO NOTHING`,
     [...flat, now()]
   );

@@ -44,7 +44,7 @@ export function Saved() {
           <Hint>
             {needle
               ? "No saved sites match that."
-              : "Nothing saved yet. Open any site and hit Save, and it'll collect here."}
+              : "Nothing saved yet. Follow a site, or open any site and hit Save, and it'll collect here."}
           </Hint>
         ) : (
           <div className="wall-grid">

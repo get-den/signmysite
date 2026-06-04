@@ -17,13 +17,6 @@ function site(index: number, name: string, handle: string, reason: string, tags:
   };
 }
 
-export const mockFollowing: Site[] = [
-  site(0, "Maya Chen", "maya", "Tiny games and cheerful CSS experiments", ["games", "drawing"]),
-  site(1, "Leo Park", "leo", "Stop-motion, boards, paper shadows", ["film", "craft"]),
-  site(2, "Priya Nair", "priya", "Browser synths and playful tools", ["music", "code"]),
-  site(3, "Aeon Atlas", "aeon", "Visual notes on cities and signage", ["design", "cities"]),
-];
-
 export const mockDiscovery: Discovery = {
   saved: [
     site(4, "Orbit Garden", "orbit", "Saved for later", ["plants", "audio"]),

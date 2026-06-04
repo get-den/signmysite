@@ -9,8 +9,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  follow as apiFollow, getAnalytics, getDiscovery, getFeed, getFollowing, getThreads, orEmpty,
-  type Analytics, type AnalyticsRange, type FeedItem, type FeedPage, type Member, type Site,
+  follow as apiFollow, getAnalytics, getDiscovery, getFeed, getFollowers, getFollowing, getThreads, orEmpty,
+  type Analytics, type AnalyticsRange, type FeedItem, type FeedPage, type Follower, type Member, type Site,
 } from "../api";
 import { mockDiscovery } from "../mockData";
 import { useToast, useViewer } from "../providers";
@@ -45,6 +45,8 @@ export type HomeStore = {
   setRange: (r: AnalyticsRange) => void;
   // who to follow
   recommended: Site[];
+  // people who followed you that you don't follow back yet
+  followBack: Follower[];
   // the shared follow graph
   followedIds: Set<string>;
   isFollowing: (id: string) => boolean;
@@ -64,6 +66,7 @@ export function useHome(viewer: Member): HomeStore {
   const [range, setRange] = useState<AnalyticsRange>("all");
 
   const [recommended, setRecommended] = useState<Site[]>([]);
+  const [followBack, setFollowBack] = useState<Follower[]>([]);
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
 
   // First page of the feed + the people you already follow (so read rows know
@@ -82,6 +85,8 @@ export function useHome(viewer: Member): HomeStore {
       .catch(() => alive && setDone(true))
       .finally(() => alive && setFeedLoading(false));
     orEmpty(getFollowing()).then((sites) => alive && setFollowedIds(new Set(sites.map((s) => s.id))));
+    // "Follow back" = people who followed you that you don't already follow.
+    orEmpty(getFollowers()).then((fs) => alive && setFollowBack(fs.filter((f) => !f.viewerFollows)));
     getDiscovery()
       .then((d) => alive && setRecommended(d.recommended.length ? d.recommended : mockDiscovery.recommended))
       .catch(() => alive && setRecommended(mockDiscovery.recommended));
@@ -126,7 +131,7 @@ export function useHome(viewer: Member): HomeStore {
     viewer,
     items, digest, feedLoading, loadMore, loadingMore, done,
     analytics, range, setRange,
-    recommended,
+    recommended, followBack,
     followedIds, isFollowing, follow,
   };
 }

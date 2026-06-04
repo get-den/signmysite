@@ -1,17 +1,16 @@
 import { useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiError, updateProfile, uploadAvatar } from "../api";
 import { squareImage } from "../lib";
-import { Avatar, Button } from "../ui";
+import { Avatar, Button, PageHead } from "../ui";
 import { LinksEditor } from "../components/LinksEditor";
+import { FeedLayout } from "../home/FeedLayout";
 import { useToast, useViewer } from "../providers";
-
-// After saving (or cancelling) we return to your public profile at /@handle,
-// which is server-rendered — so it's a full navigation, not a router push.
-const profilePath = (handle: string | null) => `/@${handle ?? ""}`;
 
 export function Edit() {
   const { viewer, setViewer } = useViewer();
   const toast = useToast();
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     name: viewer?.name ?? "",
@@ -59,7 +58,7 @@ export function Edit() {
       const updated = await updateProfile(form);
       setViewer(updated);
       toast("Saved");
-      window.location.assign(profilePath(updated.handle));
+      navigate("/profile");
     } catch (err) {
       setStatus(err instanceof ApiError && err.status === 409 ? "That username is taken." : "Couldn't save.");
       setSaving(false);
@@ -67,8 +66,10 @@ export function Edit() {
   }
 
   return (
-    <div className="narrow">
-      <h2 className="section">Edit profile</h2>
+    <FeedLayout viewer={viewer}>
+    <div className="settings-page">
+      <PageHead title="Settings" />
+      <div className="narrow">
       <form onSubmit={save}>
         <div className="field">
           <label>Photo</label>
@@ -120,13 +121,13 @@ export function Edit() {
         </div>
         <div className="row">
           <Button className="primary" type="submit" loading={saving}>Save</Button>
-          <a className="btn" href={profilePath(viewer.handle)}>
-            Cancel
-          </a>
+          <Link className="btn" to="/profile">Cancel</Link>
           <span className="formerr">{status}</span>
         </div>
       </form>
+      </div>
     </div>
+    </FeedLayout>
   );
 }
 

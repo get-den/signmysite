@@ -24,8 +24,8 @@
  *   DELETE /api/messages/:id     delete your own message (soft)
  *   POST /api/messages/:id/react toggle an emoji reaction on a message
  *   GET  /api/following          blogs the signed-in member follows
- *   POST /api/follow             follow or unfollow (toggle)
- *   POST /api/save               save or unsave (toggle)
+ *   POST /api/follow             follow (also saves the site) or unfollow (toggle)
+ *   POST /api/save               save or unsave (toggle) — an explicit, follow-free bookmark
  *   POST /api/register           mint an id + handle (agent-assisted onboarding)
  *   POST /api/sites/claim        widget self-registers a site by id (zero-fetch onboarding)
  *   POST /api/discover           fetch + index a site's me.json
@@ -329,8 +329,8 @@ app.post("/api/follow", async (c) => {
   if (!id) return c.json({ error: "id required" }, 400);
   if (id === viewer.id) return c.json({ error: "cannot follow yourself" }, 400);
   let followed = false;
-  if (await db.hasEdge(viewer.id, id)) await db.removeEdge(viewer.id, id);
-  else { await db.setEdge(viewer.id, id, "follow"); notifyOwner("follow", id, viewer); followed = true; } // email only on a new follow, not unfollow
+  if (await db.hasEdge(viewer.id, id)) await db.removeEdge(viewer.id, id); // unfollow drops the edge; the save stays in their library
+  else { await db.follow(viewer.id, id); notifyOwner("follow", id, viewer); followed = true; } // a follow also saves the site; email only on a new follow (the save is implicit, no separate "save" email)
   const s = await db.stats(id, viewer.id);
   if (followed) maybeMilestone("followers", id, s.followers); // celebrate on the way up only
   return c.json(s);
@@ -529,7 +529,7 @@ app.post("/api/site/scrape", async (c) => {
 
   const p = await inspectSite(url); // one fetch → thumbnail + avatar + hash
   if (p) {
-    await db.recordSnapshot(viewer.id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt });
+    await db.recordSiteContent(viewer.id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt });
     if (p.avatar && !viewer.avatar) patch.avatar = p.avatar; // never clobber a real avatar
   }
   const updated = (await db.updateMember(viewer.id, patch)) || viewer;
@@ -621,8 +621,8 @@ app.get("/api/analytics", async (c) => {
 const feedItemJson = (r: db.FeedRow) => ({
   kind: r.kind, at: r.at, id: r.id,
   actor: r.actor ? faceJson(r.actor) : null,
-  target: r.target ? faceJson(r.target) : undefined,
-  body: r.body, visibility: r.visibility, views: r.views, thumbnail: r.thumbnail,
+  target: { ...faceJson(r.target), thumbnail: r.target.thumbnail },
+  body: r.body, visibility: r.visibility,
 });
 app.get("/api/feed", async (c) => {
   const viewer = await viewerOf(c);
@@ -744,15 +744,6 @@ function notifyPage(m: db.Member, t: string): string {
   return sitePage("Notifications · signmysite", "Manage your signmysite email notifications.", null, inner);
 }
 
-// The site's version history, newest first — the timeline behind the live
-// thumbnail. Public + crawlable; the front-page preview is public anyway.
-app.get("/api/profile/:id/history", async (c) => {
-  const snaps = await db.listSnapshots(c.req.param("id"));
-  return c.json(snaps.map((s) => ({
-    id: s.id, thumbnail: s.thumbnail, title: s.title, excerpt: s.excerpt, captured: s.captured,
-  })));
-});
-
 // ---- freshness: "my site changed" ----------------------------------------
 // Called by the owner's deploy (GitHub Action, Vercel/Netlify hook, WordPress
 // save_post — see docs). Bumps last_edited so followers see "new", and refreshes
@@ -770,21 +761,18 @@ app.post("/api/ping", async (c) => {
   return c.json({ ok: true });
 });
 
-// Inspect the site and, if its content actually changed, append a new snapshot
-// (capturing the thumbnail, title and excerpt for that version). On a real, non-
-// first change, quietly tell the owner we noticed. `when` carries an owner-asserted
-// edit time (me.json `updated` / ping `at`) so the snapshot is stamped with it.
+// Inspect the site and, if its content actually changed, refresh the member's live
+// preview + freshness clock (recordSiteContent). On a real, non-first change, quietly
+// tell the owner we noticed. `when` carries an owner-asserted edit time (me.json
+// `updated` / ping `at`).
 async function refreshPreview(id: string, url: string | null, when?: string): Promise<void> {
   if (!url) return;
   const p = await inspectSite(url);
   if (!p) return;
-  const change = await db.recordSnapshot(
+  const change = await db.recordSiteContent(
     id, { hash: p.hash, thumbnail: p.thumbnail, title: p.title, excerpt: p.excerpt }, when
   );
-  if (change && !change.isFirst) {
-    const m = await db.getMember(id);
-    if (m) notifyUpdate(m, change.snapshot).catch(() => {}); // owner + their followers
-  }
+  if (change && !change.isFirst) notifyUpdate(change.site).catch(() => {}); // owner + their followers
 }
 
 // Celebrate a round-number milestone exactly once. The view counter and follower
@@ -1091,6 +1079,16 @@ app.get("/api/saved", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
   return c.json((await db.listSaved(viewer.id)).map(publicMember));
+});
+
+// The members who follow you (+ whether you follow back, + when they followed) —
+// backs the home's "Follow back" rail.
+app.get("/api/followers", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return c.json((await db.followers(viewer.id)).map((f) => ({
+    ...faceJson(f), followedAt: f.followedAt, viewerFollows: f.viewerFollows,
+  })));
 });
 
 // A member's public pin showcase (max 3), each with the notes they left on it.

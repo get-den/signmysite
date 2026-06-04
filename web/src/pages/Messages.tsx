@@ -14,8 +14,9 @@ import {
   type Thread,
 } from "../api";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Loading, Spinner } from "../ui";
+import { Avatar, Loading, PageHead, Spinner } from "../ui";
 import { profileHref, relTime, REACTIONS } from "../lib";
+import { FeedLayout } from "../home/FeedLayout";
 
 /**
  * Direct messages — a clean 1:1 chat. Two panes: the inbox of conversations on the
@@ -26,6 +27,7 @@ import { profileHref, relTime, REACTIONS } from "../lib";
  */
 export function Messages() {
   const { id: peerId } = useParams();
+  const { viewer } = useViewer();
   const [convos, setConvos] = useState<Conversation[] | null>(null);
 
   const loadConvos = useCallback(() => {
@@ -33,10 +35,14 @@ export function Messages() {
   }, []);
   usePoll(loadConvos, 8000);
 
+  if (!viewer) return null; // Protected route guarantees a viewer; this narrows the type
+
   return (
-    <div className="dm">
+    <FeedLayout viewer={viewer}>
+    <div className="messages-page">
+      <PageHead title="Messages" />
+      <div className="dm">
       <aside className="dm-list">
-        <h2 className="section dm-list-title">Messages</h2>
         {convos === null ? (
           <Loading />
         ) : convos.length === 0 ? (
@@ -62,7 +68,9 @@ export function Messages() {
           </div>
         )}
       </section>
+      </div>
     </div>
+    </FeedLayout>
   );
 }
 

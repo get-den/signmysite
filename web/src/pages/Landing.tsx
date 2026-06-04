@@ -58,7 +58,7 @@ export function Landing() {
                 aria-label="Your website"
               />
             </div>
-            <button type="submit" className="btn pink lg" disabled={touched && !check.ok}>Join</button>
+            <button type="submit" className="btn pink lg" disabled={touched && !check.ok}>Sign up</button>
           </form>
           {touched && check.error && <p className="land-claim-hint bad">{check.error}</p>}
         </div>

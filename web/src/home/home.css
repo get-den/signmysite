@@ -33,8 +33,8 @@
   transition: background 117ms ease, color 117ms ease;
 }
 .rail-link:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
+/* Selected: ink-black + a filled icon (the icon swaps to its solid form in JSX) — no accent. */
 .rail-link.on { background: var(--surface-2); color: var(--ink); }
-.rail-link.on .nav-ico { color: var(--accent); }
 .nav-ico { position: relative; flex: 0 0 auto; display: grid; place-items: center; color: inherit; }
 .nav-label { min-width: 0; }
 .nav-badge {
@@ -94,53 +94,55 @@
 }
 .tab-link:hover { text-decoration: none; }
 .tab-link.on { color: var(--ink); }
-.tab-link.on .nav-ico { color: var(--accent); }
 
 /* ---- the feed (center column) -------------------------------------------- */
 .feed { display: flex; flex-direction: column; }
-.feed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.feed-title { margin: 0; color: var(--ink); font-size: 24px; line-height: 1.1; letter-spacing: -0.02em; font-weight: var(--w-semibold); }
-.feed-sub { color: var(--muted); font-size: 14px; }
 .feed-loading { display: grid; place-items: center; padding: 60px 0; color: var(--muted); }
 
-/* "since you've been gone" digest */
-.digest { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; margin-bottom: 14px; border-radius: var(--radius); background: var(--surface-2); }
-.digest-label { color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
-.digest-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.digest-chip { padding: 7px 13px; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 13.5px; }
-.digest-chip b { color: var(--ink); font-weight: var(--w-semibold); }
-
-.feed-list { list-style: none; margin: 0; padding: 0; }
-.feed-item {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px;
-  padding: 16px 2px; border-top: 1px solid var(--line);
-  animation: feed-rise .4s ease both;
+/* "since you've been gone" — taller, number-forward, dismissible */
+.digest {
+  position: relative; display: flex; flex-direction: column; gap: 18px;
+  padding: 24px 26px; margin-bottom: 18px; border-radius: var(--radius); background: var(--surface-2);
 }
-.feed-list li:first-child .feed-item { border-top: 0; }
+.digest-label { color: var(--muted); font-size: 12px; font-weight: var(--w-semibold); text-transform: uppercase; letter-spacing: .06em; }
+.digest-stats { display: flex; flex-wrap: wrap; gap: 18px 44px; }
+.digest-stat { display: flex; flex-direction: column; gap: 3px; }
+.digest-num { color: var(--ink); font-size: 42px; line-height: 1; letter-spacing: -0.03em; font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
+.digest-lbl { color: var(--muted); font-size: 14px; }
+.digest-x {
+  position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
+  display: grid; place-items: center; border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted); cursor: pointer; transition: background 117ms ease, color 117ms ease;
+}
+.digest-x:hover { background: var(--surface); color: var(--ink); }
+
+/* the stream — each row's divider starts at the content (on .feed-body), never
+   under the avatar. The avatar's padding-top aligns it with the line below the rule. */
+.feed-list { list-style: none; margin: 0; padding: 0; }
+.feed-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; animation: feed-rise .4s ease both; }
 @keyframes feed-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.feed-av { flex: 0 0 auto; align-self: flex-start; }
-.feed-av .avatar { width: 44px; height: 44px; font-size: 16px; }
+.feed-av { align-self: start; padding-top: 18px; }
+.feed-av .avatar { width: 46px; height: 46px; font-size: 17px; }
 .feed-av:hover { text-decoration: none; }
-.feed-body { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.feed-line { margin: 0; color: var(--ink); font-size: 15px; line-height: 1.4; }
+.feed-body { min-width: 0; display: flex; flex-direction: column; gap: 11px; padding: 18px 0; border-top: 1px solid var(--line); }
+.feed-list li:first-child .feed-body { border-top: 0; }
+.feed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.feed-line { margin: 0; min-width: 0; color: var(--ink); font-size: 15px; line-height: 1.45; }
 .feed-line b { font-weight: var(--w-semibold); }
-.feed-dim { color: var(--muted); }
-.feed-react { font-size: 1.15em; vertical-align: -.1em; }
+.feed-react { font-size: 1.2em; vertical-align: -.12em; }
 .feed-tgt:hover { text-decoration: none; }
 .feed-tgt:hover b { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.feed-aside { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 12px; }
+.feed-time { color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* the og:image — the visual anchor of every row */
+.feed-media { display: block; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); transition: transform .18s ease, box-shadow .18s ease; }
+.feed-media:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); text-decoration: none; }
+.feed-media .site-thumb { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
+/* a comment's text, beneath the og:image */
 .feed-quote {
-  margin: 1px 0 0; align-self: flex-start; max-width: 100%;
-  padding: 9px 13px; border-radius: 4px 14px 14px 14px;
-  background: var(--surface-2); color: var(--text); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere;
+  align-self: flex-start; max-width: 100%; padding: 10px 14px; border-radius: 4px 16px 16px 16px;
+  background: var(--surface-2); color: var(--text); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere;
 }
-.feed-quote-muted { color: var(--muted); font-style: italic; }
-.feed-thumb { display: block; max-width: 360px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--line); margin-top: 2px; }
-.feed-thumb img { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
-.feed-meta { color: var(--muted); font-size: 13px; }
-.feed-action { flex: 0 0 auto; align-self: flex-start; display: flex; align-items: center; }
-.feed-follows { color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
-.feed-reply { color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
-a.feed-reply:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .feed-more { display: grid; place-items: center; min-height: 56px; color: var(--muted); }
 
 /* ---- right rail ---------------------------------------------------------- */
@@ -151,13 +153,22 @@ a.feed-reply:hover { color: var(--accent); text-decoration: underline; text-unde
 .rail-block { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); }
 .rail-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rail-block-head h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
-.rail-host { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* analytics block */
 .analytics { gap: 14px; }
-.analytics-seg { width: 100%; padding: 4px; }
-.analytics-seg .seg-btn { flex: 1; padding: 7px 6px; font-size: 12.5px; }
+.analytics .rail-block-head { align-items: center; }
 .analytics-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+/* a minimal native dropdown for the time range (replaces the segmented control) */
+.rail-select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--ink);
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center;
+  padding: 7px 30px 7px 13px;
+  font: var(--w-semibold) 13px/1 'Sohne', system-ui, sans-serif; cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.rail-select:hover { border-color: var(--muted); }
+.rail-select:focus { outline: none; box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
 .metric { display: flex; flex-direction: column; gap: 3px; }
 .metric-val { color: var(--ink); font-size: 24px; line-height: 1; letter-spacing: -0.02em; font-weight: var(--w-semibold); }
 .metric-label { color: var(--muted); font-size: 12.5px; }
@@ -219,6 +230,38 @@ a.feed-reply:hover { color: var(--accent); text-decoration: underline; text-unde
 .tile:hover .tile-pin, .tile-pin:focus-visible, .tile-pin.on { opacity: 1; }
 .tile-pin.on { background: var(--accent); color: var(--accent-ink); }
 .tile-pin svg { width: 16px; height: 16px; }
+
+/* ---- pages reached from the nav (Profile / Settings / Chat) -------------- */
+/* All three live in the feed shell (nav rail + content). A canonical back button +
+   title heads each one, Twitter-column style. */
+.page-head { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; }
+.page-head .iconbtn { flex: 0 0 auto; }
+.page-title { margin: 0; color: var(--ink); font-size: 22px; line-height: 1.1; letter-spacing: -0.01em; font-weight: var(--w-semibold); }
+.page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.settings-page, .messages-page, .profile-page { display: flex; flex-direction: column; min-height: 0; }
+.profile-page { gap: 18px; }
+/* Following / followers count, up top — full numbers, underline on hover. */
+.pcounts-row { display: flex; gap: 26px; }
+.pcount { color: var(--muted); font-size: 15px; cursor: pointer; }
+.pcount b { color: var(--ink); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
+.pcount:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Settings keeps a calm reading column; the page already provides the heading. */
+.settings-page .narrow { margin-inline: 0; }
+.settings-page .field { max-width: 520px; }
+
+/* The profile's site preview reuses the shared SiteThumbnail <img>; fill the frame. */
+.psite-wrap .site-thumb { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+
+/* a quiet empty line inside a rail block */
+.rail-empty { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+
+/* Chat fills the height left under the header + page-head; its panes scroll inside. */
+.messages-page { flex: 1; }
+.messages-page .dm { height: calc(100dvh - var(--topbar-h) - 152px); min-height: 420px; }
+@media (max-width: 1079px) {
+  .messages-page .dm { height: calc(100dvh - var(--topbar-h) - 196px); }
+}
 
 /* ---- responsive ---------------------------------------------------------- */
 /* Below the 3-pane width the rails fall away: the nav becomes the bottom tab bar

@@ -8,6 +8,16 @@ export function compact(n: number | null | undefined): string {
   return (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
 }
 
+/** Human view duration, matching the widget's fmtDuration exactly: "–" for none /
+ *  sub-second, "45s", "2m", "2m 30s". Keep in sync with widget.js. */
+export function fmtDuration(ms: number | null | undefined): string {
+  if (!ms || ms < 1000) return "–";
+  const total = Math.round(ms / 1000);
+  if (total < 60) return total + "s";
+  const m = Math.floor(total / 60), s = total % 60;
+  return m + "m" + (s ? " " + s + "s" : "");
+}
+
 /** First letter for avatar fallback. */
 export function initials(s: string | null | undefined): string {
   return (s || "?").trim().charAt(0).toUpperCase() || "?";

@@ -9,6 +9,10 @@ export type Member = {
   name: string;
   url: string | null;
   avatar: string | null;
+  /** Live preview image (og:image) of their site, when we have one. Always sent by
+   *  the server (publicMember); optional in the type for the few places that build a
+   *  Member by hand. */
+  thumbnail?: string | null;
   /** External / social profile links (Instagram, X, LinkedIn, …), in display order. */
   links?: string[];
   views: number;
@@ -84,24 +88,23 @@ export type Analytics = {
 /** The time window the analytics toggle offers. "all" is the lifetime total. */
 export type AnalyticsRange = "day" | "week" | "month" | "all";
 
-/** A compact identity on a feed item — the actor, or the site they acted on. */
+/** A compact identity on a feed item — the actor (A). */
 export type FeedActor = { id: string; handle: string | null; name: string; avatar: string | null; url: string | null };
-/** One activity in the home feed. `kind` discriminates what happened:
- *   read        — `actor` read your site (`views` = how many times)
- *   comment_in  — `actor` left `body` on your site (`visibility` may be private)
- *   comment_out — someone you follow (`actor`) left `body` on `target`'s site
- *   follow      — someone you follow (`actor`) followed `target`
- *   update      — a site you follow (`actor`) posted a new version (`thumbnail`) */
+/** The site a feed item is about (B) — an identity plus its og:image. */
+export type FeedSite = FeedActor & { thumbnail?: string | null };
+/** One activity in the home feed: "A {did} B's site". `kind` is what A did:
+ *   saved   — A saved B's site
+ *   comment — A left `body` on B's site (a single-emoji body is a reaction)
+ *   update  — B's site posted a new version (A == B)
+ * `target` (B) always carries the og:image the row shows; B may be you. */
 export type FeedItem = {
-  kind: "read" | "comment_in" | "comment_out" | "follow" | "update";
+  kind: "saved" | "comment" | "update";
   at: string;
   id?: string;
   actor: FeedActor | null;
-  target?: FeedActor;
+  target: FeedSite;
   body?: string;
   visibility?: "public" | "private";
-  views?: number;
-  thumbnail?: string | null;
 };
 /** A page of the feed plus the next cursor (null when exhausted). The digest rides
  *  along on the first page only. */
@@ -223,12 +226,22 @@ export const postComment = (id: string, body: string, visibility: "public" | "pr
     ...jsonBody({ body, visibility }),
   });
 
-/** Follow / save toggles — both return the target's refreshed stats. */
+/** Follow / save toggles — both return the target's refreshed stats. Following a
+ *  site also saves it (the server seeds a save), so a followed site shows up in
+ *  Saved; `save` is the standalone bookmark for sites you don't follow. */
 export const follow = (id: string) =>
   req<Stats>("/api/follow", { method: "POST", ...jsonBody({ id }) });
 export const save = (id: string) =>
   req<Stats>("/api/save", { method: "POST", ...jsonBody({ id }) });
 export const getFollowing = () => req<Site[]>("/api/following");
+
+/** A member who follows you: identity + when they followed + whether you follow
+ *  back. Backs the home's "Follow back" rail. */
+export type Follower = {
+  id: string; handle: string | null; name: string; avatar: string | null; url: string | null;
+  followedAt: string; viewerFollows: boolean;
+};
+export const getFollowers = () => req<Follower[]>("/api/followers");
 export const getInbox = () => req<InboxNote[]>("/api/inbox");
 export const updateProfile = (patch: ProfilePatch) =>
   req<Member>("/api/profile", { method: "PATCH", ...jsonBody(patch) });

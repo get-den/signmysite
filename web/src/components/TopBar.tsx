@@ -38,7 +38,7 @@ export function TopBar() {
         <div className="topbar-right">
           {loading ? null : !viewer ? (
             pathname === "/auth" ? null : (
-              <a className="btn sm pink" href={authUrl()}>Join now</a>
+              <a className="btn sm pink" href={authUrl()}>Sign up</a>
             )
           ) : !onboarded ? (
             <button className="btn sm naked" onClick={signOut}>Sign out</button>

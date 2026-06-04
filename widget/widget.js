@@ -199,6 +199,10 @@
     card.stats = card.stats || {};
     var prev = !!card.stats[flag];
     card.stats[flag] = !prev;
+    // A follow seeds a save: turning Follow ON also saves the site (mirrors the
+    // server), so the bookmark fills the instant you follow. Unfollow leaves the
+    // save, and Save stays its own toggle for sites you bookmark without following.
+    if (path === "/api/follow" && card.stats[flag]) card.stats.viewerSaved = true;
     paintActions();
     busy = true;
     try {
@@ -732,6 +736,9 @@
     var a = n.redacted ? {} : n.author || {};
     var anon = !n.redacted && !(a.name || a.handle || a.avatar);
     var reaction = !n.redacted && isReaction(n.body) ? n.body.trim() : "";
+    // The viewer's own note/reaction reads "You …", never their own name in the
+    // third person. Authors carry an id; the signed-in viewer is card.viewer.
+    var mine = !n.redacted && !!card.viewer && !!a.id && a.id === card.viewer.id;
     // The whole row links to this comment on the owner's signmysite profile (new tab),
     // where it floats to the top of the comment section and highlights. A redacted
     // private note you can't see, or an owner with no handle yet, stays inert.
@@ -753,7 +760,7 @@
 
     // Activity-feed line: bold name, dimmer verb, then a gray timestamp. The name
     // is plain text now — the row itself is the link.
-    line.append(node("b", "", n.redacted ? "Someone" : (a.name || a.handle || "Someone")));
+    line.append(node("b", "", n.redacted ? "Someone" : (mine ? "You" : (a.name || a.handle || "Someone"))));
     if (n.redacted) line.append(node("span", "act", " left a private note"));
     else if (reaction) {
       line.append(node("span", "act", " reacted with "));

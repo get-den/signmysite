@@ -1,5 +1,5 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useViewer } from "./providers";
 import { host, initials, profileHref, siteThumb, PLACEHOLDER_THUMB } from "./lib";
@@ -249,6 +249,24 @@ export function IconButton({
     <button className={cls} type="button" onClick={onClick} aria-label={aria}>
       {glyph}
     </button>
+  );
+}
+
+/**
+ * The standard header for a page reached from the feed (Settings, Chat, Profile):
+ * the canonical round back button + a title. Back goes to wherever you came from, or
+ * home if there's no history to pop. Mirrors the column header pattern in
+ * Twitter/LinkedIn — present even alongside the nav rail.
+ */
+export function PageHead({ title, children }: { title: string; children?: ReactNode }) {
+  const navigate = useNavigate();
+  const back = () => (window.history.length > 1 ? navigate(-1) : navigate("/"));
+  return (
+    <header className="page-head">
+      <IconButton icon="back" onClick={back} label="Back" />
+      <h1 className="page-title">{title}</h1>
+      {children && <div className="page-head-actions">{children}</div>}
+    </header>
   );
 }
 

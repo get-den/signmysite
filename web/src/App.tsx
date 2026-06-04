@@ -5,6 +5,7 @@ import { Protected, Loading } from "./ui";
 import { useViewer } from "./providers";
 import { Home } from "./pages/Home";
 import { Saved } from "./pages/Saved";
+import { Profile } from "./pages/Profile";
 import { Messages } from "./pages/Messages";
 import { Edit } from "./pages/Edit";
 import { Compose } from "./pages/Compose";
@@ -23,6 +24,14 @@ export function App() {
             element={
               <Protected>
                 <Saved />
+              </Protected>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <Protected>
+                <Profile />
               </Protected>
             }
           />
@@ -71,13 +80,12 @@ export function App() {
   );
 }
 
-/** The dedicated notes page is retired — comments live on your own profile now, and a
- *  notification bell covers messages. This bounces any lingering /notes link (e.g. from
- *  the home dashboard) to your profile, or home when signed out. */
+/** The dedicated notes page is retired — comments live on your own profile now. This
+ *  bounces any lingering /notes link to your in-app profile, or home when signed out. */
 function NotesRedirect() {
   const { viewer, loading } = useViewer();
   useEffect(() => {
-    if (!loading) window.location.replace(viewer?.handle ? `/@${viewer.handle}` : "/");
+    if (!loading) window.location.replace(viewer ? "/#/profile" : "/");
   }, [viewer, loading]);
   return <Loading />;
 }

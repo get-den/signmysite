@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from "react";
 import type { AnalyticsRange, FeedActor, Site } from "../api";
-import { compact, host, profileHref, relTime } from "../lib";
+import { compact, fmtDuration, host, profileHref, relTime } from "../lib";
 import { Avatar, Button } from "../ui";
 import { SiteCTA } from "./parts";
 import { useMediaQuery, type HomeStore as Store } from "./hooks";
@@ -34,31 +34,26 @@ export function RightRail({ store }: { store: Store }) {
 /* ---- analytics (verified owners) ---------------------------------------- */
 
 const RANGES: Array<[AnalyticsRange, string]> = [
-  ["all", "All time"], ["day", "24h"], ["week", "Week"], ["month", "Month"],
+  ["all", "All time"], ["day", "24 hours"], ["week", "7 days"], ["month", "30 days"],
 ];
 
 function Analytics({ store }: { store: Store }) {
-  const { analytics, range, setRange, viewer } = store;
+  const { analytics, range, setRange } = store;
   return (
     <section className="rail-block analytics">
       <div className="rail-block-head">
         <h2>Your site</h2>
-        {viewer.url && <span className="rail-host">{host(viewer.url)}</span>}
-      </div>
-      <div className="seg analytics-seg" role="tablist" aria-label="Analytics range">
-        {RANGES.map(([id, label]) => (
-          <button
-            key={id} type="button" role="tab" aria-selected={range === id}
-            className={"seg-btn" + (range === id ? " on" : "")} onClick={() => setRange(id)}
-          >
-            {label}
-          </button>
-        ))}
+        <select
+          className="rail-select" value={range} aria-label="Analytics time range"
+          onChange={(e) => setRange(e.target.value as AnalyticsRange)}
+        >
+          {RANGES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
       </div>
       <div className="analytics-nums">
         <Metric value={compact(analytics?.views ?? 0)} label="Views" />
         <Metric value={compact(analytics?.visitors ?? 0)} label="Visitors" />
-        <Metric value={compact(analytics?.knownVisitors ?? 0)} label="On signmysite" />
+        <Metric value={fmtDuration(analytics?.avgDurationMs)} label="Avg. time" />
       </div>
     </section>
   );
@@ -78,17 +73,14 @@ function Metric({ value, label }: { value: ReactNode; label: string }) {
 // button reflects the live graph, so following one flips it to "Following" in place.
 
 function FollowBack({ store }: { store: Store }) {
-  const readers = (store.analytics?.recent ?? []).filter((r) => !r.viewerFollows).slice(0, 5);
-  if (!readers.length) return null;
+  const list = store.followBack.slice(0, 5);
+  if (!list.length) return null;
   return (
     <section className="rail-block">
       <div className="rail-block-head"><h2>Follow back</h2></div>
       <ul className="person-list">
-        {readers.map((r) => (
-          <Person
-            key={r.id} actor={r} store={store}
-            sub={`${r.views === 1 ? "read you" : `read you ${compact(r.views)}×`} · ${relTime(r.lastSeen)}`}
-          />
+        {list.map((f) => (
+          <Person key={f.id} actor={f} store={store} sub={`Followed you · ${relTime(f.followedAt)}`} />
         ))}
       </ul>
     </section>
@@ -131,7 +123,7 @@ function Person({ actor, sub, store }: { actor: FeedActor; sub: string; store: S
       {actor.id === store.viewer.id ? null : store.isFollowing(actor.id) ? (
         <span className="person-following">Following</span>
       ) : (
-        <Button className="sm pink" onClick={() => store.follow(actor)}>Follow</Button>
+        <Button className="sm primary" onClick={() => store.follow(actor)}>Follow</Button>
       )}
     </li>
   );

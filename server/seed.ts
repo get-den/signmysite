@@ -2,11 +2,10 @@
  * Seed a deterministic demo graph for local dev.
  *   npm run seed     (wipes existing data first)
  *
- * The roster is REAL personal sites, with their real og:image as the live
- * thumbnail and a favicon as the avatar — so the pinned-site UIs (the widget's
- * webring) show genuine previews, and the demo looks like the actual web. Two
- * signmysite-native accounts anchor it: `you` (the dev sign-in) and `maya` (the demo
- * page's owner, whose widget shows her pinned webring).
+ * The roster is REAL personal sites, with their real og:image as the live thumbnail
+ * and a favicon as the avatar — so the feed + pinned-site UIs show genuine previews
+ * and the demo looks like the actual web. Two signmysite-native accounts anchor it:
+ * `you` (the dev sign-in) and `maya` (the demo page's owner + widget webring).
  */
 import * as db from "./db.ts";
 
@@ -20,10 +19,7 @@ const palette = [
   ["#fee2e2", "#f97316", "#111111"],
   ["#dcfce7", "#86efac", "#052e16"],
 ];
-
-function svgData(svg: string): string {
-  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
-}
+const svgData = (svg: string) => "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 
 function avatar(name: string, index: number): string {
   const [bg, accent, ink] = palette[index % palette.length];
@@ -35,9 +31,21 @@ function avatar(name: string, index: number): string {
     <text x="80" y="94" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="52" font-weight="800" fill="${ink}">${initials}</text>
   </svg>`);
 }
+// A generated 1200×630 site preview for the .example accounts (you/maya), so even
+// the fake sites lead the feed with a real-looking og:image instead of the placeholder.
+function siteCard(name: string, index: number): string {
+  const [bg, accent, ink] = palette[index % palette.length];
+  return svgData(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+    <rect width="1200" height="630" fill="${bg}"/>
+    <circle cx="1010" cy="150" r="150" fill="${accent}" opacity=".7"/>
+    <circle cx="240" cy="520" r="190" fill="${accent}" opacity=".4"/>
+    <text x="90" y="350" font-family="Inter,Arial,sans-serif" font-size="92" font-weight="800" fill="${ink}">${name}</text>
+  </svg>`);
+}
 
 // A site's favicon, via Google's resolver — a short, always-200, cacheable URL.
 const favicon = (host: string) => `https://www.google.com/s2/favicons?domain=${host}&sz=128`;
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
 
 // Stable ids (signmysite:<16 hex>). `you` + `maya` keep their well-known ids (the demo
 // page loads maya by hers); the rest are the real sites.
@@ -58,9 +66,7 @@ const ID = {
 type Seed = {
   id: string; handle: string; name: string;
   email?: string; google_sub?: string; url: string;
-  // Real avatar + og:image. Omitted ⇒ a generated SVG fallback (you/maya), or for
-  // a site that genuinely has no og:image (paulgraham.com), the placeholder.
-  avatar?: string; thumb?: string | null;
+  avatar?: string; thumb?: string | null;  // omit ⇒ generated fallback
 };
 
 const members: Seed[] = [
@@ -74,15 +80,12 @@ const members: Seed[] = [
   { id: ID.robin, handle: "robin", name: "Robin Sloan", url: "https://www.robinsloan.com", avatar: favicon("robinsloan.com"), thumb: "https://www.robinsloan.com/img/moonbound-top-crop-v2.jpg" },
   { id: ID.dan, handle: "dan", name: "Dan Abramov", url: "https://overreacted.io", avatar: favicon("overreacted.io"), thumb: "https://overreacted.io/opengraph-image?7c3850b1702447d4" },
   { id: ID.cassidy, handle: "cassidy", name: "Cassidy Williams", url: "https://cassidoo.co", avatar: favicon("cassidoo.co"), thumb: "https://cassidoo.co/base-card.png" },
-  // paulgraham.com has no og:image — left to fall back to the neutral placeholder,
-  // a truthful demo of that case (and the canonical minimalist personal site). No
-  // avatar either, so the generated "PG" tile leads his (prominent) facepile face.
+  // paulgraham.com has no og:image — falls back to the neutral placeholder, a
+  // truthful demo of that case (and the canonical minimalist personal site).
   { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", thumb: null },
 ];
 
-// Public pins = a member's curated webring (max 3). Maya's three drive the widget
-// demo, so they're the most visual real og:images; `you` and a couple of others
-// pin too, so every profile's showcase has something.
+// Public pins = a member's curated webring (max 3). Maya's three drive the widget demo.
 const pins: [string, string][] = [
   [ID.maya, ID.maggie], [ID.maya, ID.josh], [ID.maya, ID.lynn],
   [ID.you, ID.lee], [ID.you, ID.swyx], [ID.you, ID.robin],
@@ -90,53 +93,62 @@ const pins: [string, string][] = [
   [ID.swyx, ID.lee], [ID.swyx, ID.dan], [ID.swyx, ID.cassidy],
 ];
 
-const edges: [string, string, string][] = [
-  [ID.you, ID.maya, "friend"], [ID.maya, ID.you, "friend"],
-  [ID.you, ID.maggie, "follow"], [ID.you, ID.josh, "follow"], [ID.you, ID.lynn, "follow"], [ID.you, ID.lee, "follow"], [ID.you, ID.pg, "follow"],
-  [ID.maya, ID.maggie, "follow"], [ID.maya, ID.josh, "follow"], [ID.maya, ID.lynn, "follow"], [ID.maya, ID.dan, "follow"], [ID.maya, ID.pg, "follow"],
-  [ID.maggie, ID.lynn, "friend"], [ID.maggie, ID.robin, "follow"],
-  [ID.lee, ID.swyx, "follow"], [ID.swyx, ID.lee, "follow"], [ID.swyx, ID.dan, "follow"],
-  [ID.josh, ID.dan, "follow"], [ID.cassidy, ID.swyx, "follow"],
-  // Notable accounts following Maya — fills her "Followed by" facepile. Several
-  // (pg, lee, maggie) are people `you` also follow, so the signed-in view of her
-  // card additionally shows the "… you follow" mutuals row.
-  [ID.pg, ID.maya, "follow"], [ID.dan, ID.maya, "follow"], [ID.swyx, ID.maya, "follow"],
-  [ID.lee, ID.maya, "follow"], [ID.robin, ID.maya, "follow"], [ID.cassidy, ID.maya, "follow"], [ID.maggie, ID.maya, "follow"],
+// Follows (no rel — a follow is a follow). `you` follows maya/maggie/josh/lynn/lee/pg,
+// so their activity fills `you`'s feed; and many notable accounts follow maya, filling
+// her "Followed by" facepile (several are mutuals with `you`).
+const edges: [string, string][] = [
+  [ID.you, ID.maya], [ID.maya, ID.you],
+  [ID.you, ID.maggie], [ID.you, ID.josh], [ID.you, ID.lynn], [ID.you, ID.lee], [ID.you, ID.pg],
+  [ID.maya, ID.maggie], [ID.maya, ID.josh], [ID.maya, ID.lynn], [ID.maya, ID.dan], [ID.maya, ID.pg],
+  [ID.maggie, ID.lynn], [ID.maggie, ID.robin],
+  [ID.lee, ID.swyx], [ID.swyx, ID.lee], [ID.swyx, ID.dan],
+  [ID.josh, ID.dan], [ID.cassidy, ID.swyx],
+  [ID.pg, ID.maya], [ID.dan, ID.maya], [ID.swyx, ID.maya],
+  [ID.lee, ID.maya], [ID.robin, ID.maya], [ID.cassidy, ID.maya], [ID.maggie, ID.maya],
+  // A few accounts follow `you` that you don't follow back — the "Follow back" rail.
+  [ID.cassidy, ID.you], [ID.dan, ID.you], [ID.robin, ID.you], [ID.swyx, ID.you],
 ];
 
-// Manual fame tiers (the prominence enum) — what ranks the "Followed by" facepile.
-// pg + dan are 'famous' despite modest seeded views, so they lead the pile: a clean
-// demo that the flag overrides the page-view heuristic. Set by hand in real life,
-// e.g. UPDATE members SET prominence='famous' WHERE handle='pg'.
-const prominence: Array<[string, "notable" | "famous"]> = [
-  [ID.pg, "famous"], [ID.dan, "famous"],
-  [ID.swyx, "notable"], [ID.lee, "notable"], [ID.maggie, "notable"],
-  [ID.lynn, "notable"], [ID.josh, "notable"], [ID.cassidy, "notable"], [ID.robin, "notable"],
+// Manual fame tiers: 2 = famous, 1 = notable. pg + dan are famous despite modest
+// seeded views, so they lead a facepile — proof the flag overrides the view heuristic.
+const prominence: Array<[string, number]> = [
+  [ID.pg, 2], [ID.dan, 2],
+  [ID.swyx, 1], [ID.lee, 1], [ID.maggie, 1],
+  [ID.lynn, 1], [ID.josh, 1], [ID.cassidy, 1], [ID.robin, 1],
 ];
 
-const saves: [string, string][] = [
-  [ID.you, ID.lee], [ID.you, ID.swyx], [ID.you, ID.robin], [ID.you, ID.dan],
-  [ID.maya, ID.maggie], [ID.maya, ID.lynn], [ID.maya, ID.dan],
-  [ID.maggie, ID.robin], [ID.swyx, ID.cassidy], [ID.josh, ID.dan],
+// The activity that fills `you`'s feed: saves, notes and emoji reactions by the
+// people `you` follow, plus notes left on `you`'s site — spread over a few days so
+// the feed reads as a real timeline. A single-emoji note renders as a reaction.
+type Act =
+  | { kind: "save"; by: string; on: string; h: number }
+  | { kind: "note"; by: string; on: string; body: string; h: number; vis?: "private" };
+const activity: Act[] = [
+  { kind: "note", by: ID.maya, on: ID.josh, body: "the little animations taught me so much.", h: 1 },
+  { kind: "note", by: ID.lynn, on: ID.maya, body: "the lava-jump game is genuinely hard, i love it.", h: 2 },
+  { kind: "note", by: ID.josh, on: ID.dan, body: "🔥", h: 3 },
+  { kind: "save", by: ID.maggie, on: ID.robin, h: 4 },
+  { kind: "note", by: ID.maggie, on: ID.maya, body: "your dinosaurs are wonderful. keep going!", h: 5 },
+  { kind: "save", by: ID.maya, on: ID.maggie, h: 7 },
+  { kind: "note", by: ID.lee, on: ID.swyx, body: "❤️", h: 9 },
+  { kind: "note", by: ID.maya, on: ID.lynn, body: "i reload this every year just to see what it turns into.", h: 12 },
+  { kind: "save", by: ID.josh, on: ID.dan, h: 15 },
+  { kind: "note", by: ID.maggie, on: ID.robin, body: "✨", h: 18 },
+  { kind: "note", by: ID.lynn, on: ID.josh, body: "this redesign is so clean, the typography especially.", h: 22 },
+  { kind: "save", by: ID.lee, on: ID.swyx, h: 26 },
+  { kind: "note", by: ID.maya, on: ID.maggie, body: "her illustrated essays made me start sketching my own ideas.", h: 31 },
+  { kind: "note", by: ID.lee, on: ID.robin, body: "👏", h: 36 },
+  { kind: "save", by: ID.maya, on: ID.dan, h: 40 },
+  { kind: "save", by: ID.maggie, on: ID.lynn, h: 46 },
+  { kind: "note", by: ID.josh, on: ID.lee, body: "the new writing is great. subscribed.", h: 52 },
+  // On `you`'s own site (your feed shows these as "… on your site"):
+  { kind: "note", by: ID.maggie, on: ID.you, body: "love what you're building here.", h: 6 },
+  { kind: "note", by: ID.dan, on: ID.you, body: "🙌", h: 14 },
+  { kind: "note", by: ID.cassidy, on: ID.you, body: "private: let's collab on something.", h: 20, vis: "private" },
 ];
 
-type Comment = { target_id: string; author_id: string; body: string; visibility: "public" | "private" };
-const comments: Comment[] = [
-  // Maya's own public notes on her pinned sites — the bubble shown under each pin
-  // on her public profile (the widget keeps its pins clean and omits these).
-  { target_id: ID.maggie, author_id: ID.maya, body: "her illustrated essays made me start sketching my own ideas.", visibility: "public" },
-  { target_id: ID.lynn, author_id: ID.maya, body: "i reload this every year just to see what it turns into.", visibility: "public" },
-  { target_id: ID.josh, author_id: ID.maya, body: "the little animations taught me so much.", visibility: "public" },
-  // A few notes left ON Maya's site (her widget's feed, under the webring).
-  { target_id: ID.maya, author_id: ID.maggie, body: "your dinosaurs are wonderful. keep going!", visibility: "public" },
-  { target_id: ID.maya, author_id: ID.you, body: "🔥", visibility: "public" },
-  { target_id: ID.maya, author_id: ID.lynn, body: "the lava-jump game is genuinely hard, i love it.", visibility: "public" },
-  { target_id: ID.maya, author_id: ID.dan, body: "private note: saving this for inspiration.", visibility: "private" },
-];
-
-// A short DM back-and-forth between `you` and Maya — demos the messages inbox +
-// thread. Maya's land unread (the `read` flag defaults false), so her conversation
-// shows an unread badge until `you` open it.
+// A short DM thread between `you` and Maya — demos the inbox + thread. Maya's land
+// unread (read defaults false), so her conversation shows an unread badge.
 type Dm = { id: string; from: string; to: string; body: string };
 const messages: Dm[] = [
   { id: "msg_seed_0", from: ID.you, to: ID.maya, body: "Maya! Loved the dinosaur sketches on your site." },
@@ -148,49 +160,50 @@ const messages: Dm[] = [
 
 await db.reset();
 for (const [index, member] of members.entries()) {
-  const { thumb: ogImage, avatar: realAvatar, ...rest } = member;
+  const { thumb, avatar: realAvatar, ...rest } = member;
   const created = await db.createMember({ ...rest, avatar: realAvatar ?? avatar(member.name, index) });
-  await db.updateMember(created.id, { views: 1200 + index * 1450 });
-  // Seed an initial version: sets the live thumbnail + last_edited (staggered so
-  // the "freshest" sites sort to the top of the demo feed). A real og:image when
-  // we have one, otherwise no thumbnail — every preview falls back to the one
-  // canonical grayscale placeholder.
-  const capturedAt = new Date(Date.now() - index * 30 * 60 * 60 * 1000).toISOString();
-  await db.recordSnapshot(created.id, {
-    hash: "seed-" + created.id,
-    thumbnail: ogImage === undefined ? null : ogImage,
-    title: member.name,
-    excerpt: null,
-  }, capturedAt);
+  // The demo roster is established, verified sites (real signups with the widget live).
+  await db.updateMember(created.id, { views: 1200 + index * 1450, onboarded: true, verified: true });
+  // Set the live thumbnail + a freshness clock (staggered so the freshest sites lead
+  // the feed). Real og:image when we have one; a generated card for the .example
+  // accounts; null (placeholder) for the one site that genuinely has no og:image.
+  const generated = member.url.endsWith(".example") ? siteCard(member.name, index) : null;
+  await db.recordSiteContent(
+    created.id,
+    { hash: "seed-" + created.id, thumbnail: thumb === undefined ? generated : thumb },
+    hoursAgo(index * 30),
+  );
 }
-for (const [follower, target, rel] of edges) await db.setEdge(follower, target, rel);
+for (const [follower, target] of edges) await db.setEdge(follower, target);
 for (const [id, tier] of prominence) await db.updateMember(id, { prominence: tier });
-for (const [member, target] of saves) await db.setSave(member, target);
 for (const [member, target] of pins) await db.setPin(member, target);
-for (const [index, comment] of comments.entries()) await db.addComment({ id: `c_seed_${index}`, ...comment });
-for (const m of messages) await db.sendMessage({ id: m.id, sender_id: m.from, recipient_id: m.to, body: m.body });
-await db.toggleMessageReaction("msg_seed_1", ID.you, "❤️"); // `you` ❤️ Maya's thank-you — shows a reaction chip on load
+let n = 0;
+for (const a of activity) {
+  if (a.kind === "save") await db.setSave(a.by, a.on, hoursAgo(a.h));
+  else await db.addComment({ id: `c_seed_${n++}`, target_id: a.on, author_id: a.by, body: a.body, visibility: a.vis ?? "public", created: hoursAgo(a.h) });
+}
+// `you`'s own saved library — the Saved gallery. (Your own saves never show in your
+// own feed; this is the private collection.)
+for (const t of [ID.lee, ID.swyx, ID.robin, ID.dan, ID.maggie, ID.lynn]) await db.setSave(ID.you, t);
 
-// A demo crew (a closed group): `you` + a few classmates, reachable at /join/demo
-// with a fixed, memorable code. createCohort seats `you` as owner; the rest join
-// as members. (They already follow each other via the seeded edges above, so no
-// extra wiring is needed for the demo.)
+for (const m of messages) await db.sendMessage({ id: m.id, sender_id: m.from, recipient_id: m.to, body: m.body });
+await db.toggleMessageReaction("msg_seed_1", ID.you, "❤️");
+
+// A demo crew (closed group): `you` + a few classmates, at /join/demo.
 const CREW = "coh_demo000000000000";
 await db.createCohort({ id: CREW, name: "Hill Valley Middle", code: "demo", ownerId: ID.you });
 for (const member of [ID.maya, ID.maggie, ID.josh]) await db.addCohortMember(CREW, member);
 
-// Page views OF "you", to populate the relational analytics demo: named signmysite members
-// (some you already follow, some you don't — the "follow back" nudge) mixed with
-// anonymous readers, each with an engaged-time estimate and a recent timestamp.
-const YOU = ID.you;
+// Page views OF `you` — the relational-analytics demo: named members (some you
+// follow, some you don't) mixed with anonymous readers, each with engaged time.
 const pageViews: Array<{ viewer: string | null; daysAgo: number; sec: number; ref?: string }> = [
-  { viewer: ID.maggie, daysAgo: 0.2, sec: 142 }, // Maggie — you follow
-  { viewer: ID.swyx, daysAgo: 0.5, sec: 210 },   // swyx — you DON'T follow back
-  { viewer: ID.dan, daysAgo: 1.1, sec: 38 },     // Dan — you DON'T follow back
-  { viewer: ID.lee, daysAgo: 2.3, sec: 167 },    // Lee — you follow
-  { viewer: ID.cassidy, daysAgo: 3.4, sec: 76 }, // Cassidy — you DON'T follow back
-  { viewer: ID.robin, daysAgo: 4.7, sec: 51 },   // Robin — you DON'T follow back
-  { viewer: ID.josh, daysAgo: 5.2, sec: 188 },   // Josh — you follow
+  { viewer: ID.maggie, daysAgo: 0.2, sec: 142 },
+  { viewer: ID.swyx, daysAgo: 0.5, sec: 210 },
+  { viewer: ID.dan, daysAgo: 1.1, sec: 38 },
+  { viewer: ID.lee, daysAgo: 2.3, sec: 167 },
+  { viewer: ID.cassidy, daysAgo: 3.4, sec: 76 },
+  { viewer: ID.robin, daysAgo: 4.7, sec: 51 },
+  { viewer: ID.josh, daysAgo: 5.2, sec: 188 },
   { viewer: null, daysAgo: 0.1, sec: 64, ref: "news.ycombinator.com" },
   { viewer: null, daysAgo: 0.8, sec: 23 },
   { viewer: null, daysAgo: 1.9, sec: 119, ref: "google.com" },
@@ -198,18 +211,13 @@ const pageViews: Array<{ viewer: string | null; daysAgo: number; sec: number; re
 ];
 for (const [i, v] of pageViews.entries()) {
   await db.importView({
-    target: YOU,
-    viewer: v.viewer,
-    session: `seed-${v.viewer || "anon"}-${i}`,
-    path: "/",
-    referrer: v.ref ?? null,
-    durationMs: v.sec * 1000,
+    target: ID.you, viewer: v.viewer, session: `seed-${v.viewer || "anon"}-${i}`,
+    path: "/", referrer: v.ref ?? null, durationMs: v.sec * 1000,
     at: new Date(Date.now() - v.daysAgo * 864e5).toISOString(),
   });
 }
 
-console.log(`seeded ${members.length} members, ${edges.length} follows, ${saves.length} saves, ${pins.length} pins, ${pageViews.length} views`);
+console.log(`seeded ${members.length} members, ${edges.length} follows, ${activity.length} feed events, ${pins.length} pins`);
 console.log("  dev sign-in → you@example.com");
 console.log("  widget demo → maya's webring (maggie · josh · lynn)");
-console.log("  crew invite → /join/demo (Hill Valley Middle · 4 sites)");
 process.exit(0);

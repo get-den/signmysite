@@ -53,10 +53,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-/* Viewport-locked: the window itself never scrolls (see .shell). dvh, not vh, so
-   mobile browser chrome doesn't crop the layout. */
-html, body, #root { height: 100%; }
 body {
+  min-height: 100vh;
   font-family: 'Sohne', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.4;
@@ -65,8 +63,14 @@ body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+  overflow-x: hidden;
 }
+/* The SPA is viewport-locked: the window never scrolls, one inner container does
+   (see .shell). web/index.html marks its <body class="app"> so this is scoped to
+   the SPA — server-rendered pages (profiles, 404, /notify) keep normal document
+   scroll. dvh, not vh, so mobile browser chrome doesn't crop the layout. */
+body.app { height: 100dvh; min-height: 0; overflow: hidden; }
+body.app #root { height: 100%; }
 
 /* ---- the app shell: header + one scroll container ------------------------ */
 /* A fixed-height flex column. The header is the non-scrolling first row; the single
