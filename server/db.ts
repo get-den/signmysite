@@ -666,10 +666,14 @@ export async function stats(id: string, viewerId?: string): Promise<Stats> {
 }
 
 // ---- views & analytics ---------------------------------------------------
-// How far back the named-visitor view looks. Counts/averages are windowed too so
-// "who's reading me lately" stays current rather than all-time noise.
-const ANALYTICS_WINDOW_DAYS = 30;
-const windowStart = () => new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 864e5).toISOString();
+// The time ranges the analytics toggle offers. "all" is the lifetime total; the
+// rest are rolling windows. One enum drives both the API param and the SQL since.
+export type Range = "day" | "week" | "month" | "all";
+const RANGE_DAYS: Record<Exclude<Range, "all">, number> = { day: 1, week: 7, month: 30 };
+// The ISO instant a range starts at, or null for all-time (no lower bound). ISO
+// strings sort lexically, so a plain `started > $since` is a correct time filter.
+const sinceOf = (range: Range): string | null =>
+  range === "all" ? null : new Date(Date.now() - RANGE_DAYS[range] * 864e5).toISOString();
 
 // Record one page view: append the event (who/where/referrer) AND bump the site's
 // running counter, so every hot read stays a single-column lookup. `viewer` is set
@@ -721,22 +725,25 @@ export async function importView(v: {
   );
 }
 
-// The owner's relational analytics for one site. Headline counts + average engaged
-// time, plus the named signmysite members behind the view total — each joined to the edge
-// table both ways so the UI can say "follows you / you don't follow back yet". This
-// is the read that turns an anonymous counter into a discovery surface.
-export async function analytics(id: string): Promise<Analytics> {
-  const since = windowStart();
+// The owner's relational analytics for one site, scoped to a time range. Headline
+// counts + average engaged time, plus the named signmysite members behind the view total
+// — each joined to the edge table both ways so the UI can say "follows you / you
+// don't follow back yet". This is the read that turns an anonymous counter into a
+// discovery surface. `range` windows everything; "all" reports the lifetime total
+// (members.views) for views and is unbounded for the rest.
+export async function analytics(id: string, range: Range = "all"): Promise<Analytics> {
+  const since = sinceOf(range);                                   // null ⇒ all-time
   const weekSince = new Date(Date.now() - 7 * 864e5).toISOString();
   const [totals, recent] = await Promise.all([
     pool.query(
       `SELECT
-         (SELECT views FROM members WHERE id = $1)                                          AS views,
-         COUNT(DISTINCT session) FILTER (WHERE started > $2)::int                            AS visitors,
+         (SELECT views FROM members WHERE id = $1)                                          AS all_views,
+         COUNT(*) FILTER (WHERE $2::text IS NULL OR started > $2)::int                       AS win_views,
+         COUNT(DISTINCT session) FILTER (WHERE $2::text IS NULL OR started > $2)::int         AS visitors,
          COUNT(DISTINCT session) FILTER (WHERE started > $3)::int                            AS visitors_week,
          COUNT(DISTINCT viewer_id)
-           FILTER (WHERE started > $2 AND viewer_id IS NOT NULL AND viewer_id <> $1)::int    AS known,
-         AVG(duration_ms) FILTER (WHERE started > $2 AND duration_ms IS NOT NULL)            AS avg_ms
+           FILTER (WHERE ($2::text IS NULL OR started > $2) AND viewer_id IS NOT NULL AND viewer_id <> $1)::int AS known,
+         AVG(duration_ms) FILTER (WHERE ($2::text IS NULL OR started > $2) AND duration_ms IS NOT NULL) AS avg_ms
        FROM page_views WHERE target_id = $1`,
       [id, since, weekSince]
     ),
@@ -751,7 +758,7 @@ export async function analytics(id: string): Promise<Analytics> {
          LEFT JOIN edges fo ON fo.follower_id = $1 AND fo.target_id = m.id
          LEFT JOIN edges fi ON fi.follower_id = m.id AND fi.target_id = $1
         WHERE pv.target_id = $1 AND pv.viewer_id IS NOT NULL AND pv.viewer_id <> $1
-          AND pv.started > $2
+          AND ($2::text IS NULL OR pv.started > $2)
         GROUP BY m.id, fo.follower_id, fi.follower_id
         ORDER BY MAX(pv.started) DESC
         LIMIT 24`,
@@ -760,7 +767,7 @@ export async function analytics(id: string): Promise<Analytics> {
   ]);
   const t = totals.rows[0] || {};
   return {
-    views: Number(t.views || 0),
+    views: range === "all" ? Number(t.all_views || 0) : Number(t.win_views || 0),
     visitors: Number(t.visitors || 0),
     visitorsWeek: Number(t.visitors_week || 0),
     knownVisitors: Number(t.known || 0),
@@ -771,6 +778,127 @@ export async function analytics(id: string): Promise<Analytics> {
       viewerFollows: r.viewerFollows, followsYou: r.followsYou,
     })),
   };
+}
+
+// ---- the home feed -------------------------------------------------------
+// One reverse-chron activity stream for the signed-in member, blending inbound
+// signals (who read you, notes on your site) with their network's outbound
+// activity (people they follow commenting, following, and updating their sites).
+// Each source is a small bounded query; we merge + sort in JS rather than one
+// giant UNION — easier to read, and every source stays independently tunable.
+export type FeedKind = "read" | "comment_in" | "comment_out" | "follow" | "update";
+export type FeedRow = {
+  kind: FeedKind;
+  at: string;                  // ISO; the sort + pagination key
+  id?: string;                 // comment id (stable react key + dedupe)
+  actor: Identity | null;      // who acted (null = an anonymous reaction)
+  target?: Identity;           // whose site (comment_out, follow)
+  body?: string;               // comment text
+  visibility?: Visibility;     // comment visibility
+  views?: number;              // read count (read)
+  thumbnail?: string | null;   // site preview (update)
+};
+
+// Build an Identity from a prefixed result row (`a_id`/`a_name`…), or null when the
+// id column is absent (an anonymous comment author).
+const ident = (r: Record<string, unknown>, p = ""): Identity | null =>
+  r[p + "id"]
+    ? {
+        id: r[p + "id"] as string, handle: (r[p + "handle"] as string) ?? null,
+        name: (r[p + "name"] as string) ?? "", avatar: (r[p + "avatar"] as string) ?? null,
+        url: (r[p + "url"] as string) ?? null,
+      }
+    : null;
+
+export async function feed(
+  viewerId: string, opts: { limit?: number; before?: string | null } = {}
+): Promise<FeedRow[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 30, 1), 60);
+  const before = opts.before || null;             // ISO cursor; null = newest page
+  const p = [viewerId, before, limit];            // shared params: $1 viewer, $2 before, $3 limit
+
+  const [reads, inbound, outbound, follows, updates] = await Promise.all([
+    // Members who read YOUR site, one row each (most recent + how many times).
+    pool.query(
+      `SELECT m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url,
+              COUNT(*)::int AS views, MAX(pv.started) AS at
+         FROM page_views pv JOIN members m ON m.id = pv.viewer_id
+        WHERE pv.target_id = $1 AND pv.viewer_id IS NOT NULL AND pv.viewer_id <> $1
+        GROUP BY m.id
+        HAVING ($2::text IS NULL OR MAX(pv.started) < $2)
+        ORDER BY at DESC LIMIT $3`, p),
+    // Notes + reactions left on YOUR site (author may be anonymous).
+    pool.query(
+      `SELECT c.id, c.body, c.visibility, c.created AS at,
+              m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url
+         FROM comments c LEFT JOIN members m ON m.id = c.author_id
+        WHERE c.target_id = $1 AND ($2::text IS NULL OR c.created < $2)
+        ORDER BY c.created DESC LIMIT $3`, p),
+    // Public notes the people you follow left on OTHER people's sites.
+    pool.query(
+      `SELECT c.id, c.body, c.visibility, c.created AS at,
+              a.id AS a_id, a.handle AS a_handle, a.name AS a_name, a.avatar AS a_avatar, a.url AS a_url,
+              t.id AS t_id, t.handle AS t_handle, t.name AS t_name, t.avatar AS t_avatar, t.url AS t_url
+         FROM comments c
+         JOIN edges e ON e.follower_id = $1 AND e.target_id = c.author_id
+         JOIN members a ON a.id = c.author_id
+         JOIN members t ON t.id = c.target_id
+        WHERE c.visibility = 'public' AND c.target_id <> $1 AND c.author_id <> $1
+          AND ($2::text IS NULL OR c.created < $2)
+        ORDER BY c.created DESC LIMIT $3`, p),
+    // New follows made by the people you follow (the graph growing around you).
+    pool.query(
+      `SELECT e.created AS at,
+              a.id AS a_id, a.handle AS a_handle, a.name AS a_name, a.avatar AS a_avatar, a.url AS a_url,
+              t.id AS t_id, t.handle AS t_handle, t.name AS t_name, t.avatar AS t_avatar, t.url AS t_url
+         FROM edges e
+         JOIN edges mine ON mine.follower_id = $1 AND mine.target_id = e.follower_id
+         JOIN members a ON a.id = e.follower_id
+         JOIN members t ON t.id = e.target_id
+        WHERE e.target_id <> $1 AND e.target_id <> e.follower_id
+          AND ($2::text IS NULL OR e.created < $2)
+        ORDER BY e.created DESC LIMIT $3`, p),
+    // Sites you follow that posted a new version (each snapshot is one update event).
+    pool.query(
+      `SELECT s.captured AS at, s.thumbnail,
+              m.id AS a_id, m.handle AS a_handle, m.name AS a_name, m.avatar AS a_avatar, m.url AS a_url
+         FROM snapshots s
+         JOIN edges e ON e.follower_id = $1 AND e.target_id = s.member_id
+         JOIN members m ON m.id = s.member_id
+        WHERE ($2::text IS NULL OR s.captured < $2)
+        ORDER BY s.captured DESC LIMIT $3`, p),
+  ]);
+
+  const rows: FeedRow[] = [
+    ...reads.rows.map((r): FeedRow => ({ kind: "read", at: r.at, actor: ident(r, "a_"), views: r.views })),
+    ...inbound.rows.map((r): FeedRow => ({
+      kind: "comment_in", at: r.at, id: r.id, actor: ident(r, "a_"), body: r.body, visibility: r.visibility })),
+    ...outbound.rows.map((r): FeedRow => ({
+      kind: "comment_out", at: r.at, id: r.id, actor: ident(r, "a_"), target: ident(r, "t_") ?? undefined,
+      body: r.body, visibility: r.visibility })),
+    ...follows.rows.map((r): FeedRow => ({
+      kind: "follow", at: r.at, actor: ident(r, "a_"), target: ident(r, "t_") ?? undefined })),
+    ...updates.rows.map((r): FeedRow => ({ kind: "update", at: r.at, actor: ident(r, "a_"), thumbnail: r.thumbnail })),
+  ];
+  rows.sort((x, y) => (Date.parse(y.at) || 0) - (Date.parse(x.at) || 0));
+  return rows.slice(0, limit);
+}
+
+// The "since you've been gone" digest above the feed: rolling counts of new views,
+// notes, and followers on your own site over the last `days`.
+export async function feedDigest(
+  viewerId: string, days = 7
+): Promise<{ days: number; newViews: number; newComments: number; newFollowers: number }> {
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  const r = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM page_views WHERE target_id = $1 AND started > $2)::int AS views,
+       (SELECT COUNT(*) FROM comments   WHERE target_id = $1 AND created > $2)::int  AS comments,
+       (SELECT COUNT(*) FROM edges      WHERE target_id = $1 AND created > $2)::int  AS followers`,
+    [viewerId, since]
+  );
+  const x = r.rows[0] || {};
+  return { days, newViews: Number(x.views || 0), newComments: Number(x.comments || 0), newFollowers: Number(x.followers || 0) };
 }
 
 // ---- freshness + snapshots -----------------------------------------------

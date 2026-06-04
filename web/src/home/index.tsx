@@ -1,76 +1,23 @@
 /*
- * The logged-in home. One data hook (useHomeData) feeds four interchangeable
- * layouts, each a different answer to "what is this page for": Brief (a daily
- * check-in), Stream (a thread to triage), Orbit (your place in the graph), Gallery
- * (a wall of sites to browse). The choice persists, and "Surprise me" hands you a
- * different one. The verify nudge sits above the switcher so it's never lost in a
- * particular layout.
+ * The logged-in home: a Twitter-style feed in a three-pane frame. One store
+ * (useHome) feeds all three panes — the nav rail (left), the activity feed (center),
+ * and the modular, state-aware rail (right) — and owns the single shared follow graph
+ * so an action in any pane is reflected in the others at once. While a site is linked
+ * but unverified, useAutoReverify quietly promotes the rail to analytics the moment
+ * the widget is detected.
  */
-import { useEffect, useState, type ComponentType } from "react";
 import type { Member } from "../api";
-import { useHomeData, type HomeData } from "./data";
-import { VerifyNotice } from "./parts";
-import { Switcher } from "./Switcher";
-import { Console } from "./Console";
-import { Spotlight } from "./Spotlight";
-import { Brief } from "./Brief";
-import { Stream } from "./Stream";
-import { Orbit } from "./Orbit";
-import { Gallery } from "./Gallery";
-import { Command } from "./Command";
-import { Queue } from "./Queue";
-import { Directory } from "./Directory";
+import { FeedLayout } from "./FeedLayout";
+import { Feed } from "./Feed";
+import { RightRail } from "./RightRail";
+import { useAutoReverify, useHome } from "./hooks";
 
-export type LayoutId = "console" | "spotlight" | "brief" | "stream" | "orbit" | "gallery" | "command" | "queue" | "index";
-export type LayoutMeta = { id: LayoutId; label: string; blurb: string };
-
-const LAYOUTS: Array<LayoutMeta & { Component: ComponentType<{ data: HomeData }> }> = [
-  { id: "console", label: "Console", blurb: "Your site at a glance. Views, visitors this week, new comments and saves — or a prompt to add your site.", Component: Console },
-  { id: "spotlight", label: "Spotlight", blurb: "The same numbers, staged around one dominant figure: your total reach.", Component: Spotlight },
-  { id: "brief", label: "Brief", blurb: "Today, in one calm column. The single thing worth doing, then your numbers.", Component: Brief },
-  { id: "stream", label: "Stream", blurb: "Every signal around your site as one thread. Read it top to bottom, clear it.", Component: Stream },
-  { id: "orbit", label: "Orbit", blurb: "Your place in the graph. You at the center, your people in rings around you.", Component: Orbit },
-  { id: "gallery", label: "Gallery", blurb: "Just the sites. A wall of personal pages to browse, pin and collect.", Component: Gallery },
-  { id: "command", label: "Command", blurb: "Type to do anything. Jump to anyone, follow back, or run a command — keyboard first.", Component: Command },
-  { id: "queue", label: "Queue", blurb: "One thing at a time. The next reader, note or task as a single card — act or skip.", Component: Queue },
-  { id: "index", label: "Index", blurb: "The directory. Your whole graph as clean type, no images — scan and jump to anyone.", Component: Directory },
-];
-
-const STORE_KEY = "signmysite:home-layout";
-
-function readStored(): LayoutId {
-  try {
-    const v = localStorage.getItem(STORE_KEY) as LayoutId | null;
-    if (v && LAYOUTS.some((l) => l.id === v)) return v;
-  } catch { /* private mode / no storage — fall through */ }
-  return "console";
-}
-
-export function HomeExperience({ viewer }: { viewer: Member }) {
-  const data = useHomeData(viewer);
-  const [layout, setLayout] = useState<LayoutId>(readStored);
-
-  useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, layout); } catch { /* ignore */ }
-  }, [layout]);
-
-  const current = LAYOUTS.find((l) => l.id === layout) ?? LAYOUTS[0];
-  const Active = current.Component;
-
-  // Hand the user a layout they're not already on.
-  const shuffle = () => {
-    const others = LAYOUTS.filter((l) => l.id !== layout);
-    setLayout(others[Math.floor(Math.random() * others.length)].id);
-  };
-
+export function HomeFeed({ viewer }: { viewer: Member }) {
+  const store = useHome(viewer);
+  useAutoReverify(viewer);
   return (
-    <div className="home">
-      <VerifyNotice viewer={viewer} />
-      <Switcher layouts={LAYOUTS} value={layout} blurb={current.blurb} onChange={setLayout} onShuffle={shuffle} />
-      {/* key re-mounts on switch so each layout plays its own entrance. */}
-      <div className="home-stage" key={layout}>
-        <Active data={data} />
-      </div>
-    </div>
+    <FeedLayout viewer={viewer} rail={<RightRail store={store} />}>
+      <Feed store={store} />
+    </FeedLayout>
   );
 }

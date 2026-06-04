@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 // The examples below name THIS origin so the help text always matches the live
 // domain. The app is same-origin, so there's no hardcoded host to update if it
-// moves — location is the client-side mirror of the server's SIGNMYSITE_BASE_URL.
+// moves — location is the client-side mirror of the server's BASE_URL.
 const ORIGIN = location.origin; // e.g. https://signmysite.com
 const HOST = location.host; // e.g. signmysite.com
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authUrl, validateSite, JOIN_SITE_KEY } from "../lib";
 import { ProfileMock } from "../components/ProfileMock";
+import { Footer } from "../components/Footer";
 
 // The site, scheme-less and slash-trimmed — the shape the onboarding field shows.
 const bare = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -38,6 +39,7 @@ export function Landing() {
   }
 
   return (
+    <>
     <div className="land">
       <div className="land-hero">
         <h1>Your corner of the internet</h1>
@@ -65,5 +67,7 @@ export function Landing() {
         <ProfileMock />
       </div>
     </div>
+    <Footer />
+    </>
   );
 }

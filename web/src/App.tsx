@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import { Route, Routes } from "react-router-dom";
-import { Header } from "./components/Header";
-import { Footer } from "./components/Footer";
+import { AppShell } from "./components/AppShell";
 import { Protected, Loading } from "./ui";
 import { useViewer } from "./providers";
 import { Home } from "./pages/Home";
+import { Saved } from "./pages/Saved";
 import { Messages } from "./pages/Messages";
 import { Edit } from "./pages/Edit";
 import { Compose } from "./pages/Compose";
@@ -15,11 +15,17 @@ import { Verify } from "./pages/Verify";
 
 export function App() {
   return (
-    <>
-      <Header />
-      <main>
-        <Routes>
+    <AppShell>
+      <Routes>
           <Route path="/" element={<Home />} />
+          <Route
+            path="/saved"
+            element={
+              <Protected>
+                <Saved />
+              </Protected>
+            }
+          />
           <Route
             path="/messages"
             element={
@@ -60,10 +66,8 @@ export function App() {
           <Route path="/reacted" element={<Reacted />} />
           <Route path="/troubleshoot" element={<Troubleshoot />} />
           <Route path="*" element={<Home />} />
-        </Routes>
-      </main>
-      <Footer />
-    </>
+      </Routes>
+    </AppShell>
   );
 }
 

@@ -6,7 +6,7 @@
  *
  * Single source of truth for our public origin. Shipped text assets (the widget
  * banner below, and the agent docs served by index.ts) write ORIGIN_SENTINEL,
- * and we rewrite it to the live SIGNMYSITE_BASE_URL on the way out. So the file an
+ * and we rewrite it to the live BASE_URL on the way out. So the file an
  * agent fetches always points back at the origin it was fetched from — prod
  * from prod, localhost from localhost — never a stale or dead domain. This is
  * why /llms.txt and the widget can't drift apart from the service again.

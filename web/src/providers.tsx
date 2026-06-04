@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import toast from "react-hot-toast";
 import { getViewer, type Member } from "./api";
@@ -43,6 +43,26 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
 export function useViewer(): ViewerCtx {
   const ctx = useContext(ViewerContext);
   if (!ctx) throw new Error("useViewer must be used within ViewerProvider");
+  return ctx;
+}
+
+/* ---- search (header field → current view) ------------------------------- */
+// One shared query string the header writes and the feed / saved gallery read, so
+// the prominent search bar filters whatever you're looking at. Deliberately tiny —
+// there's no search endpoint; it narrows the items already on screen.
+
+type SearchCtx = { q: string; setQ: (q: string) => void };
+const SearchContext = createContext<SearchCtx | null>(null);
+
+export function SearchProvider({ children }: { children: ReactNode }) {
+  const [q, setQ] = useState("");
+  const value = useMemo(() => ({ q, setQ }), [q]);
+  return <SearchContext.Provider value={value}>{children}</SearchContext.Provider>;
+}
+
+export function useSearch(): SearchCtx {
+  const ctx = useContext(SearchContext);
+  if (!ctx) throw new Error("useSearch must be used within SearchProvider");
   return ctx;
 }
 

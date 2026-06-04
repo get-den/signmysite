@@ -81,6 +81,36 @@ export type Analytics = {
   recent: ViewerVisit[];
 };
 
+/** The time window the analytics toggle offers. "all" is the lifetime total. */
+export type AnalyticsRange = "day" | "week" | "month" | "all";
+
+/** A compact identity on a feed item — the actor, or the site they acted on. */
+export type FeedActor = { id: string; handle: string | null; name: string; avatar: string | null; url: string | null };
+/** One activity in the home feed. `kind` discriminates what happened:
+ *   read        — `actor` read your site (`views` = how many times)
+ *   comment_in  — `actor` left `body` on your site (`visibility` may be private)
+ *   comment_out — someone you follow (`actor`) left `body` on `target`'s site
+ *   follow      — someone you follow (`actor`) followed `target`
+ *   update      — a site you follow (`actor`) posted a new version (`thumbnail`) */
+export type FeedItem = {
+  kind: "read" | "comment_in" | "comment_out" | "follow" | "update";
+  at: string;
+  id?: string;
+  actor: FeedActor | null;
+  target?: FeedActor;
+  body?: string;
+  visibility?: "public" | "private";
+  views?: number;
+  thumbnail?: string | null;
+};
+/** A page of the feed plus the next cursor (null when exhausted). The digest rides
+ *  along on the first page only. */
+export type FeedPage = {
+  items: FeedItem[];
+  cursor: string | null;
+  digest?: { days: number; newViews: number; newComments: number; newFollowers: number };
+};
+
 export type NoteAuthor = {
   id: string | null;
   name: string | null;
@@ -176,8 +206,15 @@ export const getProfile = (id: string) =>
 export const getStats = (id: string) =>
   req<Stats>(`/api/profile/${encodeURIComponent(id)}/stats`);
 
-/** Relational analytics for your own site: counts, avg engaged time, named visitors. */
-export const getAnalytics = () => req<Analytics>("/api/analytics");
+/** Relational analytics for your own site, scoped to a time range: counts, avg
+ *  engaged time, named visitors. Defaults to all-time. */
+export const getAnalytics = (range: AnalyticsRange = "all") =>
+  req<Analytics>(`/api/analytics${range !== "all" ? `?range=${range}` : ""}`);
+
+/** A page of the home activity feed. Pass the previous page's `cursor` as `before`
+ *  to load older items; omit it for the newest page (which also returns the digest). */
+export const getFeed = (before?: string | null) =>
+  req<FeedPage>(`/api/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`);
 
 /** Leave a written note (postcard) on someone's site. Members only. */
 export const postComment = (id: string, body: string, visibility: "public" | "private") =>

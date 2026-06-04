@@ -1,7 +1,7 @@
 /*
  * The single source of truth for where signmysite is hosted.
  *
- * SIGNMYSITE_BASE_URL is the ONE knob that names our public origin. Set it in prod
+ * BASE_URL is the ONE knob that names our public origin. Set it in prod
  * (e.g. https://signmysite.com); it defaults to http://localhost:$PORT in dev. Every
  * absolute URL the server emits — email links, the widget script tag, the OAuth
  * redirect URI, server-rendered profile pages — derives from BASE, so moving to
@@ -18,4 +18,4 @@ export const PORT = Number(process.env.PORT || 8787);
 
 // Public origin, normalized without a trailing slash. Whether it's https here
 // also drives session-cookie security (SameSite=None; Secure) — see app.ts.
-export const BASE = (process.env.SIGNMYSITE_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
+export const BASE = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");

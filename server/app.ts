@@ -611,7 +611,31 @@ app.post("/api/profile/:id/view", async (c) => {
 app.get("/api/analytics", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
-  return c.json(await db.analytics(viewer.id));
+  const range = (["day", "week", "month", "all"] as const).find((r) => r === c.req.query("range")) ?? "all";
+  return c.json(await db.analytics(viewer.id, range));
+});
+
+// The home feed — one reverse-chron activity stream (see db.feed). Cursor-paginated
+// by the `at` of the oldest item shown: pass it back as ?before= for the next page.
+// The "since you've been gone" digest rides along on the first page only.
+const feedItemJson = (r: db.FeedRow) => ({
+  kind: r.kind, at: r.at, id: r.id,
+  actor: r.actor ? faceJson(r.actor) : null,
+  target: r.target ? faceJson(r.target) : undefined,
+  body: r.body, visibility: r.visibility, views: r.views, thumbnail: r.thumbnail,
+});
+app.get("/api/feed", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const before = c.req.query("before") || null;
+  const limit = Math.min(Number(c.req.query("limit")) || 30, 60);
+  const rows = await db.feed(viewer.id, { limit, before });
+  const items = rows.map(feedItemJson);
+  return c.json({
+    items,
+    cursor: items.length === limit ? items[items.length - 1].at : null,
+    digest: before ? undefined : await db.feedDigest(viewer.id),
+  });
 });
 
 // ---- email notification preferences --------------------------------------

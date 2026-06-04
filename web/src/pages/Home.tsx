@@ -4,7 +4,7 @@ import { useViewer } from "../providers";
 import { Loading } from "../ui";
 import { loadPending, clearPending, resumePath } from "../pending";
 import { Landing } from "./Landing";
-import { Dashboard } from "./Dashboard";
+import { HomeFeed } from "../home";
 import { Onboarding } from "./Onboarding";
 
 export function Home() {
@@ -29,5 +29,5 @@ export function Home() {
   if (loading || resuming) return <Loading />;
   if (!viewer) return <Landing />;
   if (!viewer.onboarded) return <Onboarding />; // new sign-ups pick a username + site first
-  return <Dashboard viewer={viewer} />;
+  return <HomeFeed viewer={viewer} />;
 }
