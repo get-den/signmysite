@@ -130,6 +130,7 @@
 .feed-line { margin: 0; min-width: 0; color: var(--ink); font-size: 15px; line-height: 1.45; }
 .feed-line b { font-weight: var(--w-semibold); }
 .feed-react { font-size: 1.2em; vertical-align: -.12em; }
+.feed-rec { color: var(--muted); font-weight: var(--w-semibold); }
 .feed-tgt:hover { text-decoration: none; }
 .feed-tgt:hover b { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .feed-aside { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 12px; }
@@ -189,7 +190,8 @@
 
 /* state-aware CTA (add / verify), shown as a tinted rail block */
 .cta-add { background: #fff5f7; border-color: #fde3ea; }
-.cta-verify { background: #fff8ec; border-color: #f7e9cf; }
+/* No outline — just the warm fill carries the verify block. */
+.cta-verify { background: #fff8ec; border-color: transparent; }
 .cta-head h2 { margin: 0; color: var(--ink); font-size: 17px; line-height: 1.15; font-weight: var(--w-semibold); }
 .cta-head p { margin: 6px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
 .cta-verify .cta-head p b { color: var(--ink); }
@@ -204,11 +206,18 @@
 .cta-field input::placeholder { color: var(--faint); }
 .cta-field.bad input { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(254,40,88,.12); }
 .cta-field .btn { flex: 0 0 auto; }
-.cta-verify .btn { align-self: flex-start; }
+/* Verify (black) with "I need help" appearing beside it after a miss. */
+.cta-verify-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cta-err { margin: 0; color: var(--accent); font-size: 13px; }
 
 /* ---- shared atoms (saved gallery + empty states) ------------------------- */
 .home-hint { margin: 0; padding: 28px 0 6px; color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 52ch; }
+
+/* Canonical empty state: a centered inbox glyph in a soft disc, one short line under
+   it, vertically centered in the content area. */
+.empty-state { flex: 1; min-height: 56vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 40px 20px; }
+.empty-state-ico { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: var(--surface-2); color: var(--faint); }
+.empty-state-text { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; max-width: 30ch; }
 
 .saved { display: flex; flex-direction: column; }
 .wall-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 20px; }

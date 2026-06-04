@@ -92,13 +92,14 @@ export type AnalyticsRange = "day" | "week" | "month" | "all";
 export type FeedActor = { id: string; handle: string | null; name: string; avatar: string | null; url: string | null };
 /** The site a feed item is about (B) — an identity plus its og:image. */
 export type FeedSite = FeedActor & { thumbnail?: string | null };
-/** One activity in the home feed: "A {did} B's site". `kind` is what A did:
- *   saved   — A saved B's site
- *   comment — A left `body` on B's site (a single-emoji body is a reaction)
- *   update  — B's site posted a new version (A == B)
+/** One activity in the home feed. `kind`:
+ *   saved          — A saved B's site
+ *   comment        — A left `body` on B's site (a single-emoji body is a reaction)
+ *   update         — B's site posted a new version (A == B)
+ *   recommendation — B's site is recommended (A == B); `body` is the reason
  * `target` (B) always carries the og:image the row shows; B may be you. */
 export type FeedItem = {
-  kind: "saved" | "comment" | "update";
+  kind: "saved" | "comment" | "update" | "recommendation";
   at: string;
   id?: string;
   actor: FeedActor | null;

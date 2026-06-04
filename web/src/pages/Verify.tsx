@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { scrapeSite } from "../api";
 import { useToast, useViewer } from "../providers";
-import { Button } from "../ui";
+import { Button, IconButton } from "../ui";
 import { validateSite } from "../lib";
 import { WidgetSetup } from "../components/WidgetSetup";
 
@@ -22,8 +22,28 @@ export function Verify() {
   // Step 0, only when they have no site yet: ask for it, scrape + save it server-side.
   const [siteUrl, setSiteUrl] = useState("");
   const [linking, setLinking] = useState(false);
+  // Already verified → show a calm full-screen confirmation instead of the setup.
+  // "Change the setup" drops back into the normal page (to re-check or re-paste).
+  const [editing, setEditing] = useState(false);
   const siteCheck = validateSite(siteUrl);
   if (!viewer) return null; // wrapped in <Protected>
+
+  // Done already: a full-screen "you're verified" page, modeled on the post-comment
+  // confirmation — one check, one line, one quiet way back into the setup.
+  if (viewer.verified && !editing) {
+    return (
+      <div className="sheet">
+        <div className="sheet-bar"><IconButton icon="close" to="/" /></div>
+        <div className="confirm">
+          <div className="confirm-mark" aria-hidden="true">✅</div>
+          <h1 className="confirm-title">Your site is verified!</h1>
+          <button type="button" className="confirm-skip" onClick={() => setEditing(true)}>
+            I want to change the setup
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   async function linkSite() {
     if (!siteCheck.ok || linking || !viewer) return;

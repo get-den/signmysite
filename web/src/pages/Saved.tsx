@@ -6,9 +6,9 @@
 import { useEffect, useState } from "react";
 import { ApiError, getPinned, getSaved, orEmpty, togglePin, type Site } from "../api";
 import { useSearch, useToast, useViewer } from "../providers";
-import { Loading, PageHead } from "../ui";
+import { EmptyState, Loading, PageHead } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
-import { Hint, SiteTile } from "../home/parts";
+import { SiteTile } from "../home/parts";
 
 export function Saved() {
   const { viewer } = useViewer();
@@ -52,11 +52,7 @@ export function Saved() {
         {sites === null ? (
           <Loading />
         ) : wall.length === 0 ? (
-          <Hint>
-            {needle
-              ? "No saved sites match that."
-              : "Nothing saved yet. Follow a site, or open any site and hit Save, and it'll collect here."}
-          </Hint>
+          <EmptyState>{needle ? "No saved sites match that." : "Nothing saved yet."}</EmptyState>
         ) : (
           <div className="wall-grid">
             {wall.map((s) => (

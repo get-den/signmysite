@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { verifySite } from "../api";
 import type { Member } from "../api";
-import { useToast, useViewer } from "../providers";
-import { Button, Spinner, WidgetInstall, useCopy } from "../ui";
+import { useViewer } from "../providers";
+import { Button, VerifyButton, WidgetInstall, useCopy } from "../ui";
 import { PLACEHOLDER_THUMB } from "../lib";
 
 /** Site builders we have paste-here instructions for. "Custom / HTML" leads and is
@@ -42,15 +42,15 @@ function PlatformLogo({ domain }: { domain?: string }) {
  * selected at first — choosing a platform slides its instructions down.
  *
  * Verification flips the viewer to verified in place; `onVerified` lets the caller
- * react (the verify page navigates home; onboarding finishes signup). It's optional
- * because a member can also just leave the widget to auto-verify on its first load.
+ * react (the verify page navigates home; onboarding finishes signup). `onSkip`, when
+ * given (onboarding), puts a Skip beside Verify so they can finish without proving it
+ * yet. Both are optional — a member can also just leave the widget to auto-verify.
  */
-export function WidgetSetup({ viewer, onVerified }: { viewer: Member; onVerified?: () => void }) {
+export function WidgetSetup({ viewer, onVerified, onSkip }: { viewer: Member; onVerified?: () => void; onSkip?: () => void | Promise<void> }) {
   const { setViewer } = useViewer();
-  const toast = useToast();
   const [platform, setPlatform] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
   const [missed, setMissed] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const current = PLATFORMS.find((p) => p.id === platform) ?? null;
 
   // The fastest install: a ready-to-paste prompt the member hands to their coding agent.
@@ -61,23 +61,27 @@ export function WidgetSetup({ viewer, onVerified }: { viewer: Member; onVerified
     `It's a single lightweight line that shows who's reading my site. Nothing else needs to change.`;
   const { copied: promptCopied, copy: copyPrompt } = useCopy(agentPrompt);
 
-  const check = async () => {
-    if (checking) return;
-    setChecking(true);
-    try {
-      const r = await verifySite();
-      if (r.verified) {
-        setViewer({ ...viewer, verified: true });
-        toast("Verified ✓");
-        onVerified?.();
-      } else {
-        setMissed(true);
-      }
-    } catch {
-      setMissed(true);
-    } finally {
-      setChecking(false);
-    }
+  // Already done it? Quietly check the live site once when this opens, and skip
+  // straight ahead if the widget's already there — no need to make them paste it
+  // again. Silent: a not-found here just leaves them on the setup as normal.
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (autoChecked.current || viewer.verified || !viewer.url) return;
+    autoChecked.current = true;
+    verifySite()
+      .then((r) => {
+        if (r.verified) {
+          setViewer({ ...viewer, verified: true });
+          onVerified?.();
+        }
+      })
+      .catch(() => {});
+  }, [viewer, setViewer, onVerified]);
+
+  const skip = async () => {
+    if (skipping || !onSkip) return;
+    setSkipping(true);
+    try { await onSkip(); } finally { setSkipping(false); }
   };
 
   return (
@@ -119,13 +123,6 @@ export function WidgetSetup({ viewer, onVerified }: { viewer: Member; onVerified
               <ol className="vsteps">
                 {current.steps.map((s, i) => <li key={i}>{s}</li>)}
               </ol>
-              <div className="vcheck">
-                <Button className="pink" onClick={check} disabled={checking}>
-                  {checking && <Spinner />}
-                  {missed ? "Verify again" : "Verify"}
-                </Button>
-                {missed && !checking && <span className="vcheck-miss">Not live yet. Publish, then verify again.</span>}
-              </div>
             </div>
             <div className="vguide-shot">
               <img className="site-thumb" src={PLACEHOLDER_THUMB} alt="" />
@@ -133,6 +130,16 @@ export function WidgetSetup({ viewer, onVerified }: { viewer: Member; onVerified
           </div>
         </section>
       )}
+
+      {/* The commit row: Verify leads (black — the page's accent already belongs to
+          the two Copy buttons), Skip sits beside it when onboarding. */}
+      <div className="vfoot">
+        <VerifyButton onVerified={onVerified} onMiss={() => setMissed(true)} />
+        {onSkip && (
+          <Button className="lg" loading={skipping} onClick={skip}>Skip for now</Button>
+        )}
+      </div>
+      {missed && <p className="vfoot-miss">Not live yet. Publish, then verify again.</p>}
     </>
   );
 }

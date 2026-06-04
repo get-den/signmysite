@@ -1,9 +1,9 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
-import { useViewer } from "./providers";
+import { useToast, useViewer } from "./providers";
 import { host, initials, profileHref, siteThumb, PLACEHOLDER_THUMB } from "./lib";
-import type { Site } from "./api";
+import { verifySite, type Site } from "./api";
 
 /** Wrap the app once so tooltips share hover-intent timing. */
 export const TooltipProvider = RadixTooltip.Provider;
@@ -124,11 +124,68 @@ export function WidgetInstall({
   const { copied, copy } = useCopy(tag);
   return (
     <div className={("widget-install " + className).trim()}>
-      <span className="widget-install-tag" title={tag}>{tag}</span>
+      <input
+        className="widget-install-tag"
+        value={tag}
+        readOnly
+        spellCheck={false}
+        aria-label="Your widget script tag"
+        title={tag}
+        onFocus={(e) => e.currentTarget.select()}
+      />
       <Button className="pink" onClick={() => { copy(); onCopied?.(); }}>
         {copied ? "Copied" : "Copy"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * The one "Verify my site" control — looks for your widget on your live site, flips
+ * you to verified in place, and toasts. Shared by the onboarding / /verify setup and
+ * the home right-rail CTA, so both behave identically: black button that spins while
+ * it checks, label flips to "Verify again" after a miss. `onVerified` fires on
+ * success; `onMiss` lets the caller add its own next step (a help link, a hint).
+ */
+export function VerifyButton({
+  className = "primary lg",
+  onVerified,
+  onMiss,
+}: {
+  className?: string;
+  onVerified?: () => void;
+  onMiss?: () => void;
+}) {
+  const { viewer, setViewer } = useViewer();
+  const toast = useToast();
+  const [checking, setChecking] = useState(false);
+  const [missed, setMissed] = useState(false);
+
+  const check = async () => {
+    if (checking || !viewer) return;
+    setChecking(true);
+    try {
+      const r = await verifySite();
+      if (r.verified) {
+        setViewer({ ...viewer, verified: true });
+        toast("Verified ✓");
+        onVerified?.();
+      } else {
+        setMissed(true);
+        onMiss?.();
+      }
+    } catch {
+      setMissed(true);
+      onMiss?.();
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <Button className={className} loading={checking} onClick={check}>
+      {missed ? "Verify again" : "Verify"}
+    </Button>
   );
 }
 
@@ -267,6 +324,28 @@ export function PageHead({ title, children }: { title: string; children?: ReactN
       <h1 className="page-title">{title}</h1>
       {children && <div className="page-head-actions">{children}</div>}
     </header>
+  );
+}
+
+/** Lucide "inbox" — the default empty-state glyph. */
+export const InboxIcon = ({ size = 40 }: { size?: number }) => (
+  <Lucide size={size}>
+    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+  </Lucide>
+);
+
+/**
+ * The canonical empty state: a centered icon over one short line, filling the column.
+ * Used wherever a list is empty (feed, saved, messages, notes). Defaults to the inbox
+ * glyph; pass `icon` for a context-specific one.
+ */
+export function EmptyState({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <span className="empty-state-ico">{icon ?? <InboxIcon />}</span>
+      <p className="empty-state-text">{children}</p>
+    </div>
   );
 }
 

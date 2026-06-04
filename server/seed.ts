@@ -61,6 +61,10 @@ const ID = {
   pg: "signmysite:0a1b2c3d4e5f0b77",
   dan: "signmysite:1b2c3d4e5f600c88",
   cassidy: "signmysite:2c3d4e5f60710d99",
+  // The starter recommendation set — classic personal sites every fresh feed leads with.
+  patrick: "signmysite:3d4e5f6071820eaa",
+  notboring: "signmysite:4e5f60718293afbb",
+  waitbutwhy: "signmysite:5f6071829304b0cc",
 };
 
 type Seed = {
@@ -83,6 +87,20 @@ const members: Seed[] = [
   // paulgraham.com has no og:image — falls back to the neutral placeholder, a
   // truthful demo of that case (and the canonical minimalist personal site).
   { id: ID.pg, handle: "pg", name: "Paul Graham", url: "https://paulgraham.com", thumb: null },
+  // The starter recommendation set (generated preview cards — we don't have their
+  // real og:images on hand). "Patrick Coulson" read as Patrick Collison.
+  { id: ID.patrick, handle: "patrick", name: "Patrick Collison", url: "https://patrickcollison.com", avatar: favicon("patrickcollison.com"), thumb: siteCard("Patrick Collison", 4) },
+  { id: ID.notboring, handle: "notboring", name: "Not Boring", url: "https://www.notboring.co", avatar: favicon("notboring.co"), thumb: siteCard("Not Boring", 3) },
+  { id: ID.waitbutwhy, handle: "waitbutwhy", name: "Wait But Why", url: "https://waitbutwhy.com", avatar: favicon("waitbutwhy.com"), thumb: siteCard("Wait But Why", 5) },
+];
+
+// Blanket recommendations (for_id NULL) — the curated starter set, so even a brand-new
+// account's feed has something. Real per-member ranking comes later.
+const recommendations: Array<[string, string]> = [
+  [ID.pg, "Essays on startups, work, and how to think clearly."],
+  [ID.patrick, "Reading lists and big open questions, from Stripe's cofounder."],
+  [ID.notboring, "Business strategy, made genuinely fun. by Packy McCormick."],
+  [ID.waitbutwhy, "Long, illustrated deep-dives by Tim Urban."],
 ];
 
 // Public pins = a member's curated webring (max 3). Maya's three drive the widget demo.
@@ -177,6 +195,7 @@ for (const [index, member] of members.entries()) {
 for (const [follower, target] of edges) await db.setEdge(follower, target);
 for (const [id, tier] of prominence) await db.updateMember(id, { prominence: tier });
 for (const [member, target] of pins) await db.setPin(member, target);
+for (const [target, reason] of recommendations) await db.addRecommendation(target, reason);
 let n = 0;
 for (const a of activity) {
   if (a.kind === "save") await db.setSave(a.by, a.on, hoursAgo(a.h));

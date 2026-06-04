@@ -4,17 +4,12 @@
  * (a site tile, the state-aware site CTA, an empty-state line). One accent, hairline
  * rules, Söhne; nothing here introduces a new color.
  */
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { updateProfile, type Member, type Site } from "../api";
 import { host, profileHref, validateSite } from "../lib";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Button, PinIcon, SiteThumbnail } from "../ui";
-
-/** An empty-state line: calm, never a dead end — always says what to do next. */
-export function Hint({ children }: { children: ReactNode }) {
-  return <p className="home-hint">{children}</p>;
-}
+import { Avatar, Button, PinIcon, SiteThumbnail, VerifyButton } from "../ui";
 
 /**
  * The one follow control, shared by the feed and both rails — the same lifecycle as
@@ -143,17 +138,21 @@ function AddSiteForm() {
   );
 }
 
-// Linked but unproven: a nudge into the guided /verify flow. The whole install lives
-// there, so this just points the way — and useAutoReverify flips the rail to analytics
-// the moment the widget is detected, so there's no button to press here twice.
+// Linked but unproven: verify in place with the same control as the setup page. On
+// success the viewer flips verified and this whole block gives way to analytics; on a
+// miss we surface "I need help", which opens the full guided /verify flow.
 function VerifyCTA({ url }: { url: string }) {
+  const [missed, setMissed] = useState(false);
   return (
     <section className="rail-block cta cta-verify">
       <div className="cta-head">
         <h2>Verify your site</h2>
         <p>Add the one-line widget to <b>{host(url)}</b> to confirm it's yours and unlock analytics.</p>
       </div>
-      <Link className="btn primary" to="/verify">Verify your site</Link>
+      <div className="cta-verify-actions">
+        <VerifyButton className="primary" onMiss={() => setMissed(true)} />
+        {missed && <Link className="btn" to="/verify">I need help</Link>}
+      </div>
     </section>
   );
 }

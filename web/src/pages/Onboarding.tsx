@@ -279,12 +279,9 @@ export function Onboarding() {
           <div className="onb-step onb-widget" key="step3">
             <h1>Add signmysite to your site</h1>
 
-            <WidgetSetup viewer={viewer} onVerified={finish} />
-
-            <div className="onb-foot">
-              <Button className="naked" onClick={finish}>Skip</Button>
-              <Button className="primary lg" loading={saving} onClick={finish}>Done</Button>
-            </div>
+            {/* Verify + Skip live in WidgetSetup's footer (shared with /verify), so
+                there's one clear pair of bottom actions — no separate "Done". */}
+            <WidgetSetup viewer={viewer} onVerified={finish} onSkip={finish} />
           </div>
         )}
 

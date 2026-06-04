@@ -122,6 +122,19 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created DESC);
 CREATE INDEX IF NOT EXISTS comments_author ON comments (author_id, created DESC);
+-- Recommended sites surfaced in the feed. Deliberately tiny + open-ended: a blanket
+-- recommendation has for_id NULL (everyone sees it); a future personalized engine just
+-- writes rows with for_id set to a member — the feed already unions both. reason is
+-- free text shown under the card. (Today these are a hand-picked starter set so even a
+-- brand-new feed isn't empty; real ranking comes later.)
+CREATE TABLE IF NOT EXISTS recommendations (
+  id        TEXT PRIMARY KEY,
+  target_id TEXT NOT NULL,
+  for_id    TEXT,            -- the member it's for; NULL = blanket (everyone)
+  reason    TEXT,
+  created   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recommendations_for ON recommendations (for_id, created DESC);
 -- Direct messages between two members. A "conversation" is just every message
 -- exchanged by a pair, in either direction — there's no separate threads table, the
 -- (sender, recipient) pair IS the thread. Deliberately close to the comments shape.
@@ -223,8 +236,8 @@ const pool = new pg.Pool({
 if (process.env.SIGNMYSITE_RESET_DB === "1") {
   await pool.query(`
     DROP TABLE IF EXISTS members, snapshots, visits, page_views, edges, saves, pins,
-      comments, messages, message_reactions, sessions, magic_links, avatars,
-      cohorts, cohort_members CASCADE;
+      comments, recommendations, messages, message_reactions, sessions, magic_links,
+      avatars, cohorts, cohort_members CASCADE;
     DROP VIEW IF EXISTS member_cards CASCADE;
     DROP TYPE IF EXISTS prominence CASCADE;`);
   console.warn("[db] SIGNMYSITE_RESET_DB=1 — dropped all objects before recreating the schema");
@@ -254,7 +267,7 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, edges, saves, pins, comments, messages, message_reactions, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
+  await pool.query("TRUNCATE members, edges, saves, pins, comments, recommendations, messages, message_reactions, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
 }
 
 // Manual fame tier, ranking a member in someone's "Followed by" facepile:
@@ -736,11 +749,12 @@ export async function analytics(id: string, range: Range = "all"): Promise<Analy
 }
 
 // ---- the home feed -------------------------------------------------------
-// One reverse-chron activity stream: what your network does to sites, and what
-// happens to yours. Three kinds — saved / comment / update — each reads "A {did}
-// B's site" and carries B's og:image. Sources are small bounded queries merged +
-// sorted in JS (clearer than one giant UNION, and each stays independently tunable).
-export type FeedKind = "saved" | "comment" | "update";
+// One reverse-chron activity stream: what your network does to sites, what happens to
+// yours, plus curated recommendations so a fresh feed is never empty. Kinds — saved /
+// comment / update / recommendation — each carries a site's og:image. Sources are
+// small bounded queries merged + sorted in JS (clearer than one giant UNION, and each
+// stays independently tunable).
+export type FeedKind = "saved" | "comment" | "update" | "recommendation";
 export type FeedSite = Identity & { thumbnail: string | null };
 export type FeedRow = {
   kind: FeedKind;
@@ -780,7 +794,7 @@ export async function feed(
   const cols = (alias: string, pre: string) =>
     `${alias}.id AS ${pre}id, ${alias}.handle AS ${pre}handle, ${alias}.name AS ${pre}name, ${alias}.avatar AS ${pre}avatar, ${alias}.url AS ${pre}url`;
 
-  const [comments, saves, updates] = await Promise.all([
+  const [comments, saves, updates, recommendations] = await Promise.all([
     // Notes + reactions on your site (incl. private), and the public ones people you
     // follow leave anywhere else.
     pool.query(
@@ -809,6 +823,15 @@ export async function feed(
         WHERE e.follower_id = $1 AND m.last_edited IS NOT NULL
           AND ($2::text IS NULL OR m.last_edited < $2)
         ORDER BY m.last_edited DESC LIMIT $3`, p),
+    // Recommended sites — blanket (for_id NULL) + any personalized to you — that you
+    // don't already follow and aren't your own. The starter set keeps a fresh feed alive.
+    pool.query(
+      `SELECT r.created AS at, r.reason, ${cols("m", "a_")}, ${cols("m", "t_")}, m.thumbnail AS t_thumbnail
+         FROM recommendations r JOIN members m ON m.id = r.target_id
+        WHERE (r.for_id IS NULL OR r.for_id = $1) AND m.id <> $1
+          AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.follower_id = $1 AND e.target_id = m.id)
+          AND ($2::text IS NULL OR r.created < $2)
+        ORDER BY r.created DESC LIMIT $3`, p),
   ]);
 
   const rows: FeedRow[] = [
@@ -819,6 +842,8 @@ export async function feed(
       kind: "saved", at: r.at, actor: ident(r, "a_"), target: identSite(r, "t_") })),
     ...updates.rows.map((r): FeedRow => ({
       kind: "update", at: r.at, actor: ident(r, "a_"), target: identSite(r, "t_") })),
+    ...recommendations.rows.map((r): FeedRow => ({
+      kind: "recommendation", at: r.at, actor: ident(r, "a_"), target: identSite(r, "t_"), body: r.reason })),
   ];
   rows.sort((x, y) => (Date.parse(y.at) || 0) - (Date.parse(x.at) || 0));
   return rows.slice(0, limit);
@@ -839,6 +864,15 @@ export async function feedDigest(
   );
   const x = r.rows[0] || {};
   return { days, newViews: Number(x.views || 0), newComments: Number(x.comments || 0), newFollowers: Number(x.followers || 0) };
+}
+
+// Recommend a site in the feed. Blanket when forId is omitted (everyone); pass a
+// member id to target one person — the seam a real recommendation engine writes to.
+export async function addRecommendation(targetId: string, reason: string, forId?: string | null): Promise<void> {
+  await pool.query(
+    "INSERT INTO recommendations (id, target_id, for_id, reason, created) VALUES ($1, $2, $3, $4, $5)",
+    ["rec_" + token(8), targetId, forId ?? null, reason, now()]
+  );
 }
 
 // ---- freshness + snapshots -----------------------------------------------

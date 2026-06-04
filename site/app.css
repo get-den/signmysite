@@ -202,9 +202,11 @@ b, strong { font-weight: var(--w-semibold); }
 .btn:hover, .google:hover { transition: none; text-decoration: none; background: var(--surface-2); }
 .btn:active, .google:active { transform: scale(.98); }
 .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--white); }
-.btn.primary:hover { background: #262626; }
+/* Hover shifts the WHOLE button to the darker shade — border moves with the fill, so
+   there's no lighter outline left ringing the button (and no shadow). */
+.btn.primary:hover { background: #262626; border-color: #262626; }
 .btn.pink { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn.pink:hover { background: #e5244f; }
+.btn.pink:hover { background: #e5244f; border-color: #e5244f; }
 .btn.sm { min-height: 34px; padding: 0 11px; font-size: 13px; }
 .btn.naked { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.naked:hover { background: var(--surface-2); color: var(--ink); }
@@ -993,7 +995,8 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .confirm-cta { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .confirm-cta p { margin: 0; color: var(--text); font-size: 17px; }
 .btn.lg { min-height: 50px; padding: 0 20px; font-size: 16px; }
-.confirm-skip { margin-top: 8px; color: var(--muted); font-size: 14px; }
+.confirm-skip { margin-top: 8px; color: var(--muted); font-size: 14px; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.confirm-skip:hover { color: var(--ink); }
 
 /* The post-action buttons stack: back to where they came from (accent primary),
    then the canonical "Add to my site" nudge. Centered to the confirm column. */
@@ -1135,8 +1138,6 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .onb-card-wide { max-width: 860px; }
 .onb-widget { gap: 28px; }
 .onb-widget h1 { font-size: 34px; }
-/* Skip stays quiet on the left; Done leads on the right. */
-.onb-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
 
 /* ---- social links editor (shared: onboarding + edit profile) ------------- */
 .links-edit { display: flex; flex-direction: column; gap: 10px; }
@@ -1223,15 +1224,17 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .platform {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
   min-height: 84px; padding: 14px 12px;
-  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink);
+  /* No outline by default — a filled grey chip. The 1px transparent border keeps the
+     box the same size as the selected state, so picking one never nudges the grid. */
+  border: 1px solid transparent; border-radius: var(--radius); background: var(--surface-2); color: var(--ink);
   font: var(--w-semibold) 13px/1.2 'Sohne', system-ui, sans-serif; text-align: center; cursor: pointer;
   transition: background 117ms ease, border-color 117ms ease;
 }
 .platform-logo { display: grid; place-items: center; width: 26px; height: 26px; color: var(--muted); }
 .platform-logo img { width: 24px; height: 24px; object-fit: contain; border-radius: 5px; }
-.platform:hover { background: var(--surface-2); }
-/* Selected: a soft filled state, not a hard double outline. */
-.platform.on { border-color: var(--ink); background: var(--surface-2); }
+.platform:hover { background: var(--surface-3); }
+/* Selected: just a grey outline — never a dark border or a heavy fill. */
+.platform.on { border-color: var(--faint); background: var(--surface-2); }
 
 /* The paste-here guide: instructions left, a preview image right; stacks on narrow. */
 .vguide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
@@ -1240,8 +1243,25 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .vsteps li { padding-left: 4px; }
 .vguide-shot { border-radius: var(--radius); overflow: hidden; background: var(--surface-2); }
 .vguide-shot .site-thumb { display: block; width: 100%; }
-.vcheck { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
-.vcheck-miss { color: var(--muted); font-size: 14px; }
+
+/* The one-line script tag as a readonly field + Copy beside it, so it reads as
+   something you copy from (a properly rounded pill), not loose text. */
+.widget-install { display: flex; align-items: stretch; gap: 10px; }
+.widget-install-tag {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-3); color: var(--ink);
+  font: var(--w-normal) 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 11px 16px; outline: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.widget-install-tag:focus { box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
+.widget-install .btn { flex: 0 0 auto; }
+
+/* The commit row: Verify + (when onboarding) Skip, side by side and prominent. */
+.vfoot { display: flex; gap: 12px; margin-top: 8px; }
+.vfoot .btn { flex: 1; min-height: 50px; padding: 0 20px; font-size: 16px; }
+.vfoot-miss { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
 @media (max-width: 720px) { .vguide { grid-template-columns: 1fr; } }
 
 /* ---- canonical spinner --------------------------------------------------- */

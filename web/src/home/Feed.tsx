@@ -10,9 +10,9 @@
 import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
 import { compact, isReaction, profileHref, relTime } from "../lib";
-import { Avatar, CloseIcon, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, CloseIcon, EmptyState, SiteThumbnail, Spinner } from "../ui";
 import { useSearch } from "../providers";
-import { FollowButton, Hint } from "./parts";
+import { FollowButton } from "./parts";
 import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
 
 export function Feed({ store }: { store: HomeStore }) {
@@ -28,11 +28,7 @@ export function Feed({ store }: { store: HomeStore }) {
       {feedLoading ? (
         <div className="feed-loading"><Spinner size={22} /></div>
       ) : shown.length === 0 ? (
-        <Hint>
-          {q
-            ? "Nothing in your feed matches that."
-            : "Your feed is quiet for now. Follow a few people and the sites they save, note and update will land here."}
-        </Hint>
+        <EmptyState>{q ? "No matches in your feed." : "Your feed is empty."}</EmptyState>
       ) : (
         <ol className="feed-list">
           {shown.map((it) => (
@@ -95,7 +91,7 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
   const who = a?.name || (a?.handle ? `@${a.handle}` : "Someone");
   const yours = it.target.id === store.viewer.id;
   const react = it.kind === "comment" && it.body && isReaction(it.body) ? it.body.trim() : "";
-  const showComment = it.kind === "comment" && !react;
+  const showQuote = !!it.body && !react; // a comment's text or a recommendation's reason
 
   return (
     <article className="feed-item">
@@ -112,7 +108,7 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
         </div>
         {/* Your own site's preview is redundant — you know what it looks like. */}
         {!yours && <SitePreview site={it.target} />}
-        {showComment && <p className="feed-quote">{it.body}</p>}
+        {showQuote && <p className="feed-quote">{it.body}</p>}
       </div>
     </article>
   );
@@ -122,6 +118,7 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
     switch (it.kind) {
       case "saved": return <>saved {site()}</>;
       case "update": return <>updated their site</>;
+      case "recommendation": return <span className="feed-rec">· Recommended</span>;
       case "comment":
         return react
           ? <>reacted <span className="feed-react">{react}</span> to {site()}</>

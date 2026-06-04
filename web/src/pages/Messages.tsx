@@ -14,7 +14,7 @@ import {
   type Thread,
 } from "../api";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Loading, PageHead, Spinner } from "../ui";
+import { Avatar, EmptyState, Loading, PageHead, Spinner } from "../ui";
 import { profileHref, relTime, REACTIONS } from "../lib";
 import { FeedLayout } from "../home/FeedLayout";
 
@@ -46,10 +46,7 @@ export function Messages() {
         {convos === null ? (
           <Loading />
         ) : convos.length === 0 ? (
-          <div className="empty">
-            No messages yet. Open someone's profile and hit Message, or reply from a note
-            they left you.
-          </div>
+          <EmptyState>No messages yet.</EmptyState>
         ) : (
           <div className="dm-convos">
             {convos.map((c) => (
@@ -63,9 +60,7 @@ export function Messages() {
         {peerId ? (
           <Chat key={peerId} peerId={peerId} onActivity={loadConvos} />
         ) : (
-          <div className="dm-blank">
-            <p>Select a conversation, or start one from someone's profile.</p>
-          </div>
+          <EmptyState>Select a conversation.</EmptyState>
         )}
       </section>
       </div>
