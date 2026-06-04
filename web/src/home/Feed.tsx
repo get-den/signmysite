@@ -110,7 +110,8 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
             {!yours && it.target.id !== store.viewer.id && <FollowSite site={it.target} store={store} />}
           </div>
         </div>
-        <SitePreview site={it.target} />
+        {/* Your own site's preview is redundant — you know what it looks like. */}
+        {!yours && <SitePreview site={it.target} />}
         {showComment && <p className="feed-quote">{it.body}</p>}
       </div>
     </article>

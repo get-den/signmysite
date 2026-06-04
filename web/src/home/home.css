@@ -143,6 +143,8 @@
   align-self: flex-start; max-width: 100%; padding: 10px 14px; border-radius: 4px 16px 16px 16px;
   background: var(--surface-2); color: var(--text); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere;
 }
+/* tuck the comment up close under its thumbnail (cancels most of the body gap) */
+.feed-media + .feed-quote { margin-top: -7px; }
 .feed-more { display: grid; place-items: center; min-height: 56px; color: var(--muted); }
 
 /* ---- right rail ---------------------------------------------------------- */
