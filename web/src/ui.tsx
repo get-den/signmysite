@@ -110,7 +110,7 @@ export function CopyField({ text, label = "Copy" }: { text: string; label?: stri
 
 /**
  * The canonical "add the widget" control: one line, copied with a tap. Used
- * everywhere someone installs Den (the dashboard nudge, the verify page). No
+ * everywhere someone installs signmysite (the dashboard nudge, the verify page). No
  * variants — a label and a Copy button; the script is copied, never shown in full.
  * `onCopied` lets a caller (the verify flow) start checking the moment it's copied.
  */
@@ -122,7 +122,7 @@ export function WidgetInstall({
   onCopied?: () => void;
   className?: string;
 }) {
-  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^den:/, "")}.js"></script>`;
+  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^signmysite:/, "")}.js"></script>`;
   const { copied, copy } = useCopy(tag);
   return (
     <div className={("widget-install " + className).trim()}>
@@ -278,7 +278,7 @@ export function GoogleIcon() {
   );
 }
 
-/** A followed/saved site as a list row, linking to the member's Den profile. */
+/** A followed/saved site as a list row, linking to the member's signmysite profile. */
 export function BlogRow({ blog }: { blog: Site }) {
   const href = profileHref(blog);
   return (

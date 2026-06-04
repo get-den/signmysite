@@ -35,7 +35,7 @@
 /* calm empty-state line — never a dead end */
 .home-hint { margin: 0; padding: 18px 0 6px; color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 52ch; }
 
-/* a Den reader as a row: identity + how they read you + follow-back. Shared by
+/* a signmysite reader as a row: identity + how they read you + follow-back. Shared by
    Brief (priority list) and Orbit (legend). */
 .reader-list { list-style: none; margin: 0; padding: 0; }
 .reader { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
@@ -235,17 +235,6 @@ a.signal-reply:hover { color: var(--accent); text-decoration: underline; text-un
 .widget-install { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--surface-2); }
 .widget-install-label { color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
 .widget-install .btn { flex: 0 0 auto; }
-/* Verify CTA: the install opens inline; copying kicks off a live check you can re-run. */
-.cta-install { display: flex; flex-direction: column; gap: 12px; align-self: stretch; max-width: 460px; }
-.cta-checking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
-.cta-checking span { flex: 1; min-width: 0; }
-.cta-refresh {
-  flex: 0 0 auto; display: inline-grid; place-items: center; width: 32px; height: 32px;
-  border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--muted);
-  cursor: pointer; font-size: 15px; transition: background 117ms ease, color 117ms ease;
-}
-.cta-refresh:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
-.cta-refresh:disabled { opacity: .5; cursor: default; }
 
 /* KPI cards — the executive summary */
 .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }

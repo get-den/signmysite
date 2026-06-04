@@ -1,6 +1,6 @@
-# Den Design System
+# signmysite Design System
 
-Den is flat, rounded, fast, and personal. The visual target is a friendly overlap
+signmysite is flat, rounded, fast, and personal. The visual target is a friendly overlap
 between Linktree simplicity, ChatGPT clarity, and Dribbble discovery grids.
 
 ## Principles

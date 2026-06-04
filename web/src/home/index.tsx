@@ -30,7 +30,7 @@ const LAYOUTS: Array<LayoutMeta & { Component: ComponentType<{ data: HomeData }>
   { id: "gallery", label: "Gallery", blurb: "Just the sites. A wall of personal pages to browse, pin and collect.", Component: Gallery },
 ];
 
-const STORE_KEY = "den:home-layout";
+const STORE_KEY = "signmysite:home-layout";
 
 function readStored(): LayoutId {
   try {

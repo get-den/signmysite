@@ -1,6 +1,6 @@
 /*
  * Gallery — "The wall." The home stripped to its most honest job: look at the
- * personal sites. Den recedes to a thin bar of controls and the previews fill the
+ * personal sites. signmysite recedes to a thin bar of controls and the previews fill the
  * page. Your pinned three lead as large tiles (the showcase that rides to your
  * public profile); below, a quiet grid of the sites you follow and ones you might.
  * Hover a tile to pin it. The job is browsing and curating — taste, made visible.

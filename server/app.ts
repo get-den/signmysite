@@ -1,5 +1,5 @@
 /*
- * The Den API, on Hono.
+ * The signmysite API, on Hono.
  *
  *   GET  /api/auth/google        start Sign in with Google (redirect)
  *   GET  /api/auth/google/callback   finish Google sign-in, set session
@@ -12,7 +12,7 @@
  *   GET  /api/profile/:id        public profile
  *   GET  /api/profile/:id/stats  views / followers / following / viewer state
  *   POST /api/profile/:id/view   log a view (who/where/referrer), or attach exit duration
- *   GET  /api/analytics          owner-only: counts, avg engaged time, named Den visitors
+ *   GET  /api/analytics          owner-only: counts, avg engaged time, named signmysite visitors
  *   GET  /api/profile/:id/history    the site's version timeline (snapshots)
  *   GET  /api/profile/:id/comments   list notes (private ones redacted unless owner/author)
  *   POST /api/profile/:id/comments   leave a note (members only; public|private)
@@ -51,7 +51,7 @@ import { renderProfileInner, siteHeader } from "./profile.ts";
 import { BASE } from "./config.ts";
 
 const SECURE = BASE.startsWith("https://");
-const COOKIE = "den_session";
+const COOKIE = "signmysite_session";
 const HAS_MAILER = MAIL_LIVE; // true when RESEND_API_KEY is set (see mail.ts)
 const oauthStates = new Set<string>();               // CSRF state for the OAuth dance
 // Uploaded avatars. The client crops + re-encodes to a small square before upload,
@@ -64,7 +64,7 @@ export const app = new Hono();
 // Allow cross-origin calls from any personal site hosting the widget.
 // We accept a Bearer token (first-party localStorage on the host site) because
 // third-party cookies are blocked by Safari and deprecated in Chrome — the
-// cookie path still works first-party on den.com itself.
+// cookie path still works first-party on signmysite.com itself.
 app.use("/api/*", cors({
   origin: (o) => o || "*",
   credentials: true,
@@ -85,7 +85,7 @@ const publicMember = (m: db.Member | db.SiteCard) => ({
 const viewerJson = (m: db.Member) => ({ ...publicMember(m), onboarded: m.onboarded, verified: m.verified });
 // A pinned site shown in a profile/widget: identity, its live preview image (for
 // the widget's thumbnail/webring views), + the pinner's own public notes (the
-// bubble). Where it links — own URL if any, else the Den profile. The thumbnail
+// bubble). Where it links — own URL if any, else the signmysite profile. The thumbnail
 // is a short cacheable URL (og:image), never inline bytes, so it loads in
 // parallel off the critical path and the edge can cache it.
 const pinnedRow = (p: db.PinnedSite) => ({
@@ -95,11 +95,11 @@ const pinnedRow = (p: db.PinnedSite) => ({
 // A compact identity for the widget's facepile rows ("Followed by …" + mutuals).
 const faceJson = (m: db.Identity) => ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, url: m.url });
 // Resolve the signed-in member from either credential. The widget (embedded
-// cross-site, where cookies are blocked) sends a Bearer token; den.com itself
+// cross-site, where cookies are blocked) sends a Bearer token; signmysite.com itself
 // sends the first-party cookie. We try the Bearer token first, but FALL BACK to
 // the cookie when it yields nothing — so a stale token left in a host site's
 // localStorage (e.g. after logging out elsewhere) can never shadow a valid
-// den.com session. Sessions are token-keyed in the DB, same either way.
+// signmysite.com session. Sessions are token-keyed in the DB, same either way.
 async function viewerAuth(c: Context): Promise<{ member?: db.Member; via: "bearer" | "cookie" | null }> {
   const auth = c.req.header("authorization");
   const bearer = auth && auth.slice(0, 7).toLowerCase() === "bearer " ? auth.slice(7).trim() : "";
@@ -152,7 +152,7 @@ app.get("/api/auth/google", async (c) => {
   const state = token(12);
   oauthStates.add(state);
   // Stash return target + popup mode, keyed by state, in a short cookie.
-  setCookie(c, "den_ret", JSON.stringify({ state, ret, popup }), {
+  setCookie(c, "signmysite_ret", JSON.stringify({ state, ret, popup }), {
     httpOnly: true, path: "/", maxAge: 600, sameSite: "Lax", secure: SECURE,
   });
 
@@ -164,12 +164,12 @@ app.get("/api/auth/google", async (c) => {
 });
 
 app.get("/api/auth/google/callback", async (c) => {
-  const stash = JSON.parse(getCookie(c, "den_ret") || "{}");
+  const stash = JSON.parse(getCookie(c, "signmysite_ret") || "{}");
   const ret = typeof stash.ret === "string" ? stash.ret : "/";
   const state = c.req.query("state") || "";
   if (!state || state !== stash.state) return c.text("bad state", 400);
   oauthStates.delete(state);
-  deleteCookie(c, "den_ret", { path: "/" });
+  deleteCookie(c, "signmysite_ret", { path: "/" });
 
   let token: string;
   try {
@@ -192,7 +192,7 @@ function popupFinish(token: string): string {
 <body style="font-family:-apple-system,system-ui,sans-serif;padding:40px;text-align:center;color:#0b0b0c">
 <p>Signed in. You can close this window.</p>
 <script>
-  try { if (window.opener) window.opener.postMessage({ den: "signed-in", token: ${JSON.stringify(token)} }, "*"); } catch (e) {}
+  try { if (window.opener) window.opener.postMessage({ signmysite: "signed-in", token: ${JSON.stringify(token)} }, "*"); } catch (e) {}
   setTimeout(function(){ try { window.close(); } catch (e) {} }, 300);
 </script>`;
 }
@@ -235,7 +235,7 @@ app.post("/api/register", async (c) => {
 app.post("/api/sites/claim", async (c) => {
   const b = await body(c);
   const id = String(b?.id || "");
-  if (!/^den:[a-z0-9]{8,}$/.test(id)) return c.json({ error: "valid id required" }, 400);
+  if (!/^signmysite:[a-z0-9]{8,}$/.test(id)) return c.json({ error: "valid id required" }, 400);
   const existing = await db.getMember(id);
   if (existing) return c.json({ id: existing.id, handle: existing.handle, claimed: true });
   const handle = await uniqueHandle();
@@ -422,7 +422,7 @@ app.post("/api/avatar", async (c) => {
   if (bytes.length > AVATAR_MAX_BYTES) return c.json({ error: "image too large" }, 413);
   await db.setAvatar(viewer.id, bytes, mime);
   const version = createHash("sha256").update(bytes).digest("hex").slice(0, 12);
-  const url = `${BASE}/avatars/${viewer.id.replace(/^den:/, "")}?v=${version}`;
+  const url = `${BASE}/avatars/${viewer.id.replace(/^signmysite:/, "")}?v=${version}`;
   const updated = await db.updateMember(viewer.id, { avatar: url });
   return c.json(publicMember(updated!));
 });
@@ -431,7 +431,7 @@ app.post("/api/avatar", async (c) => {
 // changes whenever the image does, so caches never serve a stale picture. Public
 // and cross-origin so the widget can render it embedded on any site.
 app.get("/avatars/:id", async (c) => {
-  const a = await db.getAvatar("den:" + c.req.param("id"));
+  const a = await db.getAvatar("signmysite:" + c.req.param("id"));
   if (!a) return c.notFound();
   c.header("content-type", a.mime);
   c.header("cache-control", "public, max-age=31536000, immutable");
@@ -547,7 +547,7 @@ app.post("/api/verify", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);
   if (!viewer.url) return c.json({ verified: false, reason: "no-site" }, 400);
-  const found = await siteHasWidget(viewer.url, viewer.id.replace(/^den:/, ""));
+  const found = await siteHasWidget(viewer.url, viewer.id.replace(/^signmysite:/, ""));
   const updated = found ? await db.updateMember(viewer.id, { verified: true }) : viewer;
   return c.json({ verified: !!updated!.verified, reason: found ? null : "not-found" });
 });
@@ -561,7 +561,7 @@ async function beaconBody(c: Context): Promise<any> {
   try { return JSON.parse(await c.req.text()); } catch { return {}; }
 }
 // Keep only the referrer's host (not the full URL) — enough for "came from X",
-// small, and less to retain. Drops same-origin Den referrers as noise.
+// small, and less to retain. Drops same-origin signmysite referrers as noise.
 function refHost(ref: unknown): string | null {
   if (typeof ref !== "string" || !ref) return null;
   try {
@@ -589,7 +589,7 @@ app.post("/api/profile/:id/view", async (c) => {
     return c.json({ ok: true });
   }
 
-  // Initial view: goes through the authed path, so a signed-in Den visitor is
+  // Initial view: goes through the authed path, so a signed-in signmysite visitor is
   // attributed by id (anonymous visitors stay anonymous, viewer NULL).
   const viewer = await viewerOf(c);
   if (viewer?.id === id) return c.json({ self: true }); // don't count self-views
@@ -605,8 +605,8 @@ app.post("/api/profile/:id/view", async (c) => {
 });
 
 // Relational analytics — owner-only, your own site. Headline counts, the real
-// average engaged time, and the named Den members who've read you, each tagged
-// with whether you already follow them: the "people with Den sites visited you —
+// average engaged time, and the named signmysite members who've read you, each tagged
+// with whether you already follow them: the "people with signmysite sites visited you —
 // follow them back" discovery hook. Only ever returns the caller's own data.
 app.get("/api/analytics", async (c) => {
   const viewer = await viewerOf(c);
@@ -624,17 +624,17 @@ const NOTIFY_KINDS: Array<[db.NotifyKind, string, string]> = [
   ["message", "Direct messages", "When someone sends you a message"],
   ["save", "Saves", "When someone saves your site"],
   ["followedUpdate", "Sites you follow", "When a site you follow posts an update"],
-  ["siteUpdated", "Your site updates", "When Den detects your own site changed"],
+  ["siteUpdated", "Your site updates", "When signmysite detects your own site changed"],
   ["milestone", "Milestones", "When you pass 100 views, 10 followers, and so on"],
 ];
 
 // Manage notifications — reached from any email's footer link. Token-gated, so it
-// works with NO sign-in (the recipient may not have a den.com session) yet a
+// works with NO sign-in (the recipient may not have a signmysite.com session) yet a
 // stranger can't open it. See util.notifyToken.
 app.get("/notify", async (c) => {
   const id = c.req.query("m") || "";
   const t = c.req.query("t") || "";
-  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This settings link is no longer valid. Use the link in a recent Den email.</p>"), 400);
+  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This settings link is no longer valid. Use the link in a recent signmysite email.</p>"), 400);
   const m = await db.getMember(id);
   if (!m) return c.html(page("Not found", "<h1>Not found</h1>"), 404);
   return c.html(notifyPage(m, t));
@@ -666,7 +666,7 @@ const UNSUB_BTN = `style="font:inherit;font-size:15px;font-weight:600;padding:10
 
 app.get("/unsubscribe", (c) => {
   const id = c.req.query("m") || "", t = c.req.query("t") || "", k = c.req.query("k") || "";
-  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This unsubscribe link is no longer valid. Use the link in a recent Den email.</p>"), 400);
+  if (!checkNotifyToken(id, t)) return c.html(page("Link expired", "<h1>Link expired</h1><p>This unsubscribe link is no longer valid. Use the link in a recent signmysite email.</p>"), 400);
   return c.html(page("Unsubscribe", `<h1>Unsubscribe</h1>
     <p>Stop sending ${escapeHtml(unsubLabel(k))} to this address?</p>
     <form method="post" action="${escapeHtml(unsubAction(id, t, k))}"><button type="submit" ${UNSUB_BTN}>Unsubscribe</button></form>
@@ -692,7 +692,7 @@ function notifyPage(m: db.Member, t: string): string {
      </label>`).join("");
   const inner = `<div class="narrow">
     <h1 class="ntitle">Email notifications</h1>
-    <p class="nsub">for ${escapeHtml(m.name || "your Den profile")}${m.email ? ` · ${escapeHtml(m.email)}` : ""}</p>
+    <p class="nsub">for ${escapeHtml(m.name || "your signmysite profile")}${m.email ? ` · ${escapeHtml(m.email)}` : ""}</p>
     <div class="card nlist">${rows}</div>
     <div class="nactions"><button id="nsave" class="btn pink">Save preferences</button><span id="nstatus" class="nstatus"></span></div>
   </div>
@@ -717,7 +717,7 @@ function notifyPage(m: db.Member, t: string): string {
         .catch(function(){s.textContent="Could not save.";});
     });
   </script>`;
-  return sitePage("Notifications · Den", "Manage your Den email notifications.", null, inner);
+  return sitePage("Notifications · signmysite", "Manage your signmysite email notifications.", null, inner);
 }
 
 // The site's version history, newest first — the timeline behind the live
@@ -827,7 +827,7 @@ async function cardPayload(c: Context, id: string) {
     // the viewer's mutuals among them.
     followedBy: { faces: followers.map(faceJson), total: s.followers },
     mutuals: { faces: mutuals.faces.map(faceJson), total: mutuals.total },
-    script: `${BASE}/w/${m.id.replace(/^den:/, "")}.js`,
+    script: `${BASE}/w/${m.id.replace(/^signmysite:/, "")}.js`,
   });
 }
 
@@ -1232,9 +1232,9 @@ app.get("/auth", (c) => {
   const popup = c.req.query("popup") === "1";
   const gHref = `/api/auth/google?return=${encodeURIComponent(ret)}${popup ? "&popup=1" : ""}`;
   const stub = auth.GOOGLE_LIVE ? "" : " (dev stub — no real Google needed)";
-  return c.html(page("Continue to Den", `
+  return c.html(page("Continue to signmysite", `
     <h1>Sign in or create your account</h1>
-    <p class="sub">Den has no separate sign-up — continue with Google or email and your account is created if you're new.</p>
+    <p class="sub">signmysite has no separate sign-up — continue with Google or email and your account is created if you're new.</p>
     <a class="google" href="${gHref}">
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.3 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-16.5z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.6-2.1 15.5-5.6l-7.1-5.5c-2 1.4-4.6 2.2-8.4 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
       Continue with Google${stub}
@@ -1271,7 +1271,7 @@ app.get("/auth", (c) => {
             var j = await r.json();
             if (j && j.token) {
               clearInterval(timer);
-              try { if (window.opener) window.opener.postMessage({ den: "signed-in", token: j.token }, "*"); } catch (e) {}
+              try { if (window.opener) window.opener.postMessage({ signmysite: "signed-in", token: j.token }, "*"); } catch (e) {}
               out.innerHTML = "<p>Signed in. You can close this window.</p>";
               setTimeout(function () { try { window.close(); } catch (e) {} }, 500);
             }
@@ -1289,18 +1289,18 @@ app.get("/join/:code", async (c) => {
   const code = c.req.param("code").toLowerCase();
   const preview = await db.cohortPreview(code);
   if (!preview) {
-    return c.html(sitePage("Invite not found · Den", "This invite link isn’t valid.", null,
+    return c.html(sitePage("Invite not found · signmysite", "This invite link isn’t valid.", null,
       `<div class="hero"><h1>This invite isn’t valid.</h1>
        <p>The link may be mistyped, or the crew may have closed. Ask a friend for a fresh link.</p>
-       <a class="btn primary" href="/">Go to Den</a></div>`), 404);
+       <a class="btn primary" href="/">Go to signmysite</a></div>`), 404);
   }
   const { cohort, memberCount, faces } = preview;
   const viewer = await viewerOf(c);
   const here = `${BASE}/join/${cohort.code}`;
   const isMember = !!viewer && (await db.isCohortMember(cohort.id, viewer.id));
-  const desc = `Join ${cohort.name} on Den — ${memberCount} ${memberCount === 1 ? "site" : "sites"} in this crew.`;
+  const desc = `Join ${cohort.name} on signmysite — ${memberCount} ${memberCount === 1 ? "site" : "sites"} in this crew.`;
   return c.html(sitePage(
-    `Join ${cohort.name} · Den`, escapeHtml(desc), null,
+    `Join ${cohort.name} · signmysite`, escapeHtml(desc), null,
     renderJoin({ cohort, memberCount, faces, viewer, isMember }),
     siteHeader(viewer, here),
   ));
@@ -1367,7 +1367,7 @@ function joinScript(code: string): string {
 })();`;
 }
 
-// ---- public profile page (den.com/@handle) ------------------------------
+// ---- public profile page (signmysite.com/@handle) ------------------------------
 // Server-rendered so it's shareable + crawlable (link previews, instant load).
 // Reuses site/app.css — no new styles. The owner (signed in, on their own
 // profile) gets Edit profile + their widget; everyone else gets Follow/Save +
@@ -1386,15 +1386,15 @@ app.get("/:at{@.+}", async (c) => {
     db.listPinned(m.id),
   ]);
 
-  const inner = renderProfileInner({ m, s, pinned, comments, isOwner, base: BASE });
-  const desc = `${m.name} on Den`;
-  return c.html(sitePage(`${m.name} (@${m.handle}) · Den`, escapeHtml(desc), m.avatar, inner, siteHeader(viewer, `${BASE}/@${m.handle}`, isOwner)));
+  const inner = renderProfileInner({ m, s, pinned, comments, isOwner });
+  const desc = `${m.name} on signmysite`;
+  return c.html(sitePage(`${m.name} (@${m.handle}) · signmysite`, escapeHtml(desc), m.avatar, inner, siteHeader(viewer, `${BASE}/@${m.handle}`, isOwner)));
 });
 
 function notFoundPage(handle: string): string {
-  return sitePage("Not on Den", "", null, `
-    <div class="hero"><h1>@${escapeHtml(handle)} isn't on Den yet.</h1>
-    <p>Den links personal websites into one social graph.</p>
+  return sitePage("Not on signmysite", "", null, `
+    <div class="hero"><h1>@${escapeHtml(handle)} isn't on signmysite yet.</h1>
+    <p>signmysite links personal websites into one social graph.</p>
     <a class="btn primary" href="/">Get your own</a></div>`);
 }
 
@@ -1413,9 +1413,9 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/site/app.css">
 </head><body>
-${header || `<header class="top"><a class="brand" href="/">den</a><nav><a class="btn sm" href="/">Home</a></nav></header>`}
+${header || `<header class="top"><a class="brand" href="/">signmysite</a><nav><a class="btn sm" href="/">Home</a></nav></header>`}
 <main>${inner}</main>
-<footer class="foot"><span>Den is an open protocol.</span><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
+<footer class="foot"><span>signmysite is an open protocol.</span><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
 </body></html>`;
 }
 

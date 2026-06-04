@@ -78,7 +78,7 @@ export function Verify() {
   if (!viewer.url) {
     return (
       <div className="narrow verify-page">
-        <h1>Add Den to your site</h1>
+        <h1>Add signmysite to your site</h1>
         <p className="verify-lead">What's your site? We'll point your widget at it, then show you where to paste it.</p>
         <div className={"verify-site" + (siteUrl.trim() && !siteCheck.ok ? " bad" : "")}>
           <input
@@ -104,7 +104,7 @@ export function Verify() {
 
   return (
     <div className="verify-setup">
-      <h1>Add Den to your site</h1>
+      <h1>Add signmysite to your site</h1>
 
       <section className="vstep">
         <div className="vstep-head"><span className="vstep-num">1</span><h2>Select your platform</h2></div>

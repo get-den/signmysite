@@ -1,6 +1,6 @@
 /*
- * Typed client for the Den API. Same-origin in production; in dev Vite proxies
- * /api to the Hono server. Always sends cookies (first-party session on den.com).
+ * Typed client for the signmysite API. Same-origin in production; in dev Vite proxies
+ * /api to the Hono server. Always sends cookies (first-party session on signmysite.com).
  */
 
 export type Member = {
@@ -55,7 +55,7 @@ export type Discovery = {
   recommended: Site[];
 };
 
-/** A Den member who has viewed your site, tagged with the relation to you. */
+/** A signmysite member who has viewed your site, tagged with the relation to you. */
 export type ViewerVisit = {
   id: string;
   handle: string | null;
@@ -97,17 +97,6 @@ export type InboxNote = {
   created: string;
   author: NoteAuthor;
   site: { handle: string | null; name: string };
-};
-
-/** A single comment in context — the site it lives on + its author. Backs /note/:id. */
-export type NoteDetail = {
-  id: string;
-  body: string | null;
-  visibility: "public" | "private";
-  created: string;
-  redacted: boolean;
-  author: NoteAuthor | null;
-  site: { id: string; name: string; handle: string | null; avatar: string | null; url: string | null };
 };
 
 /** A note YOU left on someone else's site (outgoing). */
@@ -190,10 +179,6 @@ export const getStats = (id: string) =>
 /** Relational analytics for your own site: counts, avg engaged time, named visitors. */
 export const getAnalytics = () => req<Analytics>("/api/analytics");
 
-/** One comment in context (author + site). Backs the /note/:id view. */
-export const getComment = (id: string) =>
-  req<NoteDetail>(`/api/comments/${encodeURIComponent(id)}`);
-
 /** Leave a written note (postcard) on someone's site. Members only. */
 export const postComment = (id: string, body: string, visibility: "public" | "private") =>
   req<unknown>(`/api/profile/${encodeURIComponent(id)}/comments`, {
@@ -243,7 +228,7 @@ export type Cohort = {
   code: string;
   role: "owner" | "member";
   memberCount: number;
-  /** The shareable invite link (absolute), e.g. https://den.com/join/abc1234. */
+  /** The shareable invite link (absolute), e.g. https://signmysite.com/join/abc1234. */
   joinUrl: string;
   faces: CohortFace[];
 };

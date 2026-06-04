@@ -5,7 +5,7 @@
  * The roster is REAL personal sites, with their real og:image as the live
  * thumbnail and a favicon as the avatar — so the pinned-site UIs (the widget's
  * webring) show genuine previews, and the demo looks like the actual web. Two
- * Den-native accounts anchor it: `you` (the dev sign-in) and `maya` (the demo
+ * signmysite-native accounts anchor it: `you` (the dev sign-in) and `maya` (the demo
  * page's owner, whose widget shows her pinned webring).
  */
 import * as db from "./db.ts";
@@ -39,20 +39,20 @@ function avatar(name: string, index: number): string {
 // A site's favicon, via Google's resolver — a short, always-200, cacheable URL.
 const favicon = (host: string) => `https://www.google.com/s2/favicons?domain=${host}&sz=128`;
 
-// Stable ids (den:<16 hex>). `you` + `maya` keep their well-known ids (the demo
+// Stable ids (signmysite:<16 hex>). `you` + `maya` keep their well-known ids (the demo
 // page loads maya by hers); the rest are the real sites.
 const ID = {
-  you: "den:you0000000000000",
-  maya: "den:7f3a9c2e8b1d4f6a",
-  maggie: "den:a9b1c0d2e3f40511",
-  josh: "den:b7c8d9e0f1a20622",
-  lynn: "den:c5d6e7f8a9b00733",
-  lee: "den:d3e4f5a6b7c80844",
-  swyx: "den:e1f2a3b4c5d60955",
-  robin: "den:f9a0b1c2d3e40a66",
-  pg: "den:0a1b2c3d4e5f0b77",
-  dan: "den:1b2c3d4e5f600c88",
-  cassidy: "den:2c3d4e5f60710d99",
+  you: "signmysite:you0000000000000",
+  maya: "signmysite:7f3a9c2e8b1d4f6a",
+  maggie: "signmysite:a9b1c0d2e3f40511",
+  josh: "signmysite:b7c8d9e0f1a20622",
+  lynn: "signmysite:c5d6e7f8a9b00733",
+  lee: "signmysite:d3e4f5a6b7c80844",
+  swyx: "signmysite:e1f2a3b4c5d60955",
+  robin: "signmysite:f9a0b1c2d3e40a66",
+  pg: "signmysite:0a1b2c3d4e5f0b77",
+  dan: "signmysite:1b2c3d4e5f600c88",
+  cassidy: "signmysite:2c3d4e5f60710d99",
 };
 
 type Seed = {
@@ -141,7 +141,7 @@ type Dm = { id: string; from: string; to: string; body: string };
 const messages: Dm[] = [
   { id: "msg_seed_0", from: ID.you, to: ID.maya, body: "Maya! Loved the dinosaur sketches on your site." },
   { id: "msg_seed_1", from: ID.maya, to: ID.you, body: "thank you!! that means a lot 🦕" },
-  { id: "msg_seed_2", from: ID.maya, to: ID.you, body: "are you still adding Den to your site? happy to help." },
+  { id: "msg_seed_2", from: ID.maya, to: ID.you, body: "are you still adding signmysite to your site? happy to help." },
   { id: "msg_seed_3", from: ID.you, to: ID.maya, body: "yes! pasting the one line now. want to swap webrings?" },
   { id: "msg_seed_4", from: ID.maya, to: ID.you, body: "always. send me your three and I'll pin one ✨" },
 ];
@@ -179,7 +179,7 @@ const CREW = "coh_demo000000000000";
 await db.createCohort({ id: CREW, name: "Hill Valley Middle", code: "demo", ownerId: ID.you });
 for (const member of [ID.maya, ID.maggie, ID.josh]) await db.addCohortMember(CREW, member);
 
-// Page views OF "you", to populate the relational analytics demo: named Den members
+// Page views OF "you", to populate the relational analytics demo: named signmysite members
 // (some you already follow, some you don't — the "follow back" nudge) mixed with
 // anonymous readers, each with an engaged-time estimate and a recent timestamp.
 const YOU = ID.you;

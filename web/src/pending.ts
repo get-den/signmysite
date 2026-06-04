@@ -8,7 +8,7 @@
  * the action actually posts (see Reacted / Compose / the Home backstop).
  */
 
-const KEY = "den:pending-engagement";
+const KEY = "signmysite:pending-engagement";
 
 export type Pending = {
   kind: "note" | "react";

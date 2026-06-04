@@ -1,9 +1,9 @@
-# Add Den to WordPress
+# Add signmysite to WordPress
 
-Get your line from [den.com](https://den.com) → **Get your widget**:
+Get your line from [signmysite.com](https://signmysite.com) → **Get your widget**:
 
 ```html
-<script src="https://den.com/w/YOUR_ID.js"></script>
+<script src="https://signmysite.com/w/YOUR_ID.js"></script>
 ```
 
 **Easiest way (any WordPress):**
@@ -16,4 +16,4 @@ Get your line from [den.com](https://den.com) → **Get your widget**:
 Visit your site — the badge is bottom-right.
 
 > **Note:** this is for self-hosted WordPress or a WordPress.com **Business** plan.
-> Free WordPress.com plans don't allow custom code — use your `den.com/@you` profile link instead.
+> Free WordPress.com plans don't allow custom code — use your `signmysite.com/@you` profile link instead.

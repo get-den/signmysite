@@ -1,16 +1,16 @@
 (function () {
   "use strict";
 
-  if (window.__denWidget) return;
-  window.__denWidget = true;
+  if (window.__signmysiteWidget) return;
+  window.__signmysiteWidget = true;
 
   // A self-describing handle for anything inspecting the live page — including
   // an AI agent reading the DOM: what this is and where its docs live, without
   // diving into source. (The origin is rewritten to the live host on serve.)
-  window.Den = window.Den || {
-    version: "den/v1",
-    docs: "https://den.com/skill.md",
-    wellKnown: "https://den.com/.well-known/den.json",
+  window.signmysite = window.signmysite || {
+    version: "signmysite/v1",
+    docs: "https://signmysite.com/skill.md",
+    wellKnown: "https://signmysite.com/.well-known/signmysite.json",
   };
 
   var script = document.currentScript || document.querySelector('script[src*="/w/"],script[data-id]');
@@ -21,7 +21,7 @@
 
   var cfg = {
     id: idOf(script),
-    api: (script.getAttribute("data-api") || origin || "https://den.com").replace(/\/$/, ""),
+    api: (script.getAttribute("data-api") || origin || "https://signmysite.com").replace(/\/$/, ""),
     theme: script.getAttribute("data-theme") || "light",
     position: script.getAttribute("data-position") || "bottom-right",
     launcher: script.getAttribute("data-launcher") || "circle",
@@ -40,11 +40,11 @@
   // plus a sign-out button for testing. On only against a local API (or data-dev).
   var DEV = script.getAttribute("data-dev") === "true" || /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cfg.api);
 
-  // Preview mode: the owner opened their own site with ?den_preview=1 (the eye
+  // Preview mode: the owner opened their own site with ?signmysite_preview=1 (the eye
   // button) to see the signed-out, guest version of their widget. We render as a
   // guest by nulling the viewer on load — without touching their real session.
   var previewGuest = false;
-  try { previewGuest = new URL(location.href).searchParams.get("den_preview") === "1"; } catch (_) {}
+  try { previewGuest = new URL(location.href).searchParams.get("signmysite_preview") === "1"; } catch (_) {}
 
   var host, card, ui, busy = false, viewed = false, isOwner = false;
   // Engaged-time tracking for this page: engagedMs accumulates visible time, and
@@ -55,8 +55,8 @@
   // has to be repeated after signing in.
   var pendingAction = null;
   var isPrivate = false; // the inline private-note switch (signed-in visitors only)
-  var draftKey = "den_draft_" + cfg.id;
-  var tokenKey = "den_token";
+  var draftKey = "signmysite_draft_" + cfg.id;
+  var tokenKey = "signmysite_token";
 
   // The faces offered in the reaction tray. Every reaction is public.
   var REACTIONS = ["❤️", "🔥", "😂", "👏", "🎉", "✨", "👀", "🙌"];
@@ -75,7 +75,7 @@
   function start() {
     host = document.createElement("div");
     var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
-    host.setAttribute("data-den-widget", "");
+    host.setAttribute("data-signmysite-widget", "");
     document.body.appendChild(host);
     root.innerHTML = style() + html(cfg);
     ui = map(root);
@@ -98,7 +98,7 @@
       if (ui.wrap.classList.contains("open") && e.composedPath && e.composedPath().indexOf(host) === -1) open(false);
     });
     window.addEventListener("message", function (e) {
-      if (e.data && e.data.den === "signed-in") {
+      if (e.data && e.data.signmysite === "signed-in") {
         store(tokenKey, e.data.token || "");
         load().then(resumePending);
       }
@@ -148,7 +148,7 @@
   }
 
   // Record this page view and start the engaged-time clock. The view goes through
-  // api(), so it carries the Bearer token — that's how the server learns WHICH Den
+  // api(), so it carries the Bearer token — that's how the server learns WHICH signmysite
   // member is reading (the relational bit); anonymous visitors just count. Path +
   // referrer ride along for the owner's breakdown. Duration is reported separately,
   // on exit, by sendEngagement() — a beacon that can't carry headers.
@@ -318,7 +318,7 @@
     paintDev(); // dev HUD reflects auth state in every view (incl. onboarding)
 
     // Launcher branding is shown in every state.
-    if (ui.pillName) ui.pillName.textContent = p.name || p.handle || "Den";
+    if (ui.pillName) ui.pillName.textContent = p.name || p.handle || "signmysite";
     avatar(ui.pillAvatar, p);
 
     // The generic /w.js tag is the front door: when the site is unclaimed (no
@@ -328,7 +328,7 @@
     ui.panel.classList.toggle("onboarding", onboarding);
     if (onboarding) { paintOnboard(signedIn, p); return; }
 
-    // Always the Den profile — never the visitor's own personal site.
+    // Always the signmysite profile — never the visitor's own personal site.
     var prof = profileUrl(p);
 
     ui.name.textContent = p.name || p.handle || "Someone";
@@ -387,7 +387,7 @@
     ui.devOut.hidden = !(v || hasTok);  // nothing to sign out of
   }
 
-  // Dev-only: drop the widget's token AND end the Den session/cookie, then
+  // Dev-only: drop the widget's token AND end the signmysite session/cookie, then
   // reload the card so the HUD flips to "guest" — for testing the signed-out flow.
   function signOut() {
     store(tokenKey, "");
@@ -513,6 +513,9 @@
       next.classList.toggle("on", rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 2);
     };
     rail.addEventListener("scroll", sync, { passive: true });
+    // Re-sync when the rail (re)gains layout — chiefly when the card opens from its
+    // closed default, where it first measured zero width and so hid the right arrow.
+    if (window.ResizeObserver) new ResizeObserver(sync).observe(rail);
     frame.append(rail, prev, next);
     ui.pins.append(frame);
     sync(); // reflect the initial position (start ⇒ only the right arrow)
@@ -612,7 +615,7 @@
     ui.viewsLink.rel = ui.followersLink.rel = "noopener";
   }
 
-  // Owner-only: pull the relational analytics (real avg engaged time + the Den
+  // Owner-only: pull the relational analytics (real avg engaged time + the signmysite
   // members who've read you) and paint them. One extra request, and ONLY ever on
   // your own widget — a visitor's load path never touches this.
   function loadAnalytics() {
@@ -623,7 +626,7 @@
     }).catch(function () { ui.anaTime.textContent = "–"; });
   }
 
-  // The relational payoff, right in the widget: a row of the Den members who've
+  // The relational payoff, right in the widget: a row of the signmysite members who've
   // visited you, each a doorway to their profile, with a nudge toward the ones you
   // don't follow back yet. Hidden when no signed-in member has visited.
   function paintVisitors(list) {
@@ -714,16 +717,17 @@
     var a = n.redacted ? {} : n.author || {};
     var anon = !n.redacted && !(a.name || a.handle || a.avatar);
     var reaction = !n.redacted && isReaction(n.body) ? n.body.trim() : "";
-    // The whole row links to the full comment in the main app (new tab), so
-    // hovering any note offers a way through. A redacted private note you can't
-    // see stays inert.
-    var link = !n.redacted && !!n.id;
+    // The whole row links to this comment on the owner's signmysite profile (new tab),
+    // where it floats to the top of the comment section and highlights. A redacted
+    // private note you can't see, or an owner with no handle yet, stays inert.
+    var prof = card.profile || {};
+    var link = !n.redacted && !!n.id && !!prof.handle;
     var row = node(link ? "a" : "div", "note" + (link ? " note-link" : ""));
     if (link) {
-      row.href = cfg.api + "/#/note/" + enc(n.id);
+      row.href = profileUrl(prof) + "#comment-" + enc(n.id);
       row.target = "_blank";
       row.rel = "noopener";
-      row.setAttribute("aria-label", "Open this comment on Den");
+      row.setAttribute("aria-label", "See this comment on " + (prof.name || prof.handle || "signmysite"));
     }
     var av = node("span", "note-av" + (n.redacted || anon ? " private-av" : ""));
     var copy = node("div", "note-copy");
@@ -752,9 +756,9 @@
   }
 
   // The /w.js onboarding view. Two states share one layout:
-  //  • signed out → explain Den, with a button that opens the auth popup. Sign-in
+  //  • signed out → explain signmysite, with a button that opens the auth popup. Sign-in
   //    IS sign-up here (a new Google/email account is created on the spot), so a
-  //    visitor goes from "never heard of Den" to a live account without leaving.
+  //    visitor goes from "never heard of signmysite" to a live account without leaving.
   //  • signed in  → success + the permanent /w/<id>.js tag to copy, so the owner
   //    (or their agent) can swap the generic line for their stable one.
   function paintOnboard(signedIn, p) {
@@ -777,8 +781,8 @@
       ui.obAlt.hidden = false;
       ui.obFoot.hidden = true;
     } else {
-      ui.obTitle.textContent = "Welcome to Den";
-      ui.obBody.textContent = "Den connects personal sites into one network — followers, notes, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
+      ui.obTitle.textContent = "Welcome to signmysite";
+      ui.obBody.textContent = "signmysite connects personal sites into one network — followers, notes, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
       ui.obCta.textContent = "Create your account";
       ui.obCta.onclick = signIn;
       ui.obCta.hidden = false;
@@ -835,7 +839,7 @@
   function siteName() {
     return (card && card.profile && (card.profile.name || card.profile.handle)) || document.title || "this site";
   }
-  // A deep link into the main Den app (a hash route — the SPA reads the query
+  // A deep link into the main signmysite app (a hash route — the SPA reads the query
   // off the hash). Absolute, so it works from any host site.
   function mainUrl(path, params) {
     var q = Object.keys(params).map(function (k) {
@@ -848,17 +852,17 @@
   function openTab(url) {
     window.open(url, "_blank", "noopener");
   }
-  // Owner preview: reopen THIS page with ?den_preview=1 so the widget renders the
+  // Owner preview: reopen THIS page with ?signmysite_preview=1 so the widget renders the
   // signed-out, guest version (see previewGuest). New tab, current session intact.
   function openPreview() {
     try {
       var u = new URL(location.href);
-      u.searchParams.set("den_preview", "1");
+      u.searchParams.set("signmysite_preview", "1");
       openTab(u.toString());
     } catch (_) { openTab(location.href); }
   }
   function fail() {
-    ui.status.textContent = "Couldn’t load Den.";
+    ui.status.textContent = "Couldn’t load signmysite.";
   }
   function open(on) {
     var w = ui.wrap;
@@ -894,8 +898,8 @@
   }
 
   function html(c) {
-    return '<div class="den ' + c.position + ' ' + c.theme + ' launcher-' + c.launcher + '">' +
-      '<section class="card" role="dialog" aria-label="Den profile card">' +
+    return '<div class="signmysite ' + c.position + ' ' + c.theme + ' launcher-' + c.launcher + '">' +
+      '<section class="card" role="dialog" aria-label="signmysite profile card">' +
         '<header class="top">' +
           '<a class="avatar" aria-label="View profile"></a>' +
           '<div class="actions">' +
@@ -917,7 +921,7 @@
           '<div class="metric"><b class="ana-comments">–</b><span>Comments</span></div>' +
           '<div class="metric"><b class="ana-time">–</b><span>Avg. time</span></div>' +
         '</div>' +
-        // Relational analytics: who from Den has actually read you (owner-only).
+        // Relational analytics: who from signmysite has actually read you (owner-only).
         '<div class="visitors" hidden><div class="visitors-faces"></div></div>' +
         '<div class="notes-head" hidden>Comments</div>' +
         '<div class="notes"></div><div class="status"></div>' +
@@ -932,7 +936,9 @@
           '<span class="priv-text">Send this privately</span>' +
         '</label>' +
         '<div class="onboard">' +
-          '<div class="ob-mark"><span class="logo">den</span></div>' +
+          // Filled with a 🎉 emoji at paint time (see paintOnboard); never a brand
+          // logo. Starts empty so no wordmark flashes before the script runs.
+          '<div class="ob-mark"></div>' +
           '<h2 class="ob-title"></h2>' +
           '<p class="ob-body"></p>' +
           '<div class="ob-tag" hidden><code class="ob-code"></code><button class="ob-copy">Copy</button></div>' +
@@ -955,24 +961,26 @@
   }
   function launcher(kind) {
     var avatar = '<span class="pill-avatar"></span>';
-    var name = '<span class="pill-name">Den</span>';
-    var logo = '<span class="logo">den</span>';
+    var name = '<span class="pill-name">signmysite</span>';
     var star = '<span class="logo">✦</span>';
+    // The launcher shows the site owner's avatar (and name), never a brand logo —
+    // the wordmark lives only in the app's top-left. The "mark" variant uses a
+    // neutral glyph, not the brand. Older logo/slab configs degrade to the avatar.
     var inner = {
       avatar: avatar,
       circle: avatar,
-      logo: logo,
+      logo: avatar,
       mark: star,
       glass: avatar + name,
       neon: avatar + name,
       halo: avatar,
-      slab: logo + name,
+      slab: avatar + name,
       pill: avatar + name,
     }[kind] || avatar + name;
     // The circle lives inside a larger, stable hit target (.launch). Only the inner
     // .launcher scales on hover, so the clickable area never shifts out from under
     // the cursor — a tap near the edge always opens the card.
-    return '<button class="launch" aria-label="Toggle Den card" aria-expanded="false">' +
+    return '<button class="launch" aria-label="Toggle signmysite card" aria-expanded="false">' +
       '<span class="launcher">' + inner + '<span class="notif" hidden>0</span></span></button>';
   }
   function stat(key, label) {
@@ -981,7 +989,7 @@
   function map(root) {
     var q = function (s) { return root.querySelector(s); };
     return {
-      wrap: q(".den"), panel: q(".card"), open: q(".launch"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
+      wrap: q(".signmysite"), panel: q(".card"), open: q(".launch"), avatar: q(".avatar"), pillAvatar: q(".pill-avatar"),
       pillName: q(".pill-name"), count: q(".notif"), save: q(".save"), follow: q(".follow"), name: q(".name"),
       social: q(".social"), pins: q(".pins"), notesHead: q(".notes-head"), notes: q(".notes"), status: q(".status"), input: q(".input"),
       composer: q(".composer"), react: q(".react"), send: q(".send"), tray: q(".tray"),
@@ -1041,17 +1049,17 @@
       // Brand tokens (--accent, --accent-ink, --ink, --muted, --line, --bg) are injected
       // into :host from the one source, server/theme.ts (see server/index.ts). The
       // widget keeps only its own semantics here: the font var, the soft fill, shadow.
-      ':host{all:initial}.den,.den *{box-sizing:border-box}' +
-      '.den{position:fixed;z-index:2147483000;display:flex;flex-direction:column;align-items:flex-end;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--ff:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--vgap:22px;--soft:#f3f3f1;--shadow:0 24px 80px rgba(0,0,0,.16)}' +
-      '.den button{font-family:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer;border:0}' +
-      '.den svg{width:1em;height:1em;display:block}' +
+      ':host{all:initial}.signmysite,.signmysite *{box-sizing:border-box}' +
+      '.signmysite{position:fixed;z-index:2147483000;display:flex;flex-direction:column;align-items:flex-end;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--ff:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--vgap:26px;--soft:#f3f3f1;--shadow:0 24px 80px rgba(0,0,0,.16)}' +
+      '.signmysite button{font-family:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer;border:0}' +
+      '.signmysite svg{width:1em;height:1em;display:block}' +
       '.dark{--bg:#161616;--ink:#f6f6f2;--muted:#9a9a9a;--soft:#242424;--line:#2e2e2e;--shadow:0 24px 80px rgba(0,0,0,.5)}' +
       '.bottom-right{right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom))}' +
       '.bottom-left{left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));align-items:flex-start}' +
       '.top-right{right:max(16px,env(safe-area-inset-right));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse}' +
       '.top-left{left:max(16px,env(safe-area-inset-left));top:max(16px,env(safe-area-inset-top));flex-direction:column-reverse;align-items:flex-start}' +
       '.card{width:416px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 120px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:30px;box-shadow:var(--shadow);padding:26px 24px}' +
-      '.den:not(.open):not(.closing) .card{display:none}.open .card{animation:denPop .2s cubic-bezier(.2,.7,.3,1)}.closing .card{animation:denPopOut .17s cubic-bezier(.4,0,.7,.3) forwards;pointer-events:none}@keyframes denPop{from{opacity:0;transform:translateY(10px) scale(.97)}}@keyframes denPopOut{to{opacity:0;transform:translateY(10px) scale(.97)}}' +
+      '.signmysite:not(.open):not(.closing) .card{display:none}.open .card{animation:smsPop .2s cubic-bezier(.2,.7,.3,1)}.closing .card{animation:smsPopOut .17s cubic-bezier(.4,0,.7,.3) forwards;pointer-events:none}@keyframes smsPop{from{opacity:0;transform:translateY(10px) scale(.97)}}@keyframes smsPopOut{to{opacity:0;transform:translateY(10px) scale(.97)}}' +
       '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}' +
       '.avatar{width:92px;height:92px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 32px/1 var(--ff);flex:0 0 auto;text-decoration:none;cursor:pointer}' +
       '.actions{display:flex;align-items:center;gap:10px}' +
@@ -1066,12 +1074,12 @@
       // cell so the button is as wide as the longer word — the hover swap never resizes it.
       '.follow.on{background:transparent;color:var(--ink);border:1px solid var(--line);display:inline-grid;place-items:center}.follow.on .lbl,.follow.on::after{grid-area:1/1}.follow.on::after{content:"Unfollow";visibility:hidden}.follow.on:not(.just):hover{background:rgba(229,72,77,.12);color:#e5484d;border-color:rgba(229,72,77,.5);opacity:1}.follow.on:not(.just):hover .lbl{visibility:hidden}.follow.on:not(.just):hover::after{visibility:visible}' +
       '.name{display:inline-block;margin:14px 0 var(--vgap);color:var(--ink);font:600 28px/1.15 var(--ff);letter-spacing:-.02em;text-decoration:none}.name:hover{text-decoration:underline;text-underline-offset:4px}' +
-      '.stats{display:flex;flex-wrap:wrap;gap:8px 22px;margin:16px 0 26px}.stats[hidden]{display:none}.stat{color:var(--muted);text-decoration:none;font-size:16px;font-weight:600}.stat b{color:var(--ink);font-weight:800;margin-right:5px}.stat:hover span{text-decoration:underline;text-underline-offset:3px}' +
+      '.stats{display:flex;flex-wrap:wrap;gap:8px 22px;margin:16px 0 26px}.stats[hidden]{display:none}.stat{color:var(--muted);text-decoration:none;font-size:16px;font-weight:600}.stat b{color:var(--ink);font-weight:600;margin-right:5px}.stat:hover span{text-decoration:underline;text-underline-offset:3px}' +
       // Creator analytics: a clean 3-up row, hairline dividers between metrics.
       '.analytics{display:flex;margin:2px 0 16px}.analytics[hidden]{display:none}' +
       '.metric{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.metric+.metric{border-left:1px solid var(--line)}' +
       '.metric b{color:var(--ink);font:600 22px/1 var(--ff);letter-spacing:-.01em}.metric span{color:var(--muted);font:400 12px/1 var(--ff)}' +
-      // Relational analytics: overlapping faces of the Den members who read you, with
+      // Relational analytics: overlapping faces of the signmysite members who read you, with
       // an accent ring on the ones you don\'t follow back (the "follow them" nudge).
       '.visitors{margin:0 0 24px}.visitors[hidden]{display:none}' +
       '.visitors-faces{display:flex;align-items:center;padding-left:2px}' +
@@ -1081,7 +1089,7 @@
       // mode class (stack | thumbs | ring); see paintPins(). Shared bits first:
       '.pins[hidden]{display:none}' +
       '.pin-go{flex:0 0 auto;display:grid;place-items:center;color:var(--muted);font-size:15px}' +
-      '.pin-fav{width:20px;height:20px;flex:0 0 auto;border-radius:6px;background:#fff center/cover no-repeat;border:1px solid var(--line);display:grid;place-items:center;color:#111;font:800 9px/1 var(--ff)}' +
+      '.pin-fav{width:20px;height:20px;flex:0 0 auto;border-radius:6px;background:#fff center/cover no-repeat;border:1px solid var(--line);display:grid;place-items:center;color:#111;font:600 9px/1 var(--ff)}' +
       // stack: one rounded row — overlapping favicons + a count → the full profile.
       // facepile — the shared overlapping-avatars pill (stack pins + social proof).
       // grid-template-columns:minmax(0,1fr) lets the facepile shrink so its label
@@ -1093,7 +1101,7 @@
       // only on hover (border-radius is kept so that hover background is rounded).
       '.facepile{display:flex;align-items:center;gap:12px;padding:8px 14px 8px 10px;border-radius:999px;color:var(--ink);text-decoration:none}.facepile:hover{background:var(--soft)}' +
       '.pin-faces{display:flex;align-items:center;flex:0 0 auto}' +
-      '.pin-face{width:30px;height:30px;border-radius:50%;margin-right:-10px;border:2px solid var(--bg);background:#fff center/cover no-repeat;display:grid;place-items:center;color:#111;font:700 12px/1 var(--ff)}.pin-face:last-child{margin-right:0}' +
+      '.pin-face{width:30px;height:30px;border-radius:50%;margin-right:-10px;border:2px solid var(--bg);background:#fff center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 12px/1 var(--ff)}.pin-face:last-child{margin-right:0}' +
       '.facepile-label{flex:1;min-width:0;font:600 14px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       // thumbs: a vertical list of site previews, each a doorway.
       '.pins.thumbs{display:grid;gap:12px}' +
@@ -1101,16 +1109,16 @@
       '.pin-shot{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--soft)}' +
       '.pin-thumb-foot{display:flex;align-items:center;gap:10px;padding:10px 12px}' +
       '.pin-thumb-meta{display:flex;flex-direction:column;min-width:0}' +
-      '.pin-thumb-name{font:700 14px/1.3 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.pin-thumb-name{font:600 14px/1.3 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-thumb-host{font:500 12px/1.35 var(--ff);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-thumb .pin-go{margin-left:auto;opacity:0;transition:opacity .15s ease}.pin-thumb:hover .pin-go{opacity:1}' +
       // ring: a horizontal filmstrip; the rail snaps and peeks the next card.
-      '.pin-head,.notes-head{margin:0 0 11px;font:700 13px/1 var(--ff);color:var(--muted)}' +
+      '.pin-head,.notes-head{margin:0 0 11px;font:600 13px/1 var(--ff);color:var(--muted)}' +
       '.pin-rail{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}.pin-rail::-webkit-scrollbar{display:none}' +
       '.ring-card{flex:0 0 auto;width:150px;scroll-snap-align:start;color:var(--ink);text-decoration:none}' +
       '.ring-shot{display:block;width:150px;height:95px;object-fit:cover;border-radius:14px;border:1px solid var(--line);background:var(--soft);transition:box-shadow .15s ease}.ring-card:hover .ring-shot{box-shadow:0 10px 24px rgba(0,0,0,.14)}' +
       '.ring-cap{display:flex;align-items:center;gap:7px;margin-top:8px}' +
-      '.ring-name{font:700 13px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.ring-name{font:600 13px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       // Floating circular prev/next over the thumbnails. Hidden until the strip is
       // hovered, then only the relevant ones show: .on is toggled by sync() in
       // pinsRing (right arrow at the start, left arrow once you have scrolled).
@@ -1125,7 +1133,7 @@
       '.spot-shot{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;border:1px solid var(--line);background:var(--soft)}' +
       '.spot-cap{display:flex;align-items:center;gap:9px;margin:11px 2px 0}' +
       '.spot-meta{display:flex;flex-direction:column;min-width:0;flex:1}' +
-      '.spot-name{font:700 14px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.spot-name{font:600 14px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.spot-host{font:500 12px/1.3 var(--ff);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.spot-cap .pin-go{opacity:0;transition:opacity .15s ease}.spot-card:hover .pin-go{opacity:1}' +
       '.spot-nav{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:13px}' +
@@ -1133,9 +1141,9 @@
       '.spot-dots{display:flex;align-items:center;gap:7px}' +
       '.spot-dot{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--line);cursor:pointer;transition:background .15s ease,transform .15s ease}.spot-dot.on{background:var(--accent);transform:scale(1.25)}' +
       // list: a typographic blogroll — favicon · name · host, hairline dividers.
-      '.pin-list-head{margin:0 0 2px;font:700 13px/1 var(--ff);color:var(--muted)}' +
+      '.pin-list-head{margin:0 0 2px;font:600 13px/1 var(--ff);color:var(--muted)}' +
       '.pin-row{display:flex;align-items:center;gap:11px;padding:12px 4px;border-top:1px solid var(--line);color:var(--ink);text-decoration:none}.pin-row:hover{background:var(--soft)}' +
-      '.pin-row-name{flex:0 1 auto;font:700 15px/1.3 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.pin-row-name{flex:0 1 auto;font:600 15px/1.3 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-row-host{flex:1 1 auto;text-align:right;font:500 13px/1.3 var(--ff);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.pin-row .pin-go{opacity:0;transition:opacity .15s ease}.pin-row:hover .pin-go{opacity:1}' +
       '.notes{display:grid;gap:22px}.note{display:flex;align-items:center;gap:14px}' +
@@ -1152,10 +1160,10 @@
       '.badge{margin-left:7px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;color:var(--muted)}.empty{color:var(--muted);font-size:14px}.see-all{justify-self:start;display:inline-flex;align-items:center;gap:5px;min-height:38px;margin-top:2px;padding:0 8px;color:var(--muted);text-decoration:none;font:600 14px/1 var(--ff)}.see-all::after{content:"→"}.see-all:hover{color:var(--ink);text-decoration:none}' +
       '.status{color:var(--muted);font-size:13px;margin-top:10px;overflow-wrap:anywhere}.status:empty{display:none}' +
       '.composer{display:flex;align-items:center;gap:4px;margin-top:24px;padding:6px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07);transition:box-shadow .15s ease}.composer:focus-within{box-shadow:0 0 0 3px rgba(0,0,0,.05),0 10px 36px rgba(0,0,0,.07)}.composer[hidden]{display:none}' +
-      '.den button:focus{outline:none}.den button:focus-visible{outline:2px solid rgba(0,0,0,.18);outline-offset:2px}' +
+      '.signmysite button:focus{outline:none}.signmysite button:focus-visible{outline:2px solid rgba(0,0,0,.18);outline-offset:2px}' +
       '.input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:400 16px/1 var(--ff);padding:12px 8px 12px 14px;outline:none}.input::placeholder{color:var(--muted);font-weight:400}' +
       '.react{width:40px;height:40px;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;display:grid;place-items:center}.react:hover{background:var(--soft);color:var(--ink)}.react.on{background:var(--soft);color:var(--ink)}.react[hidden]{display:none}' +
-      '.tray{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:14px;padding:6px;border:1px solid var(--line);border-radius:20px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}.tray:not([hidden]){animation:trayUp .2s cubic-bezier(.2,.7,.3,1)}@keyframes trayUp{from{opacity:0;transform:translateY(10px)}}' +
+      '.tray{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin-top:14px;padding:8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07)}.tray[hidden]{display:none}.tray:not([hidden]){animation:trayUp .2s cubic-bezier(.2,.7,.3,1)}@keyframes trayUp{from{opacity:0;transform:translateY(10px)}}' +
       '.emoji{height:46px;border-radius:14px;background:transparent;font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .12s ease,background .12s ease}.emoji:hover{background:var(--soft);transform:translateY(-2px)}.emoji:active{transform:scale(.9)}' +
       '.send{width:42px;height:42px;border-radius:50%;background:var(--soft);color:var(--muted);font-size:22px;display:grid;place-items:center;transition:background .15s ease,color .15s ease}.send.ready{background:var(--accent);color:var(--accent-ink)}.send:hover{color:var(--ink)}.send.ready:hover{color:var(--accent-ink);opacity:.9}' +
       // The private-note switch: collapsed by default, slides down (max-height +
@@ -1171,14 +1179,14 @@
       '.priv-check:checked::after{content:"";position:absolute;left:6px;top:2px;width:4px;height:9px;border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}' +
       // Dev HUD — a thin monospace footer, only present against a local API.
       '.dev{display:flex;align-items:center;gap:8px;margin-top:18px;padding-top:12px;border-top:1px dashed var(--line);font:600 11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}.dev[hidden]{display:none}' +
-      '.dev-tag{flex:0 0 auto;padding:2px 6px;border-radius:6px;background:var(--accent);color:var(--accent-ink);font-weight:800;letter-spacing:.04em}' +
+      '.dev-tag{flex:0 0 auto;padding:2px 6px;border-radius:6px;background:var(--accent);color:var(--accent-ink);font-weight:600;letter-spacing:.04em}' +
       '.dev-state{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-      '.dev-out{flex:0 0 auto;padding:5px 11px;border-radius:999px;background:var(--soft);color:var(--ink);border:1px solid var(--line);font:inherit;font-weight:700;cursor:pointer}.dev-out:hover{background:var(--line)}.dev-out[hidden]{display:none}' +
+      '.dev-out{flex:0 0 auto;padding:5px 11px;border-radius:999px;background:var(--soft);color:var(--ink);border:1px solid var(--line);font:inherit;font-weight:600;cursor:pointer}.dev-out:hover{background:var(--line)}.dev-out[hidden]{display:none}' +
       // Onboarding view (the generic /w.js front door). When .onboarding is on the
       // card, the profile chrome is hidden and this self-contained flow shows.
       '.onboard{display:none;text-align:center;padding:6px 2px 2px}.card.onboarding .onboard{display:block}' +
       '.card.onboarding>.top,.card.onboarding>.name,.card.onboarding>.social,.card.onboarding>.stats,.card.onboarding>.pins,.card.onboarding>.notes-head,.card.onboarding>.notes,.card.onboarding>.status,.card.onboarding>.tray,.card.onboarding>.composer,.card.onboarding>.privacy{display:none!important}' +
-      '.ob-mark{width:56px;height:56px;margin:8px auto 18px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}.ob-mark .logo{font:950 16px/1 var(--ff);letter-spacing:-.03em}' +
+      '.ob-mark{width:56px;height:56px;margin:8px auto 18px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}' +
       '.ob-mark.emoji{background:transparent;font-size:46px;line-height:1}' +
       '.ob-title{margin:0 0 10px;font:600 22px/1.2 var(--ff);letter-spacing:-.02em;color:var(--ink)}' +
       '.ob-body{margin:0 auto 22px;max-width:34ch;font:400 15px/1.55 var(--ff);color:var(--muted)}' +
@@ -1201,10 +1209,10 @@
       '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:rgba(255,255,255,.8);color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:var(--shadow);font:600 14px/1 var(--ff);transition:transform .16s ease}.launch:hover .launcher{transform:scale(1.06)}' +
       '.pill-avatar{width:30px;height:30px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font-weight:600;flex:0 0 auto}' +
       '.notif{position:absolute;top:-3px;right:-3px;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#ff2d55;color:#fff;display:grid;place-items:center;font:600 12px/1 var(--ff)}.notif[hidden]{display:none}' +
-      '.logo{display:grid;place-items:center;font-weight:950;letter-spacing:-.02em}' +
+      '.logo{display:grid;place-items:center;font-weight:600;letter-spacing:-.02em}' +
       '.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:62px;height:62px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:50px;height:50px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-circle .launcher{width:64px;height:64px}.launcher-circle .pill-avatar{width:42px;height:42px}' +
       '.launcher-logo .launcher,.launcher-mark .launcher{padding:0;background:#000;color:#fff;border-color:#000}.launcher-logo .logo{font-size:17px}.launcher-mark .logo{font-size:26px}.launcher-glass .launcher{background:rgba(255,255,255,.72);backdrop-filter:blur(18px);border-color:rgba(255,255,255,.7)}.launcher-neon .launcher{border-color:#ffd1ef;box-shadow:0 0 0 1px #ffd1ef,0 12px 44px rgba(255,45,133,.28),0 0 38px rgba(117,92,255,.18)}.launcher-halo .launcher{box-shadow:0 0 0 7px rgba(255,45,85,.08),0 20px 70px rgba(0,0,0,.18)}.launcher-slab .launcher{border-radius:18px;padding:9px 16px;background:#050505;color:#fff;border-color:#050505}.launcher-slab .logo{width:26px;height:26px;border-radius:8px;background:#fff;color:#000}.launcher-slab .notif,.launcher-logo .notif,.launcher-mark .notif{border-color:#050505}' +
-      '@media(max-width:520px){.den{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;flex-direction:column!important}.card{width:calc(100vw - 24px);max-width:none;max-height:calc(100dvh - 110px);padding:22px 20px;border-radius:26px}.avatar{width:78px;height:78px;font-size:28px}.follow,.save{height:46px}.save{width:46px}.follow{padding:0 22px;font-size:16px}.name{font-size:34px}}' +
+      '@media(max-width:520px){.signmysite{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;flex-direction:column!important}.card{width:calc(100vw - 24px);max-width:none;max-height:calc(100dvh - 110px);padding:22px 20px;border-radius:26px}.avatar{width:78px;height:78px;font-size:28px}.follow,.save{height:46px}.save{width:46px}.follow{padding:0 22px;font-size:16px}.name{font-size:34px}}' +
       "</style>";
   }
 
@@ -1214,12 +1222,12 @@
   // (/w/you.js, and the bare /w.js) means "no member yet, start signup here". A
   // real tag is /w/<16-hex>.js, which returns that id.
   function idOf(s) {
-    var slug = (s.getAttribute("data-id") || "").replace(/^den:/, "");
+    var slug = (s.getAttribute("data-id") || "").replace(/^signmysite:/, "");
     if (!slug) {
       try { var m = new URL(s.src).pathname.match(/\/w\/([a-z0-9]+)(?:\.js)?$/i); slug = (m && m[1]) || ""; } catch (_) {}
     }
     slug = slug.toLowerCase();
-    return slug && slug !== "you" ? "den:" + slug : null;
+    return slug && slug !== "you" ? "signmysite:" + slug : null;
   }
   function enc(s) { return encodeURIComponent(s); }
   function profileUrl(p) { return cfg.api + (p.handle ? "/@" + encodeURIComponent(p.handle) : "/"); }
@@ -1228,7 +1236,7 @@
   // lets the server count distinct visitors — never identifies anyone (the WHO comes
   // from the session/Bearer auth, not this). First-party on the host site.
   function sid() {
-    var k = "den_sid", s = store(k);
+    var k = "signmysite_sid", s = store(k);
     if (!s) { s = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); store(k, s); }
     return s;
   }

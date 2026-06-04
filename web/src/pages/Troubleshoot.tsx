@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 
 // The examples below name THIS origin so the help text always matches the live
 // domain. The app is same-origin, so there's no hardcoded host to update if it
-// moves — location is the client-side mirror of the server's DEN_BASE_URL.
-const ORIGIN = location.origin; // e.g. https://den.com
-const HOST = location.host; // e.g. den.com
+// moves — location is the client-side mirror of the server's SIGNMYSITE_BASE_URL.
+const ORIGIN = location.origin; // e.g. https://signmysite.com
+const HOST = location.host; // e.g. signmysite.com
 
 /**
  * Plain, scannable fixes for the widget — the page the widget's "Not working?"
@@ -26,7 +26,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     ),
   },
   {
-    q: "It says “Couldn't load Den”",
+    q: "It says “Couldn't load signmysite”",
     a: (
       <>
         The widget couldn't reach the API. Confirm you're online and that{" "}
@@ -41,7 +41,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
       <>
         Give it a second. The card refreshes itself after the sign-in popup closes. If it
         doesn't, <b>hard-refresh</b>. The widget recognizes you by a token it stores when you
-        sign in <em>through it</em> (a normal den.com login cookie can't be read from another
+        sign in <em>through it</em> (a normal signmysite.com login cookie can't be read from another
         site), so make sure you completed the popup on this same site. Still stuck? Use{" "}
         <b>Log out</b> in the widget and sign in again.
       </>
@@ -64,7 +64,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     a: (
       <>
         That's expected when the widget doesn't yet know you're signed in (e.g. a first visit, or
-        a session that ended). It opens a tab on den.com to authenticate, then posts as you. Once
+        a session that ended). It opens a tab on signmysite.com to authenticate, then posts as you. Once
         you've signed in through the widget on a site, it posts inline with no tab.
       </>
     ),
@@ -87,7 +87,7 @@ export function Troubleshoot() {
     <div className="narrow">
       <h2 className="section">Troubleshooting</h2>
       <p className="lead">
-        Quick fixes for the Den widget. Most issues are solved by a hard refresh.
+        Quick fixes for the signmysite widget. Most issues are solved by a hard refresh.
       </p>
 
       {ITEMS.map((it) => (

@@ -3,13 +3,16 @@
  *
  * Plain fetch against Resend's REST API, no SDK (keeps the zero-dep ethos). Every
  * message is built from ONE shared layout() + a handful of content helpers, so they
- * all wear the same Den styling — the tokens come from ./theme.ts, which mirrors the
+ * all wear the same signmysite styling — the tokens come from ./theme.ts, which mirrors the
  * React app (site/app.css) and the widget. Inline styles only: email clients strip
  * <style> and external CSS.
  *
  * Env:
  *   RESEND_API_KEY   — your Resend key (re_...). Absent ⇒ email disabled (logged).
- *   DEN_EMAIL_FROM   — verified sender, e.g. "Den <noreply@signmysite.com>".
+ *
+ * The From address derives from BASE (noreply@<host>) — see config.ts — so the
+ * sending domain is named in exactly one place and can't drift from the live origin.
+ * (That host must be a verified Resend sending domain.)
  */
 import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind, type Snapshot } from "./db.ts";
 import { escapeHtml, notifyToken } from "./util.ts";
@@ -20,7 +23,7 @@ import { BASE } from "./config.ts";
 type Recipient = Pick<Member, "id" | "email" | "name" | "handle" | "notify">;
 
 const API_KEY = process.env.RESEND_API_KEY || "";
-const FROM = process.env.DEN_EMAIL_FROM || "Den <noreply@signmysite.com>";
+const FROM = `signmysite <noreply@${new URL(BASE).host}>`;
 
 export const MAIL_LIVE = !!API_KEY;
 
@@ -56,15 +59,15 @@ async function send(msg: { to: string; subject: string; html: string; text: stri
 }
 
 // ---- shared layout + content helpers -------------------------------------
-// Every Den email is this shell: a recessed page, one white rounded card, the den
-// wordmark, then `inner` (assembled from the helpers below). The per-email footnote
-// lives inside `inner`, so this stays generic across sign-in and notifications.
+// Every signmysite email is this shell: a recessed page with one white rounded card
+// holding `inner` (assembled from the helpers below). No logo mark here — the brand
+// lives only in the app's top-left wordmark; the email heading names it in words. The
+// per-email footnote lives inside `inner`, so this stays generic across all emails.
 function layout(inner: string): string {
   return `<!doctype html><html><body style="margin:0;background:${theme.pageBg};padding:32px 16px;font-family:${theme.font};-webkit-font-smoothing:antialiased">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px;background:${theme.surface};border:1px solid ${theme.line};border-radius:${theme.radius}">
-      <tr><td style="padding:28px 28px 30px">
-        <div style="display:inline-block;width:40px;height:40px;border-radius:50%;background:${theme.ink};color:#fff;text-align:center;line-height:40px;font-size:14px;font-weight:600">den</div>
+      <tr><td style="padding:30px 28px">
         ${inner}
       </td></tr>
     </table>
@@ -139,14 +142,14 @@ export async function sendMagicLink(to: string, link: string): Promise<void> {
   if (!API_KEY) throw new Error("RESEND_API_KEY not set");
   const ok = await send({
     to,
-    subject: "Your Den sign-in link",
+    subject: "Your signmysite sign-in link",
     html: layout(
-      heading("Sign in to Den") +
+      heading("Sign in to signmysite") +
       paragraph("Click below to sign in. This link expires in 15 minutes.") +
       button("Sign in", link) +
       footnote("If you didn't request this, you can safely ignore it."),
     ),
-    text: `Sign in to Den:\n${link}\n\nThis link expires in 15 minutes. If you didn't request it, ignore this email.`,
+    text: `Sign in to signmysite:\n${link}\n\nThis link expires in 15 minutes. If you didn't request it, ignore this email.`,
   });
   if (!ok) throw new Error("magic-link send failed");
 }
@@ -164,15 +167,15 @@ export async function notifySiteUpdated(
   const profile = BASE && member.handle ? `${BASE}/@${member.handle}` : "";
   await send({
     to: member.email,
-    subject: `Den noticed ${label} updated`,
+    subject: `signmysite noticed ${label} updated`,
     html: layout(
       heading(`${label} updated`) +
       paragraph("We picked up a new version of your site. Anyone following you will see it flagged as new.") +
       (snap.thumbnail ? image(snap.thumbnail) : "") +
-      (profile ? button("View your Den profile", profile) : "") +
-      manageFootnote(member.id, "You're getting this because your site is on Den.", "siteUpdated"),
+      (profile ? button("View your signmysite profile", profile) : "") +
+      manageFootnote(member.id, "You're getting this because your site is on signmysite.", "siteUpdated"),
     ),
-    text: `Den detected a new version of ${label}. Your followers will see it as new.${profile ? `\n\n${profile}` : ""}`,
+    text: `signmysite detected a new version of ${label}. Your followers will see it as new.${profile ? `\n\n${profile}` : ""}`,
     headers: unsubHeaders(member.id, "siteUpdated"),
   });
 }
@@ -195,7 +198,7 @@ export async function notifyFollowedUpdate(
       actorLine(who, source.avatar, "posted a new version of their site.") +
       (snap.thumbnail ? image(snap.thumbnail) : "") +
       button(`View ${who}`, profile) +
-      manageFootnote(follower.id, `You follow ${who} on Den.`, "followedUpdate"),
+      manageFootnote(follower.id, `You follow ${who} on signmysite.`, "followedUpdate"),
     ),
     text: `${who} just posted a new version of their site.\n\n${profile}`,
     headers: unsubHeaders(follower.id, "followedUpdate"),
@@ -216,23 +219,23 @@ export async function notifyUpdate(owner: Member, snap: Snapshot): Promise<void>
 // Signed up but the widget isn't live yet (verified = false). One line to go.
 export async function notifyActivation(member: Recipient & Pick<Member, "url">): Promise<void> {
   if (!member.email) return;
-  const tag = `<script src="${BASE}/w/${member.id.replace(/^den:/, "")}.js"></script>`;
+  const tag = `<script src="${BASE}/w/${member.id.replace(/^signmysite:/, "")}.js"></script>`;
   const host = member.url ? hostOf(member.url) : "";
   const editUrl = BASE ? `${BASE}/#/edit` : "#";
   const intro = host
-    ? `You linked ${host}, but Den can't see the widget on it yet. Add this one line and your profile, followers, reactions, and analytics all switch on.`
-    : "Your Den profile is ready, but it isn't live yet. Add this one line to your personal site to connect it — followers, reactions, and analytics switch on.";
+    ? `You linked ${host}, but signmysite can't see the widget on it yet. Add this one line and your profile, followers, reactions, and analytics all switch on.`
+    : "Your signmysite profile is ready, but it isn't live yet. Add this one line to your personal site to connect it — followers, reactions, and analytics switch on.";
   await send({
     to: member.email,
-    subject: "One line to finish setting up your Den",
+    subject: "One line to finish setting up your signmysite",
     html: layout(
       heading("Add the widget to go live") +
       paragraph(intro) +
       code(tag) +
       button("Finish setup", editUrl) +
-      manageFootnote(member.id, "You're getting this because you started a Den profile."),
+      manageFootnote(member.id, "You're getting this because you started a signmysite profile."),
     ),
-    text: `Add this line to your site to go live on Den:\n\n${tag}\n\n${editUrl}`,
+    text: `Add this line to your site to go live on signmysite:\n\n${tag}\n\n${editUrl}`,
     headers: unsubHeaders(member.id),
   });
 }
@@ -250,7 +253,7 @@ export async function notifyMilestone(
     : `You reached ${count} ${count === 1 ? "follower" : "followers"}`;
   const note = metric === "views"
     ? "People keep finding your corner of the web."
-    : "Your updates now reach more people across Den.";
+    : "Your updates now reach more people across signmysite.";
   await send({
     to: member.email,
     subject: `🎉 ${headline}`,
@@ -259,9 +262,9 @@ export async function notifyMilestone(
       heading(headline) +
       paragraph(note) +
       button("See your profile", profile) +
-      manageFootnote(member.id, "You're getting this because you hit a milestone on Den.", "milestone"),
+      manageFootnote(member.id, "You're getting this because you hit a milestone on signmysite.", "milestone"),
     ),
-    text: `${headline} on Den.\n\n${profile}`,
+    text: `${headline} on signmysite.\n\n${profile}`,
     headers: unsubHeaders(member.id, "milestone"),
   });
 }
@@ -291,7 +294,7 @@ export async function notifyActivity(opts: {
   const ownerProfile = BASE && owner.handle ? `${BASE}/@${owner.handle}` : (BASE || "#");
 
   const plan = {
-    follow:   { verb: "followed your site.",        subject: `${who} followed you on Den`, cta: ["View their profile", actorUrl], extra: "",            text: `${who} followed your site.` },
+    follow:   { verb: "followed your site.",        subject: `${who} followed you on signmysite`, cta: ["View their profile", actorUrl], extra: "",            text: `${who} followed your site.` },
     save:     { verb: "saved your site.",           subject: `${who} saved your site`,     cta: ["View their profile", actorUrl], extra: "",            text: `${who} saved your site.` },
     reaction: { verb: "reacted to your site:",      subject: `${who} reacted ${note}`.trim(), cta: ["See it on your profile", ownerProfile], extra: `<div style="margin:12px 0 0;font-size:40px;line-height:1">${escapeHtml(note)}</div>`, text: `${who} reacted ${note} to your site.` },
     comment:  { verb: "left a note on your site:",  subject: `${who} left you a note`,      cta: ["See it on your profile", ownerProfile], extra: quote(note),   text: `${who} left a note on your site:\n\n${note}` },
@@ -304,7 +307,7 @@ export async function notifyActivity(opts: {
       actorLine(who, actor.avatar, plan.verb) +
       plan.extra +
       button(plan.cta[0], plan.cta[1]) +
-      manageFootnote(owner.id, "You're getting this because someone interacted with your site on Den.", kind),
+      manageFootnote(owner.id, "You're getting this because someone interacted with your site on signmysite.", kind),
     ),
     text: `${plan.text}${BASE ? `\n\n${plan.cta[1]}` : ""}`,
     headers: unsubHeaders(owner.id, kind),
@@ -321,14 +324,14 @@ export async function notifyMessage(recipient: Recipient, sender: Actor, body: s
   const reply = BASE ? `${BASE}/#/messages/${sender.id}` : "#";
   await send({
     to: recipient.email,
-    subject: `${who} messaged you on Den`,
+    subject: `${who} messaged you on signmysite`,
     html: layout(
       actorLine(who, sender.avatar, "sent you a message:") +
       quote(body) +
       button("Reply", reply) +
-      manageFootnote(recipient.id, `You're getting this because ${who} messaged you on Den.`, "message"),
+      manageFootnote(recipient.id, `You're getting this because ${who} messaged you on signmysite.`, "message"),
     ),
-    text: `${who} sent you a message on Den:\n\n${body}\n\n${reply}`,
+    text: `${who} sent you a message on signmysite:\n\n${body}\n\n${reply}`,
     headers: unsubHeaders(recipient.id, "message"),
   });
 }

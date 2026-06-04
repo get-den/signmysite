@@ -21,7 +21,7 @@ export function Header() {
   return (
     <header className="top">
       <Link className="brand" to="/">
-        den
+        signmysite
       </Link>
       <nav>
         {loading ? null : !viewer ? (

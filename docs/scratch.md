@@ -1,12 +1,12 @@
-# Add Den to a site you built yourself
+# Add signmysite to a site you built yourself
 
 For hand-written HTML or any framework (React, Vue, Svelte, Astro, Next, plain HTML…).
 
-Paste your line (from [den.com](https://den.com) → **Get your widget**) just before
+Paste your line (from [signmysite.com](https://signmysite.com) → **Get your widget**) just before
 the closing `</body>` tag:
 
 ```html
-    <script src="https://den.com/w/YOUR_ID.js"></script>
+    <script src="https://signmysite.com/w/YOUR_ID.js"></script>
   </body>
 </html>
 ```

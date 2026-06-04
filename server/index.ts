@@ -5,7 +5,7 @@ import { app } from "./app.ts";
 import { PORT, BASE } from "./config.ts";
 import { startCrawler } from "./crawler.ts";
 import { startSweeps } from "./sweeps.ts";
-import { rewriteOrigin, widgetBanner, denManifest, robotsTxt } from "./meta.ts";
+import { rewriteOrigin, widgetBanner, siteManifest, robotsTxt } from "./meta.ts";
 import { rootVars, widgetVars } from "./theme.ts";
 
 // The widget, served as one canonical URL per member: /w/<id>.js
@@ -60,7 +60,7 @@ app.get("/theme.css", (c) => {
   return c.body(`:root{${rootVars()}}`);
 });
 
-// The main site (den.com) is the React SPA built by Vite into web/dist.
+// The main site (signmysite.com) is the React SPA built by Vite into web/dist.
 // Its hashed JS/CSS live under /assets; index.html is the SPA shell at /.
 app.use("/assets/*", serveStatic({ root: "./web/dist" }));
 
@@ -69,9 +69,9 @@ const INDEX = (() => {
     return readFileSync(new URL("../web/dist/index.html", import.meta.url), "utf8");
   } catch {
     // Not built yet — point the developer at the right command instead of 500ing.
-    return `<!doctype html><meta charset="utf-8"><title>Den</title>
+    return `<!doctype html><meta charset="utf-8"><title>signmysite</title>
 <body style="font-family:-apple-system,system-ui,sans-serif;max-width:540px;margin:80px auto;padding:0 24px;line-height:1.55;color:#3c4149">
-<h1 style="color:#282a30">Den</h1>
+<h1 style="color:#282a30">signmysite</h1>
 <p>The web app isn't built yet. Run <code>npm run build</code> for production, or <code>npm run dev:web</code> for a dev server with hot reload.</p>`;
   }
 })();
@@ -80,13 +80,13 @@ app.get("/", (c) => c.html(INDEX));
 // "What is this?" at a stable, conventional, machine-readable location — so an
 // agent that meets only the script tag can resolve the whole protocol (docs,
 // spec, schema, register endpoint, install line) from a single fetch.
-app.get("/.well-known/den.json", (c) => {
+app.get("/.well-known/signmysite.json", (c) => {
   c.header("access-control-allow-origin", "*");
   c.header("cache-control", "no-cache");
-  return c.json(denManifest(BASE));
+  return c.json(siteManifest(BASE));
 });
 
-// Welcome agents explicitly — Den is meant to be read and used by them. This
+// Welcome agents explicitly — signmysite is meant to be read and used by them. This
 // overrides any static robots.txt. (An edge CDN/WAF may still serve its own and
 // block AI user-agents; that has to be allow-listed at the edge, not here.)
 app.get("/robots.txt", (c) => {
@@ -122,8 +122,8 @@ app.get("/*", async (c, next) => {
 app.use("/*", serveStatic({ root: "./" }));
 
 serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`\n  Den  → ${BASE}`);
+  console.log(`\n  signmysite  → ${BASE}`);
   console.log(`  demo → ${BASE}/widget/demo.html\n`);
-  startCrawler(); // no-op unless DEN_CRAWL_MINUTES is set
-  startSweeps(); // activation nudges (+ future digests) — no-op unless DEN_SWEEP_HOURS is set
+  startCrawler(); // no-op unless SIGNMYSITE_CRAWL_MINUTES is set
+  startSweeps(); // activation nudges (+ future digests) — no-op unless SIGNMYSITE_SWEEP_HOURS is set
 });

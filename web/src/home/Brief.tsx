@@ -42,7 +42,7 @@ export function Brief({ data }: { data: HomeData }) {
           </ul>
         ) : (
           <Hint>
-            Nobody new to follow back today. When a Den member opens your site, they show up
+            Nobody new to follow back today. When a signmysite member opens your site, they show up
             here, ready to connect.
           </Hint>
         )}

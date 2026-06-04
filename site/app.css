@@ -84,19 +84,18 @@ b, strong { font-weight: var(--w-semibold); }
   justify-content: space-between;
   gap: 18px;
 }
+/* The wordmark — the one place the logo appears. A simple text logo set in the
+   app font: tight, bold, near-black. No mark or badge anywhere else. */
 .brand {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--black);
-  color: var(--white);
-  font-size: 15px;
-  font-weight: var(--w-semibold);
+  font-size: 20px;
+  font-weight: var(--w-bold);
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--ink);
 }
-.brand:hover { text-decoration: none; }
+.brand:hover { text-decoration: none; opacity: 0.7; }
 .top nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .navlink {
   color: var(--muted);
@@ -296,7 +295,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
 }
 .signin-email input:focus { box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
 .signin-email input::placeholder { color: var(--faint); }
-.signin-email .btn { width: 100%; min-height: 48px; }
+.signin-email .btn { width: 100%; min-height: 49px; }
 .signin-email .btn:disabled { opacity: .6; cursor: default; }
 .signin-or { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; }
 .signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
@@ -314,7 +313,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
   box-shadow: 0 20px 60px rgba(20, 20, 20, .14);
 }
 .mock-id { display: flex; align-items: center; gap: 14px; }
-.mock-av { width: 56px; height: 56px; border-radius: 50%; flex: 0 0 auto; }
+.mock-av { width: 56px; height: 56px; border-radius: 50%; flex: 0 0 auto; background-image: linear-gradient(135deg, #e9d5ff, #f3e9ff); }
 .mock-name { color: var(--ink); font-size: 18px; font-weight: var(--w-semibold); line-height: 1.1; }
 .mock-handle { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .mock-rows { display: flex; flex-direction: column; gap: 10px; }
@@ -380,7 +379,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .card-head a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .card .empty { padding: 8px 0; color: var(--muted); font-size: 14px; }
 
-/* relational analytics — the Den members who've read you, ready to follow back */
+/* relational analytics — the signmysite members who've read you, ready to follow back */
 .visitors-card { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
 .visitors-card .card-head { margin-bottom: 14px; }
 .visitors-card .empty { padding: 4px 0; }
@@ -459,8 +458,8 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   box-shadow: var(--shadow-card);
   transition: transform .2s ease, box-shadow .2s ease;
 }
-/* The preview fills the card at the canonical og:image ratio; the .thumb-N
-   gradient on the wrapper shows through only while the image loads. */
+/* The preview fills the card at the canonical og:image ratio; a neutral surface
+   shows behind it only while the image loads. */
 .site-thumb { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
 .shot-thumb::after {
   content: "";
@@ -469,12 +468,6 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.05);
 }
 .shot:hover .shot-thumb { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(20,20,20,.12); }
-.thumb-0 { background-image: linear-gradient(135deg, #f7d6e0, #fbe4ef); }
-.thumb-1 { background-image: linear-gradient(135deg, #c9f2e6, #e3fbf3); }
-.thumb-2 { background-image: linear-gradient(135deg, #dbeafe, #eef4ff); }
-.thumb-3 { background-image: linear-gradient(135deg, #fde68a, #fef3c7); }
-.thumb-4 { background-image: linear-gradient(135deg, #e9d5ff, #f3e9ff); }
-.thumb-5 { background-image: linear-gradient(135deg, #cffafe, #e6feff); }
 .shot-new {
   position: absolute; top: 12px; left: 12px;
   padding: 5px 10px; border-radius: 999px;
@@ -666,6 +659,19 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .cmt-time { margin-left: 6px; color: var(--muted); font-size: 14px; white-space: nowrap; }
 .react-emoji { font-size: 1.25em; line-height: 1; vertical-align: -.12em; }
 .cmt .body { margin-top: 3px; font-size: 15px; color: var(--ink); opacity: .8; overflow: visible; overflow-wrap: anywhere; }
+/* A comment reached by deep-link (…/@handle#comment-<id>, from the widget or the
+   home dashboard) floats to the top of the list and lights up, then the wash fades
+   out like a jumped-to Slack message. The class is toggled on in profileScript. */
+@keyframes bgHighlight {
+  0%, 15% { background-color: rgba(253, 230, 138, 0.7); } /* --yellow, held briefly */
+  100%    { background-color: rgba(253, 230, 138, 0); }
+}
+.cmt.bgHighlight {
+  margin-inline: -14px;
+  padding-inline: 14px;
+  border-radius: 12px;
+  animation: bgHighlight 2.6s ease-out forwards;
+}
 .tag {
   margin-left: 8px;
   padding: 3px 9px;
@@ -1124,9 +1130,7 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 .verify-page h1 { margin: 0; color: var(--ink); font-size: 34px; line-height: 1.1; font-weight: var(--w-semibold); }
 .verify-lead { margin: 0; color: var(--muted); font-size: 17px; line-height: 1.55; }
 .verify-lead b { color: var(--ink); font-weight: var(--w-semibold); }
-.verify-snippet { width: 100%; font-size: 13.5px; padding: 18px; }
 .verify-copy { align-self: stretch; }
-.verify-foot { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
 /* The redesigned /verify setup: numbered steps, a platform grid, then the
    paste-here guide (bullets left, a preview on the right). */

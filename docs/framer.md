@@ -1,9 +1,9 @@
-# Add Den to Framer
+# Add signmysite to Framer
 
-1. Get your line from [den.com](https://den.com) → **Get your widget**:
+1. Get your line from [signmysite.com](https://signmysite.com) → **Get your widget**:
 
    ```html
-   <script src="https://den.com/w/YOUR_ID.js"></script>
+   <script src="https://signmysite.com/w/YOUR_ID.js"></script>
    ```
 
 2. **Project settings → General → Custom Code**.

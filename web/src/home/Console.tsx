@@ -75,7 +75,7 @@ function CommentRow({ note }: { note: InboxNote }) {
   const react = isReaction(note.body) ? note.body.trim() : "";
   return (
     <li>
-      <Link className="cmt-row" to={`/note/${note.id}`}>
+      <a className="cmt-row" href={note.site.handle ? `/@${note.site.handle}#comment-${note.id}` : "/notes"}>
         <Avatar of={a} />
         <span className="cmt-row-body">
           <span className="cmt-row-line">
@@ -87,7 +87,7 @@ function CommentRow({ note }: { note: InboxNote }) {
             <span className="cmt-row-text">{note.visibility === "private" ? "Private note" : note.body}</span>
           )}
         </span>
-      </Link>
+      </a>
     </li>
   );
 }

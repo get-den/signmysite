@@ -1,6 +1,6 @@
-# Den server
+# signmysite server
 
-The reference backend for the Den protocol. TypeScript on
+The reference backend for the signmysite protocol. TypeScript on
 [Hono](https://hono.dev) + Postgres. Raw SQL, no ORM. Run directly with Node —
 no build step (Node strips the types).
 
@@ -8,7 +8,7 @@ no build step (Node strips the types).
 
 ```bash
 npm install
-createdb den          # one-time: create the Postgres database (or: npm run db:create)
+createdb signmysite          # one-time: create the Postgres database (or: npm run db:create)
 npm start             # → http://localhost:8787  (serves the API + the demo)
 ```
 
@@ -37,13 +37,12 @@ See [`.env.example`](../.env.example) for a copy-pasteable production template
 | Var | Default | Notes |
 |---|---|---|
 | `PORT` | `8787` | |
-| `DATABASE_URL` | `postgres:///den` | Local unix socket (peer auth). Set for production. |
+| `DATABASE_URL` | `postgres:///signmysite` | Local unix socket (peer auth). Set for production. |
 | `DATABASE_SSL` | _(auto)_ | TLS for Postgres. Auto-on for a remote `DATABASE_URL`, off for a local socket/host. Managed DBs (Render/Neon/Supabase/Heroku/RDS) need it; force with `1`/`0` if detection is wrong. |
-| `DEN_BASE_URL` | `http://localhost:$PORT` | Public origin — the **one** place the domain is set; every absolute URL derives from it. Drives the Google redirect URI **and** cookie security — over `https`, session cookies become `SameSite=None; Secure`. Must be set in prod (e.g. `https://den.com`). |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(unset)_ | Real Sign in with Google. Absent ⇒ a dev stub signs in a fake account. Register `${DEN_BASE_URL}/api/auth/google/callback` as the authorized redirect URI. |
-| `RESEND_API_KEY` | _(unset)_ | Enables email magic-link via [Resend](https://resend.com). Absent ⇒ the link is logged + returned as `dev_link` for local dev. |
-| `DEN_EMAIL_FROM` | `Den <onboarding@resend.dev>` | Verified Resend sender. The default only delivers to your own address; set a verified-domain sender (e.g. `Den <login@den.com>`) to email anyone. |
-| `DEN_CRAWL_MINUTES` | _(unset / off)_ | Freshness crawler interval. Set e.g. `60` to auto-detect site changes. |
+| `SIGNMYSITE_BASE_URL` | `http://localhost:$PORT` | Public origin — the **one** place the domain is set; every absolute URL derives from it. Drives the Google redirect URI **and** cookie security — over `https`, session cookies become `SameSite=None; Secure`. Must be set in prod (e.g. `https://signmysite.com`). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(unset)_ | Real Sign in with Google. Absent ⇒ a dev stub signs in a fake account. Register `${SIGNMYSITE_BASE_URL}/api/auth/google/callback` as the authorized redirect URI. |
+| `RESEND_API_KEY` | _(unset)_ | Enables email magic-link via [Resend](https://resend.com). Absent ⇒ the link is logged + returned as `dev_link` for local dev. The From address is derived as `noreply@<SIGNMYSITE_BASE_URL host>`, so that domain must be a verified Resend sender. |
+| `SIGNMYSITE_CRAWL_MINUTES` | _(unset / off)_ | Freshness crawler interval. Set e.g. `60` to auto-detect site changes. |
 
 ## Try the flow
 
@@ -55,12 +54,12 @@ curl -s -XPOST localhost:8787/api/register -d '{"name":"Maya"}' -H content-type:
 curl -s -XPOST localhost:8787/api/discover -d '{"url":"http://localhost:8787/examples/me.json"}' -H content-type:application/json
 
 # 3. read stats
-curl -s localhost:8787/api/profile/den:7f3a9c2e8b1d4f6a/stats
+curl -s localhost:8787/api/profile/signmysite:7f3a9c2e8b1d4f6a/stats
 ```
 
 ## Production notes (deliberately left open-ended)
 
-- **Email:** set `RESEND_API_KEY` (+ a verified `DEN_EMAIL_FROM`). Wired via `mail.ts`.
+- **Email:** set `RESEND_API_KEY` and verify your `SIGNMYSITE_BASE_URL` domain in Resend (the From address is `noreply@<that host>`). Wired via `mail.ts`.
 - **Cookies cross-site:** serve over HTTPS so `SameSite=None; Secure` applies; the widget sends credentials.
 - **Caching/scale:** put Redis in front of `stats` and precompute feeds when reads grow.
 - **Crawler:** `/api/discover` is fetch-on-demand; add a queue + periodic re-crawl later.

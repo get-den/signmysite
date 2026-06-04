@@ -1,23 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://den.com/schema/me.schema.json",
-  "title": "Den me.json",
-  "description": "A personal site's identity and graph edges on the Den protocol.",
+  "$id": "https://signmysite.com/schema/me.schema.json",
+  "title": "signmysite me.json",
+  "description": "A personal site's identity and graph edges on the signmysite protocol.",
   "type": "object",
   "required": ["version", "id", "name"],
   "additionalProperties": true,
   "properties": {
     "version": {
-      "description": "Spec version. Always 'den/v1' for this schema.",
-      "const": "den/v1"
+      "description": "Spec version. Always 'signmysite/v1' for this schema.",
+      "const": "signmysite/v1"
     },
     "id": {
-      "description": "Permanent identifier. Issued by den.com; never changes.",
+      "description": "Permanent identifier. Issued by signmysite.com; never changes.",
       "type": "string",
-      "pattern": "^den:[a-z0-9]{8,}$"
+      "pattern": "^signmysite:[a-z0-9]{8,}$"
     },
     "handle": {
-      "description": "Human-readable name. No dot => Den handle (maya -> maya.den.io). Has a dot => domain.",
+      "description": "Human-readable name. No dot => signmysite handle (maya -> maya.signmysite.com). Has a dot => domain.",
       "type": "string",
       "maxLength": 253
     },
@@ -43,7 +43,7 @@
       "format": "date-time"
     },
     "links": {
-      "description": "Graph edges to other Den members. Only `id` is authoritative.",
+      "description": "Graph edges to other signmysite members. Only `id` is authoritative.",
       "type": "array",
       "items": { "$ref": "#/$defs/link" }
     },
@@ -68,7 +68,7 @@
       "required": ["id"],
       "additionalProperties": true,
       "properties": {
-        "id": { "type": "string", "pattern": "^den:[a-z0-9]{8,}$" },
+        "id": { "type": "string", "pattern": "^signmysite:[a-z0-9]{8,}$" },
         "handle": { "type": "string", "maxLength": 253 },
         "name": { "type": "string", "maxLength": 80 },
         "rel": {

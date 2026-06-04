@@ -1,5 +1,5 @@
 /**
- * A static, decorative mock of a Den profile card — the visual that sits beside
+ * A static, decorative mock of a signmysite profile card — the visual that sits beside
  * the hero on the landing and on the sign-in panel. Purely presentational, so
  * it's hidden from assistive tech.
  */
@@ -8,10 +8,10 @@ export function ProfileMock() {
     <div className="mock" aria-hidden="true">
       <div className="mock-card">
         <div className="mock-id">
-          <div className="mock-av thumb-4" />
+          <div className="mock-av" />
           <div className="mock-meta">
             <div className="mock-name">Nikole Brake</div>
-            <div className="mock-handle">den.com/@nikole</div>
+            <div className="mock-handle">signmysite.com/@nikole</div>
           </div>
         </div>
         <div className="mock-rows">

@@ -1,5 +1,5 @@
 /*
- * The public profile page (den.com/@handle) — server-rendered so it's shareable
+ * The public profile page (signmysite.com/@handle) — server-rendered so it's shareable
  * and crawlable. Built from small render components below.
  *
  * One page, two audiences:
@@ -130,14 +130,12 @@ function actions(m: Member, s: Stats): string {
   </div>`;
 }
 
-function widgetPanel(m: Member, base: string): string {
-  const tag = escapeHtml(`<script src="${base}/w/${m.id.replace(/^den:/, "")}.js"></script>`);
-  return `<div class="card dash-widget pwidget">
+// The owner's "Add to your site" card: a nudge into the guided /#/verify flow,
+// where the one line and the paste-here steps live. Nothing is embedded here.
+const widgetPanel = `<div class="card dash-widget pwidget">
     <div class="card-head"><h3>Add to your site</h3></div>
-    <button class="btn pink" id="wcopy" type="button">Copy</button>
-    <span id="wsnippet" hidden>${tag}</span>
+    <a class="btn pink" href="/#/verify">Add your site</a>
   </div>`;
-}
 
 function pinnedSection(pinned: PinnedSite[], heading: string): string {
   const cards = pinned.map((b) => `<a class="pin" href="${b.url ? escapeHtml(b.url) : "/@" + escapeHtml(b.handle || "")}"${b.url ? ' target="_blank" rel="noopener"' : ""}>
@@ -166,10 +164,13 @@ function commentsSection(rows: CommentRow[]): string {
       ? `<div class="cmt-line"><span class="who">${name}</span><span class="act"> reacted with </span><span class="react-emoji">${escapeHtml(reaction)}</span>${time}</div>`
       : `<div class="cmt-line"><span class="who">${name}</span>${time}</div><div class="body">${escapeHtml(cm.body)}</div>`;
     const inner = `${avatar(ident)}<div class="meta">${meta}</div>`;
-    // Link the row to the commenter — their Den profile if we know it, else their site.
+    // Anchor every row so a deep-link (…/@handle#comment-<id>, from the widget or
+    // the home dashboard) can float it to the top of the list and highlight it.
+    const anchor = `id="comment-${escapeHtml(cm.id)}"`;
+    // Link the row to the commenter — their signmysite profile if we know it, else their site.
     const href = cm.author_handle ? `/@${escapeHtml(cm.author_handle)}` : cm.author_url ? escapeHtml(cm.author_url) : "";
     const ext = !cm.author_handle && cm.author_url ? ` target="_blank" rel="noopener"` : "";
-    return href ? `<a class="cmt" href="${href}"${ext}>${inner}</a>` : `<div class="cmt">${inner}</div>`;
+    return href ? `<a class="cmt" ${anchor} href="${href}"${ext}>${inner}</a>` : `<div class="cmt" ${anchor}>${inner}</div>`;
   }).join("");
   return `<section class="pcomments"><h2 class="pside-head">Comments</h2>
     <div class="cmt-list">${pub.length ? rowsHtml : `<div class="empty">No notes yet.</div>`}</div>
@@ -204,17 +205,17 @@ export function siteHeader(
         `<a class="navlink" href="/#/messages">Messages</a>` +
         signOutBtn;
   return (
-    `<header class="top"><a class="brand" href="/">den</a><nav>${nav}</nav></header>` +
+    `<header class="top"><a class="brand" href="/">signmysite</a><nav>${nav}</nav></header>` +
     (viewer ? signOutScript : "")
   );
 }
 
 export function renderProfileInner(opts: {
-  m: Member; s: Stats; pinned: PinnedSite[]; comments: CommentRow[]; isOwner: boolean; base: string;
+  m: Member; s: Stats; pinned: PinnedSite[]; comments: CommentRow[]; isOwner: boolean;
 }): string {
-  const { m, s, pinned, comments, isOwner, base } = opts;
+  const { m, s, pinned, comments, isOwner } = opts;
   const side = isOwner
-    ? widgetPanel(m, base)
+    ? widgetPanel
     : pinnedSection(pinned, `${m.name}'s pinned blogs`);
   return `
   <div class="profile">
@@ -228,26 +229,31 @@ export function renderProfileInner(opts: {
       <aside class="pcol-side">${side}</aside>
     </div>
   </div>
-  <script>${profileScript(m.id, isOwner)}</script>`;
+  <script>${profileScript(m.id, isOwner)}</script>
+  <script>${commentJumpScript()}</script>`;
 }
 
-// Client glue. The owner gets the widget "Copy script" button; a visitor gets
-// live Follow / Save toggles that hydrate the current state and counts. (The
-// server already rendered the correct buttons; this just wires them.)
-function profileScript(id: string, isOwner: boolean): string {
-  if (isOwner) {
-    return `
+// A deep-link to a single comment (…/@handle#comment-<id>, opened from the widget
+// or the home dashboard) floats that comment to the top of the list and lights it
+// up; the .bgHighlight wash then fades out like a jumped-to Slack message.
+function commentJumpScript(): string {
+  return `
 (function(){
-  var btn=document.getElementById('wcopy'),snip=document.getElementById('wsnippet');
-  if(!btn||!snip)return;
-  btn.addEventListener('click',function(){
-    var t=snip.textContent;
-    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){
-      btn.textContent='Copied';setTimeout(function(){btn.textContent='Copy';},1400);
-    }).catch(function(){});
-  });
+  var id=decodeURIComponent((location.hash||'').slice(1));
+  if(id.slice(0,8)!=='comment-')return;
+  var el=document.getElementById(id);
+  if(!el)return;
+  var list=el.parentNode;
+  if(list&&list.firstChild!==el)list.insertBefore(el,list.firstChild);
+  el.classList.add('bgHighlight');
+  el.scrollIntoView({behavior:'smooth',block:'center'});
 })();`;
-  }
+}
+
+// Client glue for a visitor: live Follow / Save toggles that hydrate the current
+// state and counts. The owner's side is a static link to /#/verify, so it needs none.
+function profileScript(id: string, isOwner: boolean): string {
+  if (isOwner) return "";
   return `
 (function(){
   var id=${JSON.stringify(id)};

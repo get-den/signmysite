@@ -1,9 +1,9 @@
-# Add Den to Wix
+# Add signmysite to Wix
 
-1. Get your line from [den.com](https://den.com) → **Get your widget**:
+1. Get your line from [signmysite.com](https://signmysite.com) → **Get your widget**:
 
    ```html
-   <script src="https://den.com/w/YOUR_ID.js"></script>
+   <script src="https://signmysite.com/w/YOUR_ID.js"></script>
    ```
 
 2. In the Wix Editor: **Settings → Custom Code** (under "Advanced").
@@ -13,4 +13,4 @@
 Publish your site — the badge is bottom-right.
 
 > Custom Code needs a **Premium** plan with a connected domain. On a free Wix site,
-> link your `den.com/@you` profile instead.
+> link your `signmysite.com/@you` profile instead.

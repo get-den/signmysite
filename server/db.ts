@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS visits (
 );
 
 -- Append-only page-view log — the substrate for relational analytics. One row per
--- widget impression: WHO (viewer_id, set only when the visitor is a signed-in Den
+-- widget impression: WHO (viewer_id, set only when the visitor is a signed-in signmysite
 -- member — anonymous views keep it NULL), an opaque per-browser session, which
 -- page, the referring host, and an engaged-time estimate filled in later by the
 -- page-exit beacon (NULL until then). members.views stays the O(1) running total
@@ -255,11 +255,41 @@ CREATE TABLE IF NOT EXISTS cohort_members (
 );
 CREATE INDEX IF NOT EXISTS cohort_members_member ON cohort_members (member_id);
 CREATE INDEX IF NOT EXISTS cohort_members_cohort ON cohort_members (cohort_id, created);
+
+-- One-time rebrand: the member-id prefix den: → signmysite: across every column
+-- that stores one. Each UPDATE matches only den:-prefixed values, so it's idempotent
+-- (a no-op once migrated) and safe to keep in the startup schema — existing prod data
+-- is converted on the next deploy. There are no enforced FKs, so per-table updates are
+-- independent; composite-PK tables can't collide (all rows are uniformly den:- today).
+DO $$
+BEGIN
+  UPDATE members           SET id           = 'signmysite:' || substring(id from 5)           WHERE id           LIKE 'den:%';
+  UPDATE snapshots         SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE visits            SET viewer_id    = 'signmysite:' || substring(viewer_id from 5)    WHERE viewer_id    LIKE 'den:%';
+  UPDATE visits            SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE page_views        SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE page_views        SET viewer_id    = 'signmysite:' || substring(viewer_id from 5)    WHERE viewer_id    LIKE 'den:%';
+  UPDATE edges             SET follower_id  = 'signmysite:' || substring(follower_id from 5)  WHERE follower_id  LIKE 'den:%';
+  UPDATE edges             SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE saves             SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE saves             SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE pins              SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE pins              SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE comments          SET target_id    = 'signmysite:' || substring(target_id from 5)    WHERE target_id    LIKE 'den:%';
+  UPDATE comments          SET author_id    = 'signmysite:' || substring(author_id from 5)    WHERE author_id    LIKE 'den:%';
+  UPDATE messages          SET sender_id    = 'signmysite:' || substring(sender_id from 5)    WHERE sender_id    LIKE 'den:%';
+  UPDATE messages          SET recipient_id = 'signmysite:' || substring(recipient_id from 5) WHERE recipient_id LIKE 'den:%';
+  UPDATE message_reactions SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE sessions          SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE avatars           SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+  UPDATE cohorts           SET owner_id     = 'signmysite:' || substring(owner_id from 5)     WHERE owner_id     LIKE 'den:%';
+  UPDATE cohort_members    SET member_id    = 'signmysite:' || substring(member_id from 5)    WHERE member_id    LIKE 'den:%';
+END $$;
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
 // on a Homebrew Postgres. Override with DATABASE_URL in production.
-const connectionString = process.env.DATABASE_URL || "postgres:///den";
+const connectionString = process.env.DATABASE_URL || "postgres:///signmysite";
 // Managed Postgres (Render, Neon, Supabase, Heroku, RDS…) requires TLS; a local
 // socket or localhost host does not. So default SSL on for a remote DATABASE_URL
 // and off locally — override either way with DATABASE_SSL=1/0. rejectUnauthorized
@@ -321,7 +351,7 @@ export type Stats = {
   views: number; followers: number; following: number; saved: number; pinned: number;
   viewerFollows: boolean; viewerSaved: boolean; viewerPinned: boolean;
 };
-// A Den member who has viewed your site, with the relation that makes analytics
+// A signmysite member who has viewed your site, with the relation that makes analytics
 // relational: whether you already follow them (and they you). `views` is how many
 // times they've opened your site in the window; `lastSeen` is the most recent.
 export type ViewerVisit = {
@@ -329,12 +359,12 @@ export type ViewerVisit = {
   views: number; lastSeen: string; viewerFollows: boolean; followsYou: boolean;
 };
 // The owner's analytics: headline counts, the real average engaged time (finally
-// not a placeholder), and the named Den members behind the anonymous view total.
+// not a placeholder), and the named signmysite members behind the anonymous view total.
 export type Analytics = {
   views: number;          // all-time running total (members.views)
   visitors: number;       // distinct sessions in the window
   visitorsWeek: number;   // distinct sessions in the last 7 days
-  knownVisitors: number;  // distinct signed-in Den members in the window
+  knownVisitors: number;  // distinct signed-in signmysite members in the window
   avgDurationMs: number | null;
   recent: ViewerVisit[];
 };
@@ -643,7 +673,7 @@ const windowStart = () => new Date(Date.now() - ANALYTICS_WINDOW_DAYS * 864e5).t
 
 // Record one page view: append the event (who/where/referrer) AND bump the site's
 // running counter, so every hot read stays a single-column lookup. `viewer` is set
-// only when the visitor is a signed-in Den member — that's what makes the analytics
+// only when the visitor is a signed-in signmysite member — that's what makes the analytics
 // relational. The caller drops self-views before calling. Returns the new total.
 export async function recordView(v: {
   target: string; viewer?: string | null; session: string;
@@ -692,7 +722,7 @@ export async function importView(v: {
 }
 
 // The owner's relational analytics for one site. Headline counts + average engaged
-// time, plus the named Den members behind the view total — each joined to the edge
+// time, plus the named signmysite members behind the view total — each joined to the edge
 // table both ways so the UI can say "follows you / you don't follow back yet". This
 // is the read that turns an anonymous counter into a discovery surface.
 export async function analytics(id: string): Promise<Analytics> {
@@ -877,25 +907,6 @@ type db_CommentRow = {
   author_avatar: string | null; author_url: string | null;
 };
 type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
-// A single comment joined with BOTH its author and the site (target) it lives on
-// — powers the standalone /note/:id view the widget links each comment to.
-export type db_NoteRow = db_CommentRow & {
-  target_id: string;
-  target_name: string; target_handle: string | null; target_avatar: string | null; target_url: string | null;
-};
-export async function getComment(id: string): Promise<db_NoteRow | undefined> {
-  const r = await pool.query(
-    `SELECT c.id, c.body, c.visibility, c.created, c.target_id, c.author_id,
-            m.name AS author_name, m.handle AS author_handle, m.avatar AS author_avatar, m.url AS author_url,
-            t.name AS target_name, t.handle AS target_handle, t.avatar AS target_avatar, t.url AS target_url
-       FROM comments c
-       LEFT JOIN members m ON m.id = c.author_id
-       JOIN members t ON t.id = c.target_id
-      WHERE c.id = $1`,
-    [id]
-  );
-  return r.rows[0];
-}
 
 export async function addComment(c: {
   id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility;

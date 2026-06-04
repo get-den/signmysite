@@ -132,7 +132,7 @@ function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }
   if (missing) {
     return (
       <div className="dm-blank">
-        <p>That person isn't on Den.</p>
+        <p>That person isn't on signmysite.</p>
         <button className="btn sm" onClick={() => navigate("/messages")}>Back to messages</button>
       </div>
     );

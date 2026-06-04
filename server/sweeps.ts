@@ -3,7 +3,7 @@
  * trigger. Today: the activation nudge (signed up, but the widget never went live).
  * The weekly digest will land here too (see memory: email-digest-todo).
  *
- * Off by default. Set DEN_SWEEP_HOURS to enable (e.g. 24). Like the crawler, this
+ * Off by default. Set SIGNMYSITE_SWEEP_HOURS to enable (e.g. 24). Like the crawler, this
  * is a lazy floor — the precise paths (verify, prefs) are instant.
  */
 import * as db from "./db.ts";
@@ -12,7 +12,7 @@ import { notifyActivation } from "./mail.ts";
 const ACTIVATION_AGE_HOURS = 24; // give a fresh signup a day before nudging
 
 export function startSweeps(): void {
-  const hours = Number(process.env.DEN_SWEEP_HOURS || 0);
+  const hours = Number(process.env.SIGNMYSITE_SWEEP_HOURS || 0);
   if (!hours) return;
   const everyMs = Math.max(1, hours) * 3600 * 1000;
   console.log(`  sweeps → every ${hours}h (activation nudges)`);

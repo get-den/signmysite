@@ -1,9 +1,9 @@
-# Add Den to Webflow
+# Add signmysite to Webflow
 
-1. Get your line from [den.com](https://den.com) → **Get your widget**:
+1. Get your line from [signmysite.com](https://signmysite.com) → **Get your widget**:
 
    ```html
-   <script src="https://den.com/w/YOUR_ID.js"></script>
+   <script src="https://signmysite.com/w/YOUR_ID.js"></script>
    ```
 
 2. **Site settings → Custom code → Footer code** (before `</body>`).

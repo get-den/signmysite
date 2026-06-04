@@ -1,5 +1,5 @@
 /*
- * Sign in with Google — the human-facing auth for den.com.
+ * Sign in with Google — the human-facing auth for signmysite.com.
  *
  * Real OAuth 2.0 when GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set.
  * When they're absent (local dev), a stub stands in that walks the identical

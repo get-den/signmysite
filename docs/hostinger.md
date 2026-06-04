@@ -1,10 +1,10 @@
-# Add Den to Hostinger
+# Add signmysite to Hostinger
 
 **If you use Hostinger Website Builder:**
-1. Get your line from [den.com](https://den.com) → **Get your widget**:
+1. Get your line from [signmysite.com](https://signmysite.com) → **Get your widget**:
 
    ```html
-   <script src="https://den.com/w/YOUR_ID.js"></script>
+   <script src="https://signmysite.com/w/YOUR_ID.js"></script>
    ```
 2. Add an **Embed code / Custom HTML** element (or **Settings → Integrations → Custom code → Body**).
 3. Paste the line. **Save & Publish**.

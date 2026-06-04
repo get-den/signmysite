@@ -2,9 +2,9 @@ import { randomBytes, randomInt, createHmac, timingSafeEqual } from "node:crypto
 
 export const now = (): string => new Date().toISOString();
 
-// A permanent member id: "den:" + 16 hex chars. Satisfies ^den:[a-z0-9]{8,}$.
+// A permanent member id: "signmysite:" + 16 hex chars. Satisfies ^signmysite:[a-z0-9]{8,}$.
 export function newId(): string {
-  return "den:" + randomBytes(8).toString("hex");
+  return "signmysite:" + randomBytes(8).toString("hex");
 }
 
 const ADJ = ["swift", "sunny", "brave", "clever", "tiny", "cosmic", "mellow", "zesty",
@@ -23,8 +23,8 @@ export function token(bytes = 24): string {
 }
 
 // A cohort ("crew") id: "coh_" + 16 hex. Deliberately a DIFFERENT shape from a
-// member id ("den:" + hex) so the two can never be confused in a route param or a
-// follow edge (a cohort id won't match ^den:[a-z0-9]{8,}$).
+// member id ("signmysite:" + hex) so the two can never be confused in a route param or a
+// follow edge (a cohort id won't match ^signmysite:[a-z0-9]{8,}$).
 export function newCohortId(): string {
   return "coh_" + randomBytes(8).toString("hex");
 }
@@ -40,7 +40,7 @@ export function newInviteCode(len = 7): string {
   return s;
 }
 
-// Handles live in URLs (den.com/@handle), so keep them lowercase, url-safe, and
+// Handles live in URLs (signmysite.com/@handle), so keep them lowercase, url-safe, and
 // human. Normalize lossily as the user types; validate the result before saving.
 export const HANDLE_MIN = 3;
 export const HANDLE_MAX = 30;
@@ -98,9 +98,9 @@ export function escapeHtml(s: string): string {
 
 // A stateless per-member token for email links (the /notify manage page), so a
 // recipient can change prefs WITHOUT signing in — yet a stranger can't mute someone
-// else's mail. HMAC of the id under DEN_SECRET; set DEN_SECRET in prod so links
+// else's mail. HMAC of the id under SIGNMYSITE_SECRET; set SIGNMYSITE_SECRET in prod so links
 // survive restarts (a dev default keeps local links working).
-const NOTIFY_SECRET = process.env.DEN_SECRET || "den-dev-notify-secret";
+const NOTIFY_SECRET = process.env.SIGNMYSITE_SECRET || "signmysite-dev-notify-secret";
 export function notifyToken(memberId: string): string {
   return createHmac("sha256", NOTIFY_SECRET).update(memberId).digest("base64url").slice(0, 22);
 }

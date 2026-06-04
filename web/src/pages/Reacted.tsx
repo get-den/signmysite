@@ -13,7 +13,7 @@ import { Avatar, IconButton, Loading } from "../ui";
  *  • kind=note  — the postcard was already posted by /compose; this just confirms.
  *  • kind=react — the reaction has NOT been posted yet. We post it here, as the
  *    signed-in viewer, so it's always attributed (never "Someone"). If they have
- *    a den.com session it lands immediately; if not, they sign in first (Google
+ *    a signmysite.com session it lands immediately; if not, they sign in first (Google
  *    or an email link) and it posts the moment they return.
  *
  * Either way it ends on the same confirmation: a way back to the site they came
@@ -135,7 +135,7 @@ function Confirmed({
   };
 
   // Where to slip back to: the exact page they came from if the widget passed it,
-  // else the target's linked site, else their Den profile.
+  // else the target's linked site, else their signmysite profile.
   const backHref = from || target?.url || (target?.handle ? `/@${target.handle}` : "");
   const backLabel = prettyHost(from) || prettyHost(target?.url || "") || name;
   const profile = target?.handle ? `/@${target.handle}` : target?.url || "";
@@ -174,7 +174,7 @@ function Confirmed({
       </div>
 
       {/* Back to the site they came from (to see their reaction land), then the
-          growth nudge — install Den on your own site — if they haven't yet. */}
+          growth nudge — install signmysite on your own site — if they haven't yet. */}
       <div className="confirm-actions">
         {backHref && (
           <a className="btn pink lg" href={backHref}>

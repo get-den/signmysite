@@ -6,7 +6,7 @@
  * only when the content actually changed (so a static page doesn't grow a no-op
  * version on every pass). Each snapshot captures that version's thumbnail/title.
  *
- * Off by default. Set DEN_CRAWL_MINUTES to enable (e.g. 60). Pings and me.json
+ * Off by default. Set SIGNMYSITE_CRAWL_MINUTES to enable (e.g. 60). Pings and me.json
  * `updated` are the precise, instant path; this is the lazy catch-all beneath them.
  */
 import * as db from "./db.ts";
@@ -14,7 +14,7 @@ import { inspectSite } from "./preview.ts";
 import { notifySiteUpdated } from "./mail.ts";
 
 export function startCrawler(): void {
-  const minutes = Number(process.env.DEN_CRAWL_MINUTES || 0);
+  const minutes = Number(process.env.SIGNMYSITE_CRAWL_MINUTES || 0);
   if (!minutes) return;
   const everyMs = Math.max(1, minutes) * 60 * 1000;
   console.log(`  crawl → every ${minutes}m (freshness + thumbnails)`);

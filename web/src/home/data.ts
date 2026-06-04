@@ -2,7 +2,7 @@
  * One hook that backs every home layout. The four layouts are different *views*
  * of the same graph, so the data + the actions live here once and each layout
  * just arranges them. Loads in parallel on mount, keeps a mock fallback so a
- * brand-new den never looks empty, and exposes optimistic actions (follow back,
+ * brand-new signmysite never looks empty, and exposes optimistic actions (follow back,
  * pin, make a crew) the layouts call directly.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -39,7 +39,7 @@ export type HomeData = {
   pinnedIds: Set<string>;
   /** Followed + discovered sites, de-duplicated — the gallery's "everything" set. */
   allSites: Site[];
-  /** Den members who read you and you don't follow back yet — the recurring hero. */
+  /** signmysite members who read you and you don't follow back yet — the recurring hero. */
   unfollowedReaders: ViewerVisit[];
   /** Sites you follow that changed since you last looked. */
   freshFollows: Site[];

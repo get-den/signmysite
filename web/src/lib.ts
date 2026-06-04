@@ -23,7 +23,7 @@ export function host(url: string): string {
 }
 
 /**
- * Where an avatar + name links: the member's Den profile (/@handle) if we know
+ * Where an avatar + name links: the member's signmysite profile (/@handle) if we know
  * their handle, else their linked site, else nowhere. One source of truth so
  * every identity chip points to the same place.
  */
@@ -90,7 +90,7 @@ export function authUrl(to: string = location.href): string {
 /* ---- usernames + websites (the onboarding funnel) ----------------------- */
 
 /** Where the landing stashes a pasted site so onboarding can pick it up post-auth. */
-export const JOIN_SITE_KEY = "den:join-site";
+export const JOIN_SITE_KEY = "signmysite:join-site";
 
 const HANDLE_MAX = 30;
 

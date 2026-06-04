@@ -6,11 +6,11 @@
  */
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { updateProfile, verifySite } from "../api";
+import { updateProfile } from "../api";
 import type { Member, Site, ViewerVisit } from "../api";
 import { compact, host, profileHref, relTime, validateSite } from "../lib";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Button, PinIcon, SiteThumbnail, Spinner, WidgetInstall } from "../ui";
+import { Avatar, Button, PinIcon, SiteThumbnail } from "../ui";
 import { firstName } from "./data";
 
 /** Date line + a greeting that follows the clock. The Brief's masthead. */
@@ -37,7 +37,7 @@ export function FollowBtn({ who, onFollow }: { who: ViewerVisit; onFollow: (v: V
   );
 }
 
-/** One Den reader as a list row: who they are, how they read you, a follow-back.
+/** One signmysite reader as a list row: who they are, how they read you, a follow-back.
  *  The atom behind Brief's priority list and Stream's read events. */
 export function ReaderRow({ who, onFollow }: { who: ViewerVisit; onFollow: (v: ViewerVisit) => void }) {
   return (
@@ -180,7 +180,7 @@ function AddSiteForm() {
     <section className="cta cta-add">
       <div className="cta-head">
         <h2>Add your site</h2>
-        <p>Link your personal site and Den starts showing you who reads it.</p>
+        <p>Link your personal site and signmysite starts showing you who reads it.</p>
       </div>
       <div className={"cta-field" + (err ? " bad" : "")}>
         <input
@@ -198,57 +198,16 @@ function AddSiteForm() {
   );
 }
 
-// Linked but unproven. The button opens the canonical install inline (no page
-// jump); copying the line kicks off a live check, with a refresh to re-run it.
+// Linked but unproven: a nudge into the guided /verify flow (pick platform, paste,
+// confirm). The whole install lives there, so this just points the way.
 function VerifyCTA({ url }: { url: string }) {
-  const { viewer, setViewer } = useViewer();
-  const toast = useToast();
-  const [open, setOpen] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [missed, setMissed] = useState(false);
-  if (!viewer) return null;
-
-  const check = async () => {
-    if (checking) return;
-    setChecking(true); setMissed(false);
-    try {
-      const r = await verifySite();
-      if (r.verified) { setViewer({ ...viewer, verified: true }); toast("Verified ✓"); }
-      else setMissed(true);
-    } catch {
-      setMissed(true);
-    } finally {
-      setChecking(false);
-    }
-  };
-
   return (
     <section className="cta cta-verify">
       <div className="cta-head">
-        <h2>Add Den to your site</h2>
+        <h2>Add signmysite to your site</h2>
         <p>Add the one-line widget to <b>{host(url)}</b> to confirm it's yours.</p>
       </div>
-      {!open ? (
-        <Button className="primary" onClick={() => setOpen(true)}>Add your site</Button>
-      ) : (
-        <div className="cta-install">
-          <WidgetInstall viewer={viewer} onCopied={check} />
-          {(checking || missed) && (
-            <div className="cta-checking slide-down" role="status" aria-live="polite">
-              {checking && <Spinner />}
-              <span>{checking ? "Checking your site…" : "Not live yet. Publish, then check again."}</span>
-              <button
-                type="button"
-                className="cta-refresh"
-                onClick={check}
-                disabled={checking}
-                aria-label="Check again"
-                title="Check again"
-              >↻</button>
-            </div>
-          )}
-        </div>
-      )}
+      <Link className="btn primary" to="/verify">Add your site</Link>
     </section>
   );
 }

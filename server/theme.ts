@@ -1,5 +1,5 @@
 /*
- * Den brand tokens — the ONE source of truth for the brand palette across all three
+ * signmysite brand tokens — the ONE source of truth for the brand palette across all three
  * surfaces. Nothing else hardcodes these values:
  *   • the email service (mail.ts) inlines them as constants (email strips <style>);
  *   • the React app reads them from GET /theme.css → :root (see rootVars()), which

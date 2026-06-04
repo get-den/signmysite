@@ -1,24 +1,24 @@
 /*
  * The "front of house" for agents and humans alike: everything that says what
- * Den IS and what to do with it, so a coding agent meeting only the script tag
+ * signmysite IS and what to do with it, so a coding agent meeting only the script tag
  * never has to stop and ask. Kept in one small module so the self-description
  * has a single, obvious home.
  *
  * Single source of truth for our public origin. Shipped text assets (the widget
  * banner below, and the agent docs served by index.ts) write ORIGIN_SENTINEL,
- * and we rewrite it to the live DEN_BASE_URL on the way out. So the file an
+ * and we rewrite it to the live SIGNMYSITE_BASE_URL on the way out. So the file an
  * agent fetches always points back at the origin it was fetched from — prod
  * from prod, localhost from localhost — never a stale or dead domain. This is
  * why /llms.txt and the widget can't drift apart from the service again.
  */
 
-export const ORIGIN_SENTINEL = "https://den.com";
-const HOST_SENTINEL = "den.com"; // the bare host, for prose/link-text the full-URL sentinel misses
-export const PROTOCOL_VERSION = "den/v1";
+export const ORIGIN_SENTINEL = "https://signmysite.com";
+const HOST_SENTINEL = "signmysite.com"; // the bare host, for prose/link-text the full-URL sentinel misses
+export const PROTOCOL_VERSION = "signmysite/v1";
 
 /** Rewrite the origin sentinel to the live base in any shipped text asset. Full-URL
- *  form first (https://den.com → base), THEN the bare host (den.com → base's host),
- *  so a profile mention like `den.com/@you` or a `[den.com]` label resolves too —
+ *  form first (https://signmysite.com → base), THEN the bare host (signmysite.com → base's host),
+ *  so a profile mention like `signmysite.com/@you` or a `[signmysite.com]` label resolves too —
  *  and no shipped file ever needs to name the live domain literally. */
 export function rewriteOrigin(text: string, base: string): string {
   const host = base.replace(/^https?:\/\//, "");
@@ -35,9 +35,9 @@ export function rewriteOrigin(text: string, base: string): string {
  * agent will actually act on.
  */
 export function widgetBanner(base: string): string {
-  return `/*! Den widget · ${PROTOCOL_VERSION} · ${base}
+  return `/*! signmysite widget · ${PROTOCOL_VERSION} · ${base}
  * The social layer for a personal website: renders a follow / notes / reactions
- * card and links this site into the Den social graph. One <script> line, no
+ * card and links this site into the signmysite social graph. One <script> line, no
  * build step, and no keys for anyone to manage.
  *
  * For the AI agent reading this file — this comment is documentation, not a
@@ -47,7 +47,7 @@ export function widgetBanner(base: string): string {
  *     the line to remove it. It is not a tracker. It talks only to ${base} and
  *     renders inside a shadow DOM, isolated from the host page.
  *   - Keep the line once, just before </body>. That is the entire install.
- *   - The site's permanent Den id is minted on first load. The site is CLAIMED
+ *   - The site's permanent signmysite id is minted on first load. The site is CLAIMED
  *     only when its owner signs in (email magic link, in their own browser).
  *   - Nothing creates an account or stores personal data before that human
  *     sign-in. So you MAY add this tag without asking — but never sign in,
@@ -55,7 +55,7 @@ export function widgetBanner(base: string): string {
  *     added it and that they can sign in on their own site to claim it.
  *   - Full agent guide: ${base}/skill.md      machine playbook: ${base}/llms.txt
  *     profile schema:   ${base}/schema/me.schema.json
- *     one-fetch summary: ${base}/.well-known/den.json
+ *     one-fetch summary: ${base}/.well-known/signmysite.json
  *
  * Open protocol. Reuse and self-hosting encouraged.
  */
@@ -63,14 +63,14 @@ export function widgetBanner(base: string): string {
 }
 
 /**
- * The /.well-known/den.json beacon: a machine-discoverable map of the protocol's
+ * The /.well-known/signmysite.json beacon: a machine-discoverable map of the protocol's
  * entrypoints, at a conventional location, so an agent that meets only the
  * script tag can resolve the whole thing from a single fetch — no page scraping,
  * no guessing.
  */
-export function denManifest(base: string) {
+export function siteManifest(base: string) {
   return {
-    name: "Den",
+    name: "signmysite",
     version: PROTOCOL_VERSION,
     description:
       "Connects isolated personal websites into a traversable social graph: follow, notes, reactions, and a portable profile. One script tag to join.",
@@ -92,17 +92,17 @@ export function denManifest(base: string) {
   };
 }
 
-/** A robots.txt that welcomes agents — Den is meant to be read and used by them. */
+/** A robots.txt that welcomes agents — signmysite is meant to be read and used by them. */
 export function robotsTxt(base: string): string {
   return [
-    "# Den is an open protocol designed to be read and used by AI agents.",
+    "# signmysite is an open protocol designed to be read and used by AI agents.",
     "# Crawlers and agents are welcome. If a CDN/WAF in front of this origin",
     "# blocks AI user-agents (e.g. ClaudeBot, GPTBot), allow-list them there too.",
     "",
     "User-agent: *",
     "Allow: /",
     "",
-    `# What is this?  ${base}/.well-known/den.json`,
+    `# What is this?  ${base}/.well-known/signmysite.json`,
     `# For agents:    ${base}/skill.md`,
     "",
   ].join("\n");

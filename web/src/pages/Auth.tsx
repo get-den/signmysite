@@ -25,7 +25,7 @@ export function Auth() {
     <div className="auth">
       <div className="auth-form">
         <IconButton icon="back" className="auth-back" onClick={() => navigate(backPath(ret))} />
-        <h1 className="auth-title">Join Den</h1>
+        <h1 className="auth-title">Join signmysite</h1>
         <p className="auth-sub">
           Sign in or create your account. We'll email you a link, no password needed.
         </p>

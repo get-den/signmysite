@@ -31,7 +31,7 @@ type Check =
 type Scrape = { host: string; reachable: boolean; thumbnail: string | null; avatar: string | null };
 type Draft = { step: 1 | 2 | 3; handle: string; site: string; scrape: Scrape | null; links: string[] };
 
-const draftKey = (id: string) => `den:onboard:${id}`;
+const draftKey = (id: string) => `signmysite:onboard:${id}`;
 function loadDraft(id: string): Draft | null {
   try { const r = localStorage.getItem(draftKey(id)); return r ? (JSON.parse(r) as Draft) : null; } catch { return null; }
 }
@@ -184,7 +184,7 @@ export function Onboarding() {
     }
   }
 
-  const idShort = viewer.id.replace(/^den:/, "");
+  const idShort = viewer.id.replace(/^signmysite:/, "");
   const scriptTag = `<script src="${location.origin}/w/${idShort}.js"></script>`;
 
   return (

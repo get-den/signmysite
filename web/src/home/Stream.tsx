@@ -74,7 +74,7 @@ export function Stream({ data }: { data: HomeData }) {
           {filter === "notes"
             ? "No notes yet. When someone writes on your site, it shows up here."
             : filter === "people"
-              ? "No Den readers yet. Share your site and the people who open it appear here."
+              ? "No signmysite readers yet. Share your site and the people who open it appear here."
               : "All quiet. Reads, notes and updates from sites you follow will stream in here."}
         </Hint>
       )}

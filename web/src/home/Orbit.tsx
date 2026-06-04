@@ -1,5 +1,5 @@
 /*
- * Orbit — "Your Den." The home as your place in the graph rather than a dashboard.
+ * Orbit — "Your signmysite." The home as your place in the graph rather than a dashboard.
  * You sit at the center; the people around you ring outward — your crew close in,
  * the readers who found you this week further out. It's identity-forward and a
  * little playful (this is a product kids use), and it makes one thing legible at a
@@ -53,7 +53,7 @@ export function Orbit({ data }: { data: HomeData }) {
 
   return (
     <div className="orbit">
-      <div className="orbit-stage" role="img" aria-label={`${viewer.name || "You"} and ${analytics?.knownVisitors ?? 0} Den readers`}>
+      <div className="orbit-stage" role="img" aria-label={`${viewer.name || "You"} and ${analytics?.knownVisitors ?? 0} signmysite readers`}>
         <div className="orbit-rings" aria-hidden="true"><span /><span /></div>
 
         {readers.map((r, i) => (
@@ -80,7 +80,7 @@ export function Orbit({ data }: { data: HomeData }) {
         <div className="orbit-reach">
           <b>{compact(stats?.views)}</b> reads
           <span className="dot" /> <b>{compact(stats?.followers)}</b> followers
-          {analytics?.knownVisitors ? <><span className="dot" /> <b>{compact(analytics.knownVisitors)}</b> Den readers</> : null}
+          {analytics?.knownVisitors ? <><span className="dot" /> <b>{compact(analytics.knownVisitors)}</b> signmysite readers</> : null}
         </div>
       </div>
 
@@ -88,7 +88,7 @@ export function Orbit({ data }: { data: HomeData }) {
         <section className="orbit-col">
           <div className="orbit-col-head">
             <h2>Reading you</h2>
-            {analytics ? <span className="muted">{compact(analytics.knownVisitors)} from Den · 30 days</span> : null}
+            {analytics ? <span className="muted">{compact(analytics.knownVisitors)} from signmysite · 30 days</span> : null}
           </div>
           {unfollowedReaders.length ? (
             <ul className="reader-list reader-list-tight">
