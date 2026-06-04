@@ -147,6 +147,18 @@ const comments: Comment[] = [
   { target_id: ID.maya, author_id: ID.dan, body: "private note: saving this for inspiration.", visibility: "private" },
 ];
 
+// A short DM back-and-forth between `you` and Maya — demos the messages inbox +
+// thread. Maya's land unread (the `read` flag defaults false), so her conversation
+// shows an unread badge until `you` open it.
+type Dm = { id: string; from: string; to: string; body: string };
+const messages: Dm[] = [
+  { id: "msg_seed_0", from: ID.you, to: ID.maya, body: "Maya! Loved the dinosaur sketches on your site." },
+  { id: "msg_seed_1", from: ID.maya, to: ID.you, body: "thank you!! that means a lot 🦕" },
+  { id: "msg_seed_2", from: ID.maya, to: ID.you, body: "are you still adding Den to your site? happy to help." },
+  { id: "msg_seed_3", from: ID.you, to: ID.maya, body: "yes — pasting the one line now. want to swap webrings?" },
+  { id: "msg_seed_4", from: ID.maya, to: ID.you, body: "always. send me your three and I'll pin one ✨" },
+];
+
 await db.reset();
 for (const [index, member] of members.entries()) {
   const { thumb: ogImage, avatar: realAvatar, ...rest } = member;
@@ -169,6 +181,16 @@ for (const [id, tier] of prominence) await db.updateMember(id, { prominence: tie
 for (const [member, target] of saves) await db.setSave(member, target);
 for (const [member, target] of pins) await db.setPin(member, target);
 for (const [index, comment] of comments.entries()) await db.addComment({ id: `c_seed_${index}`, ...comment });
+for (const m of messages) await db.sendMessage({ id: m.id, sender_id: m.from, recipient_id: m.to, body: m.body });
+await db.toggleMessageReaction("msg_seed_1", ID.you, "❤️"); // `you` ❤️ Maya's thank-you — shows a reaction chip on load
+
+// A demo crew (a closed group): `you` + a few classmates, reachable at /join/demo
+// with a fixed, memorable code. createCohort seats `you` as owner; the rest join
+// as members. (They already follow each other via the seeded edges above, so no
+// extra wiring is needed for the demo.)
+const CREW = "coh_demo000000000000";
+await db.createCohort({ id: CREW, name: "Hill Valley Middle", code: "demo", ownerId: ID.you });
+for (const member of [ID.maya, ID.maggie, ID.josh]) await db.addCohortMember(CREW, member);
 
 // Page views OF "you", to populate the relational analytics demo: named Den members
 // (some you already follow, some you don't — the "follow back" nudge) mixed with
@@ -202,4 +224,5 @@ for (const [i, v] of pageViews.entries()) {
 console.log(`seeded ${members.length} members, ${edges.length} follows, ${saves.length} saves, ${pins.length} pins, ${pageViews.length} views`);
 console.log("  dev sign-in → you@example.com");
 console.log("  widget demo → maya's webring (maggie · josh · lynn)");
+console.log("  crew invite → /join/demo (Hill Valley Middle · 4 sites)");
 process.exit(0);

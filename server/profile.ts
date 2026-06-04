@@ -45,6 +45,38 @@ const num = (n: number) =>
 const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
 const bgUrl = (u: string) => `background-image:url(${escapeHtml(JSON.stringify(u))})`;
 
+// A handful of well-known platforms get a friendly label on the profile; every
+// other URL falls back to its bare host. Presentation only — the stored value is
+// always just the URL, so a new platform is a one-line addition, never a migration.
+// (Mirrored in web/src/lib.ts for the editor; keep the two lists in sync.)
+const SOCIALS: Array<[string, string]> = [
+  ["instagram.com", "Instagram"], ["x.com", "X"], ["twitter.com", "X"],
+  ["linkedin.com", "LinkedIn"], ["github.com", "GitHub"], ["youtube.com", "YouTube"],
+  ["tiktok.com", "TikTok"], ["facebook.com", "Facebook"], ["threads.net", "Threads"],
+  ["threads.com", "Threads"], ["bsky.app", "Bluesky"], ["mastodon.social", "Mastodon"],
+  ["substack.com", "Substack"], ["medium.com", "Medium"], ["twitch.tv", "Twitch"],
+  ["dribbble.com", "Dribbble"], ["behance.net", "Behance"], ["soundcloud.com", "SoundCloud"],
+  ["spotify.com", "Spotify"], ["bandcamp.com", "Bandcamp"], ["t.me", "Telegram"],
+  ["reddit.com", "Reddit"], ["pinterest.com", "Pinterest"], ["patreon.com", "Patreon"],
+  ["ko-fi.com", "Ko-fi"], ["goodreads.com", "Goodreads"], ["letterboxd.com", "Letterboxd"],
+];
+function socialLabel(url: string): string {
+  let host: string;
+  try { host = new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch { return url; }
+  for (const [d, label] of SOCIALS) if (host === d || host.endsWith("." + d)) return label;
+  return host;
+}
+// The member's social links as a row of pills under their name. rel="me" marks
+// them as the same person's other profiles (a nice identity hint for crawlers).
+function socialLinks(m: Member): string {
+  const links = Array.isArray(m.links) ? m.links : [];
+  if (!links.length) return "";
+  const pills = links
+    .map((u) => `<a class="plink" href="${escapeHtml(u)}" target="_blank" rel="me noopener">${escapeHtml(socialLabel(u))}</a>`)
+    .join("");
+  return `<div class="plinks">${pills}</div>`;
+}
+
 function avatar(x: Identity, cls = ""): string {
   return x.avatar
     ? `<div class="avatar ${cls}" style="${bgUrl(x.avatar)}"></div>`
@@ -64,6 +96,7 @@ function header(m: Member, isOwner: boolean): string {
   const actions = isOwner
     ? `<a class="btn primary pfollow" href="/#/edit">Edit profile</a>`
     : `<button id="psave" class="psave-btn" type="button" aria-label="Save this site">${BOOKMARK_SVG}</button>` +
+      `<a class="btn pmessage" href="/#/messages/${escapeHtml(m.id)}">Message</a>` +
       `<button id="pfollow" class="btn primary pfollow" type="button">Follow</button>`;
   // A linked-but-unverified site is flagged so a claim can't be taken at face
   // value. Verified sites get no badge — verification is the quiet default.
@@ -74,7 +107,7 @@ function header(m: Member, isOwner: boolean): string {
   return `<div class="phero">
     <div class="pid">
       ${avatar(m)}
-      <div><div class="pname">${escapeHtml(m.name)}</div>${sub}</div>
+      <div><div class="pname">${escapeHtml(m.name)}</div>${sub}${socialLinks(m)}</div>
     </div>
     <div class="phero-actions">${actions}</div>
   </div>`;
@@ -168,6 +201,7 @@ export function siteHeader(
       : `<a class="navlink" href="/">Home</a>` +
         `<a class="navlink${ownProfile ? " active" : ""}" href="/@${escapeHtml(viewer.handle || "")}">Your site</a>` +
         `<a class="navlink" href="/#/messages">Messages</a>` +
+        `<a class="navlink" href="/#/notes">Notes</a>` +
         signOutBtn;
   return (
     `<header class="top"><a class="brand" href="/">den</a><nav>${nav}</nav></header>` +

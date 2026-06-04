@@ -22,6 +22,24 @@ export function token(bytes = 24): string {
   return randomBytes(bytes).toString("base64url");
 }
 
+// A cohort ("crew") id: "coh_" + 16 hex. Deliberately a DIFFERENT shape from a
+// member id ("den:" + hex) so the two can never be confused in a route param or a
+// follow edge (a cohort id won't match ^den:[a-z0-9]{8,}$).
+export function newCohortId(): string {
+  return "coh_" + randomBytes(8).toString("hex");
+}
+
+// A short, shareable invite code for a crew link (/join/<code>). Drawn from
+// lowercase letters + digits MINUS look-alikes (0/o, 1/l/i) so it's easy to read
+// aloud and type on a phone. 7 chars over a 31-symbol alphabet ≈ 27 billion
+// combinations — unguessable enough for an invite, short enough to share.
+const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"; // no 0 o 1 l i
+export function newInviteCode(len = 7): string {
+  let s = "";
+  for (let i = 0; i < len; i++) s += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  return s;
+}
+
 // Handles live in URLs (den.com/@handle), so keep them lowercase, url-safe, and
 // human. Normalize lossily as the user types; validate the result before saving.
 export const HANDLE_MIN = 3;

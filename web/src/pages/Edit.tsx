@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { ApiError, updateProfile, uploadAvatar } from "../api";
 import { squareImage } from "../lib";
 import { Avatar, Button } from "../ui";
+import { LinksEditor } from "../components/LinksEditor";
 import { useToast, useViewer } from "../providers";
 
 // After saving (or cancelling) we return to your public profile at /@handle,
@@ -17,6 +18,7 @@ export function Edit() {
     handle: viewer?.handle ?? "",
     url: viewer?.url ?? "",
     avatar: viewer?.avatar ?? "",
+    links: viewer?.links ?? [],
   });
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
@@ -103,6 +105,11 @@ export function Edit() {
           placeholder="https://you.example"
           hint="Change this and you'll need to re-verify your site."
         />
+        <div className="field">
+          <label>Social links</label>
+          <LinksEditor value={form.links} onChange={(links) => setForm((f) => ({ ...f, links }))} />
+          <p className="field-hint">Instagram, X, LinkedIn, GitHub, wherever else you are.</p>
+        </div>
         <div className="field">
           <label>Account</label>
           <div className="acct">

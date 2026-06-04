@@ -9,6 +9,8 @@ export type Member = {
   name: string;
   url: string | null;
   avatar: string | null;
+  /** External / social profile links (Instagram, X, LinkedIn, …), in display order. */
+  links?: string[];
   views: number;
   /** Present only on the signed-in viewer; gates the signup wizard. */
   onboarded?: boolean;
@@ -120,6 +122,7 @@ export type ProfilePatch = {
   handle: string;
   url: string;
   avatar: string;
+  links: string[];
 };
 
 export class ApiError extends Error {
@@ -162,9 +165,10 @@ export const checkHandle = (handle: string) =>
 export const claimHandle = (handle: string) =>
   req<Member>("/api/profile", { method: "PATCH", ...jsonBody({ handle }) });
 
-/** Finish signup: claim a username + optionally link a site. */
-export const onboard = (handle: string, url?: string) =>
-  req<Member>("/api/onboard", { method: "POST", ...jsonBody({ handle, url: url || "" }) });
+/** Finish signup: claim a username + optionally attach social links. (The site
+ * itself is already saved via scrapeSite by this point.) */
+export const onboard = (handle: string, links?: string[]) =>
+  req<Member>("/api/onboard", { method: "POST", ...jsonBody({ handle, links: links ?? [] }) });
 
 /** Link a site and optimistically scrape its thumbnail + inferred profile picture. */
 export const scrapeSite = (url: string) =>
@@ -219,3 +223,101 @@ export const getPinned = (id?: string) =>
 /** Toggle a pin on/off. Throws ApiError(409) when the 3-pin limit is reached. */
 export const togglePin = (id: string) =>
   req<Stats>("/api/pin", { method: "POST", ...jsonBody({ id }) });
+
+/* ---- cohorts ("crews": closed groups) ----------------------------------- */
+
+/** A member chip inside a crew (facepile / roster). */
+export type CohortFace = {
+  id: string;
+  name: string;
+  handle: string | null;
+  avatar: string | null;
+  url: string | null;
+};
+/** A crew as it appears in the dashboard list: facepile + count + your role + link. */
+export type Cohort = {
+  id: string;
+  name: string;
+  code: string;
+  role: "owner" | "member";
+  memberCount: number;
+  /** The shareable invite link (absolute), e.g. https://den.com/join/abc1234. */
+  joinUrl: string;
+  faces: CohortFace[];
+};
+/** One crew's full roster. */
+export type CohortDetail = {
+  id: string;
+  name: string;
+  code: string;
+  joinUrl: string;
+  role: "owner" | "member";
+  members: Array<CohortFace & { role: "owner" | "member" }>;
+};
+
+/** The crews you're in (facepile + count each). */
+export const getCohorts = () => req<Cohort[]>("/api/cohorts");
+/** Create a crew; you become its owner + first member. Returns it with the invite link. */
+export const createCohort = (name: string) =>
+  req<Cohort>("/api/cohorts", { method: "POST", ...jsonBody({ name }) });
+/** One crew's roster (members only). */
+export const getCohort = (id: string) =>
+  req<CohortDetail>(`/api/cohorts/${encodeURIComponent(id)}`);
+/** Join a crew by invite code; on a new join it mutually follows the whole crew. */
+export const joinCohort = (code: string) =>
+  req<CohortDetail & { joined: boolean }>("/api/cohorts/join", { method: "POST", ...jsonBody({ code }) });
+/** Leave a crew (your follows stay). */
+export const leaveCohort = (id: string) =>
+  req<{ ok: true }>(`/api/cohorts/${encodeURIComponent(id)}/leave`, { method: "POST" });
+
+/* ---- direct messages (DMs) ---------------------------------------------- */
+
+/** The other person in a conversation — a compact identity. */
+export type Peer = {
+  id: string;
+  handle: string | null;
+  name: string;
+  avatar: string | null;
+  url: string | null;
+};
+/** One emoji reaction on a message: the emoji + the member id who left it. */
+export type ChatReaction = { emoji: string; by: string };
+/** A single message in a thread. `body` is null once deleted. */
+export type ChatMessage = {
+  id: string;
+  from: string;
+  to: string;
+  body: string | null;
+  created: string;
+  edited: string | null;
+  deleted: boolean;
+  reactions: ChatReaction[];
+};
+/** An inbox row: the peer + a preview of the last line + how many of theirs are unread. */
+export type Conversation = {
+  peer: Peer;
+  lastBody: string | null;
+  lastAt: string;
+  lastFromMe: boolean;
+  lastDeleted: boolean;
+  unread: number;
+};
+/** One open conversation: the peer + the full thread (oldest-first). */
+export type Thread = { peer: Peer; messages: ChatMessage[] };
+
+/** The inbox — every conversation, newest activity first. */
+export const getThreads = () => req<Conversation[]>("/api/threads");
+/** Open a conversation with a member (by id). Marks their messages read; empty when new. */
+export const getThread = (id: string) => req<Thread>(`/api/threads/${encodeURIComponent(id)}`);
+/** Send a message to a member. The first one creates the conversation. */
+export const sendMessage = (id: string, body: string) =>
+  req<ChatMessage>(`/api/threads/${encodeURIComponent(id)}`, { method: "POST", ...jsonBody({ body }) });
+/** Edit your own message. */
+export const editMessage = (id: string, body: string) =>
+  req<ChatMessage>(`/api/messages/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ body }) });
+/** Delete your own message (soft — it stays in the thread as "deleted"). */
+export const deleteMessage = (id: string) =>
+  req<ChatMessage>(`/api/messages/${encodeURIComponent(id)}`, { method: "DELETE" });
+/** Toggle an emoji reaction on a message; returns its full reaction set. */
+export const reactToMessage = (id: string, emoji: string) =>
+  req<ChatReaction[]>(`/api/messages/${encodeURIComponent(id)}/react`, { method: "POST", ...jsonBody({ emoji }) });

@@ -89,6 +89,160 @@ export function authUrl(to: string = location.href): string {
   return "#/auth?return=" + encodeURIComponent(to);
 }
 
+/* ---- usernames + websites (the onboarding funnel) ----------------------- */
+
+/** Where the landing stashes a pasted site so onboarding can pick it up post-auth. */
+export const JOIN_SITE_KEY = "den:join-site";
+
+const HANDLE_MAX = 30;
+
+/** Normalize text into a handle, mirroring the server so what you see is what you get. */
+export function normHandle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, HANDLE_MAX);
+}
+
+// Live, exhaustive validation for a pasted website — runs as you type, so the
+// button never has to be the thing that tells you it's wrong.
+export type SiteCheck = { ok: boolean; url?: string; error?: string };
+export function validateSite(raw: string): SiteCheck {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return { ok: false }; // empty: not an error, just not ready
+  if (/\s/.test(trimmed)) return { ok: false, error: "Web addresses can't contain spaces." };
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed;
+  let u: URL;
+  try { u = new URL(withScheme); } catch { return { ok: false, error: "That doesn't look like a web address." }; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, error: "Only http and https sites work." };
+  const hostname = u.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".local"))
+    return { ok: false, error: "Use your site's public address, not localhost." };
+  if (!hostname.includes(".")) return { ok: false, error: "Enter a full domain, like yoursite.com." };
+  if (!/^[a-z0-9.-]+$/.test(hostname) || hostname.includes("..") || hostname.startsWith(".") || hostname.endsWith(".") || hostname.startsWith("-"))
+    return { ok: false, error: "That domain doesn't look right." };
+  const tld = hostname.split(".").pop() || "";
+  if (!/^[a-z]{2,}$/.test(tld)) return { ok: false, error: "That domain doesn't look right." };
+  return { ok: true, url: u.toString() };
+}
+
+// Multi-label public suffixes we recognize, so the SLD of jane.co.uk reads "jane".
+const MULTI_SUFFIX = new Set([
+  "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk",
+  "com.au", "net.au", "org.au", "co.nz", "co.jp", "co.kr", "co.in", "co.za",
+  "com.br", "com.mx", "com.ar", "com.tr", "com.sg", "com.hk", "com.tw",
+]);
+
+// Platforms where the member is the leftmost subdomain (jane.substack.com → jane).
+const SUBDOMAIN_HOSTS = [
+  "substack.com", "github.io", "gitlab.io", "medium.com", "wordpress.com",
+  "blogspot.com", "tumblr.com", "bearblog.dev", "mataroa.blog", "notion.site",
+  "super.site", "webflow.io", "framer.website", "framer.app", "bandcamp.com",
+  "gumroad.com", "myshopify.com", "netlify.app", "vercel.app", "pages.dev",
+  "web.app", "firebaseapp.com", "neocities.org", "carrd.co", "weebly.com",
+  "wixsite.com", "square.site", "ghost.io", "hashnode.dev", "bsky.social",
+  "micro.blog", "glitch.me", "surge.sh", "replit.app", "itch.io", "gitbook.io",
+  "telegra.ph", "beehiiv.com",
+];
+
+// Platforms where the member lives in the URL path; map host → segments → handle.
+const atName = (s?: string) => (s && s.startsWith("@") ? s.slice(1) : undefined);
+const PATH_HOSTS: Record<string, (segs: string[]) => string | undefined> = {
+  "github.com": (s) => s[0],
+  "gitlab.com": (s) => s[0],
+  "twitter.com": (s) => s[0],
+  "x.com": (s) => s[0],
+  "instagram.com": (s) => s[0],
+  "facebook.com": (s) => s[0],
+  "threads.net": (s) => atName(s[0]) || s[0],
+  "threads.com": (s) => atName(s[0]) || s[0],
+  "medium.com": (s) => atName(s[0]),
+  "substack.com": (s) => atName(s[0]),
+  "youtube.com": (s) => atName(s[0]),
+  "tiktok.com": (s) => atName(s[0]),
+  "linktr.ee": (s) => s[0],
+  "about.me": (s) => s[0],
+  "patreon.com": (s) => s[0],
+  "ko-fi.com": (s) => s[0],
+  "buymeacoffee.com": (s) => s[0],
+  "behance.net": (s) => s[0],
+  "dribbble.com": (s) => s[0],
+  "soundcloud.com": (s) => s[0],
+  "mastodon.social": (s) => atName(s[0]),
+  "linkedin.com": (s) => (s[0] === "in" || s[0] === "company" ? s[1] : undefined),
+  "bsky.app": (s) => (s[0] === "profile" ? s[1]?.split(".")[0] : undefined),
+};
+
+function publicSuffix(labels: string[]): string {
+  if (labels.length >= 2 && MULTI_SUFFIX.has(labels.slice(-2).join("."))) return labels.slice(-2).join(".");
+  return labels[labels.length - 1] || "";
+}
+
+/**
+ * Best guess at a username from a personal website. Three shapes, tried in order:
+ *   subdomain platform — jane.substack.com, jane.github.io        → "jane"
+ *   path platform      — github.com/jane, medium.com/@jane        → "jane"
+ *   their own domain   — janedoe.com, blog.jane.co.uk             → "janedoe" / "jane"
+ * Returns "" when there's nothing usable (e.g. a bare platform root).
+ */
+export function handleFromSite(raw: string): string {
+  const v = (raw || "").trim().toLowerCase();
+  if (!v) return "";
+  let u: URL;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(v) ? v : "https://" + v); } catch { return ""; }
+  const hostname = u.hostname.replace(/^www\./, "");
+  const segs = u.pathname.split("/").filter(Boolean);
+
+  // 1) Member is the leftmost label under a known platform (jane.substack.com).
+  for (const p of SUBDOMAIN_HOSTS) {
+    if (hostname.endsWith("." + p)) return normHandle(hostname.slice(0, -(p.length + 1)).split(".")[0]);
+  }
+  // 2) Member is in the path of a known platform (github.com/jane). Don't fall
+  //    through to the domain rule — a platform's own SLD is never the member.
+  if (hostname in PATH_HOSTS) return normHandle(PATH_HOSTS[hostname](segs) || "");
+  // 3) Their own domain: the label just left of the public suffix.
+  const labels = hostname.split(".");
+  const sufLen = publicSuffix(labels).split(".").length;
+  return normHandle(labels[labels.length - sufLen - 1] || "");
+}
+
+/* ---- social links ------------------------------------------------------- */
+
+/** A user-typed social link, normalized to a clean http(s) URL — or null if junk. */
+export function normalizeLink(raw: string): string | null {
+  const t = (raw || "").trim();
+  if (!t) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : "https://" + t;
+  let u: URL;
+  try { u = new URL(withScheme); } catch { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (!u.hostname.includes(".")) return null;
+  return u.toString();
+}
+
+// A friendly label for a social link; unknown hosts fall back to the bare host.
+// (Mirror of the server copy in server/profile.ts — keep the two lists in sync.)
+const SOCIALS: Array<[string, string]> = [
+  ["instagram.com", "Instagram"], ["x.com", "X"], ["twitter.com", "X"],
+  ["linkedin.com", "LinkedIn"], ["github.com", "GitHub"], ["youtube.com", "YouTube"],
+  ["tiktok.com", "TikTok"], ["facebook.com", "Facebook"], ["threads.net", "Threads"],
+  ["threads.com", "Threads"], ["bsky.app", "Bluesky"], ["mastodon.social", "Mastodon"],
+  ["substack.com", "Substack"], ["medium.com", "Medium"], ["twitch.tv", "Twitch"],
+  ["dribbble.com", "Dribbble"], ["behance.net", "Behance"], ["soundcloud.com", "SoundCloud"],
+  ["spotify.com", "Spotify"], ["bandcamp.com", "Bandcamp"], ["t.me", "Telegram"],
+  ["reddit.com", "Reddit"], ["pinterest.com", "Pinterest"], ["patreon.com", "Patreon"],
+  ["ko-fi.com", "Ko-fi"], ["goodreads.com", "Goodreads"], ["letterboxd.com", "Letterboxd"],
+];
+/** Display name for a social link (e.g. "Instagram"); bare host for anything else. */
+export function socialLabel(url: string): string {
+  let h: string;
+  try { h = new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch { return url; }
+  for (const [d, label] of SOCIALS) if (h === d || h.endsWith("." + d)) return label;
+  return h;
+}
+
 /**
  * Crop + shrink an image file to a centered square of `size`px, re-encoded as
  * WebP. Re-encoding through a canvas drops EXIF and any embedded SVG/script, so
@@ -107,3 +261,9 @@ export async function squareImage(file: File, size = 256): Promise<Blob> {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/webp", 0.85),
   );
 }
+
+/* ---- reactions ----------------------------------------------------------- */
+
+/** The canonical emoji reaction set — mirrors the widget's REACTIONS so a tap means
+ *  the same thing in a DM, a note, and the widget. Extend here to grow the tray. */
+export const REACTIONS = ["❤️", "🔥", "😂", "👏", "🎉", "✨", "👀", "🙌"];

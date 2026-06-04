@@ -1,54 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, checkHandle, claimHandle, onboard, scrapeSite, verifySite } from "../api";
 import { useToast, useViewer } from "../providers";
-import { host } from "../lib";
+import { host, handleFromSite, normHandle, validateSite, JOIN_SITE_KEY } from "../lib";
 import { Button, CopyField, IconButton, Spinner } from "../ui";
+import { LinksEditor } from "../components/LinksEditor";
 
-const HANDLE_MAX = 30;
-
-// Mirror the server's normHandle so what you see is exactly what you'll get.
-function normHandle(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, HANDLE_MAX);
-}
-
-function suggestions(name: string, fallback: string | null): string[] {
+// Username candidates for the picker: a pasted website wins the top slot (it's
+// what they just told us), then their display name, broken into useful variants.
+function suggestions(name: string, fallback: string | null, site?: string | null): string[] {
   const out = new Set<string>();
-  const base = normHandle(name || "");
-  if (base) {
-    out.add(base);
-    out.add(base.replace(/-/g, ""));
-    const first = base.split("-")[0];
+  const add = (h: string) => {
+    if (!h) return;
+    out.add(h);
+    out.add(h.replace(/-/g, ""));
+    const first = h.split("-")[0];
     if (first) out.add(first);
-  }
+  };
+  if (site) add(handleFromSite(site));
+  add(normHandle(name || ""));
   if (out.size === 0 && fallback) out.add(normHandle(fallback));
   return [...out].filter((h) => h.length >= 3).slice(0, 4);
-}
-
-// Live, exhaustive validation for the pasted website — runs as you type, so the
-// button never has to be the thing that tells you it's wrong.
-type SiteCheck = { ok: boolean; url?: string; error?: string };
-function validateSite(raw: string): SiteCheck {
-  const trimmed = (raw || "").trim();
-  if (!trimmed) return { ok: false }; // empty: not an error, just not ready
-  if (/\s/.test(trimmed)) return { ok: false, error: "Web addresses can't contain spaces." };
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed;
-  let u: URL;
-  try { u = new URL(withScheme); } catch { return { ok: false, error: "That doesn't look like a web address." }; }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, error: "Only http and https sites work." };
-  const hostname = u.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".local"))
-    return { ok: false, error: "Use your site's public address, not localhost." };
-  if (!hostname.includes(".")) return { ok: false, error: "Enter a full domain, like yoursite.com." };
-  if (!/^[a-z0-9.-]+$/.test(hostname) || hostname.includes("..") || hostname.startsWith(".") || hostname.endsWith(".") || hostname.startsWith("-"))
-    return { ok: false, error: "That domain doesn't look right." };
-  const tld = hostname.split(".").pop() || "";
-  if (!/^[a-z]{2,}$/.test(tld)) return { ok: false, error: "That domain doesn't look right." };
-  return { ok: true, url: u.toString() };
 }
 
 type Check =
@@ -58,7 +29,7 @@ type Check =
   | { state: "bad"; reason: string };
 
 type Scrape = { host: string; reachable: boolean; thumbnail: string | null; avatar: string | null };
-type Draft = { step: 1 | 2 | 3; handle: string; site: string; scrape: Scrape | null };
+type Draft = { step: 1 | 2 | 3; handle: string; site: string; scrape: Scrape | null; links: string[] };
 
 const draftKey = (id: string) => `den:onboard:${id}`;
 function loadDraft(id: string): Draft | null {
@@ -76,15 +47,26 @@ export function Onboarding() {
   const [claiming, setClaiming] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [scrape, setScrape] = useState<Scrape | null>(null);
+  const [links, setLinks] = useState<string[]>([]);
   const [verifyState, setVerifyState] = useState<"idle" | "verifying" | "failed">("idle");
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
 
-  const picks = useMemo(() => suggestions(viewer?.name ?? "", viewer?.handle ?? null), [viewer?.name, viewer?.handle]);
+  // A website pasted into the landing claim box, carried across sign-in. Read once;
+  // it seeds both the username guess and the site field below.
+  const [joinSite] = useState<string>(() => {
+    try { return localStorage.getItem(JOIN_SITE_KEY) || ""; } catch { return ""; }
+  });
+
+  const picks = useMemo(
+    () => suggestions(viewer?.name ?? "", viewer?.handle ?? null, joinSite),
+    [viewer?.name, viewer?.handle, joinSite],
+  );
 
   // Restore in-progress work once, so a reload (or coming back later) never loses
   // anything. Prefer a local draft; otherwise resume from what the server saved
-  // (a linked site means they already reached the verify step).
+  // (a linked site means they already reached the verify step); otherwise this is
+  // a fresh sign-up, so seed from a site they pasted on the way in.
   const restored = useRef(false);
   useEffect(() => {
     if (restored.current || !viewer) return;
@@ -94,6 +76,7 @@ export function Onboarding() {
       setHandle(d.handle || picks[0] || "");
       setSite(d.site || "");
       setScrape(d.scrape);
+      setLinks(d.links || []);
       setStep(d.step || 1);
     } else if (viewer.url) {
       const sc: Scrape = { host: host(viewer.url), reachable: true, thumbnail: null, avatar: viewer.avatar };
@@ -103,14 +86,16 @@ export function Onboarding() {
       setStep(3);
     } else {
       setHandle(picks[0] || "");
+      if (joinSite) setSite(joinSite);
     }
-  }, [viewer, picks]);
+    try { localStorage.removeItem(JOIN_SITE_KEY); } catch { /* ignore */ } // consume once
+  }, [viewer, picks, joinSite]);
 
   // Persist the draft on every meaningful change (durable across reloads).
   useEffect(() => {
     if (!viewer || !restored.current) return;
-    try { localStorage.setItem(draftKey(viewer.id), JSON.stringify({ step, handle, site, scrape })); } catch { /* ignore */ }
-  }, [viewer, step, handle, site, scrape]);
+    try { localStorage.setItem(draftKey(viewer.id), JSON.stringify({ step, handle, site, scrape, links })); } catch { /* ignore */ }
+  }, [viewer, step, handle, site, scrape, links]);
 
   // Debounced live availability — the heart of the picker.
   useEffect(() => {
@@ -173,7 +158,7 @@ export function Onboarding() {
     if (saving) return;
     setSaving(true);
     try {
-      const updated = await onboard(handle);
+      const updated = await onboard(handle, links);
       try { localStorage.removeItem(draftKey(vid)); } catch { /* ignore */ }
       setViewer(updated);
     } catch (e) {
@@ -278,6 +263,11 @@ export function Onboarding() {
             {site.trim() && siteCheck.error && (
               <div className="onb-msg bad slide-down" key={"site:" + siteCheck.error}>{siteCheck.error}</div>
             )}
+
+            <div className="onb-socials">
+              <span className="onb-sub">Your socials <span className="onb-opt">optional</span></span>
+              <LinksEditor value={links} onChange={setLinks} />
+            </div>
 
             <div className="onb-actions">
               <Button className="primary lg" loading={scraping} disabled={!siteCheck.ok} onClick={toVerify}>

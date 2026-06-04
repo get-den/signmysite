@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS members (
   -- activation nudge was sent, e.g. {"views:100": true, "activation": true}. Keeps
   -- those emails idempotent without a separate table.
   notified    JSONB NOT NULL DEFAULT '{}',
+  -- External / social profile links (Instagram, X, LinkedIn, …) shown on the public
+  -- profile. Just an ordered array of URL strings — arbitrary platforms, no enum, so
+  -- adding one is data, not a migration. The icon/label is derived from each URL at
+  -- render time (see socialLabel), so this column never needs to know the platform.
+  links       JSONB NOT NULL DEFAULT '[]',
   created     TEXT NOT NULL
 );
 -- migrate older installs in place (idempotent)
@@ -53,6 +58,7 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS onboarded BOOLEAN NOT NULL DEFAULT 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS notify JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE members ADD COLUMN IF NOT EXISTS notified JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE members ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
 -- Prominence: a manual fame tier used to rank a member among someone's followers
 -- (the "Followed by …" facepile). An ORDERED enum, so ORDER BY sorts it directly;
 -- it's an OVERRIDE layered on the page-view heuristic (we sort by prominence, then
@@ -175,6 +181,34 @@ CREATE INDEX IF NOT EXISTS comments_target ON comments (target_id, created);
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 -- Reactions (emoji taps) can be left anonymously, with no account behind them.
 ALTER TABLE comments ALTER COLUMN author_id DROP NOT NULL;
+-- Direct messages between two members. A "conversation" is just every message
+-- exchanged by a pair, in either direction — there's no separate threads table, the
+-- (sender, recipient) pair IS the thread. Deliberately close to the comments shape.
+-- Soft-deletable (keeps the row + its place in the thread) and editable; the edited
+-- stamp drives the "edited" hint, and read flips once the recipient opens the thread.
+CREATE TABLE IF NOT EXISTS messages (
+  id           TEXT PRIMARY KEY,
+  sender_id    TEXT NOT NULL,
+  recipient_id TEXT NOT NULL,
+  body         TEXT NOT NULL,
+  created      TEXT NOT NULL,
+  edited       TEXT,                          -- set when the sender edits; null otherwise
+  deleted      BOOLEAN NOT NULL DEFAULT FALSE, -- soft delete: body blanked, row + reactions kept
+  read         BOOLEAN NOT NULL DEFAULT FALSE  -- the recipient has opened the thread
+);
+CREATE INDEX IF NOT EXISTS messages_pair ON messages (sender_id, recipient_id, created);
+CREATE INDEX IF NOT EXISTS messages_inbox ON messages (recipient_id, created DESC);
+-- Emoji reactions on a message. One row per (message, member, emoji): a member can
+-- stack several different emoji on a message, but each emoji only once (a toggle).
+-- Open-ended on the emoji, so the reaction set can grow with no migration.
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id TEXT NOT NULL,
+  member_id  TEXT NOT NULL,
+  emoji      TEXT NOT NULL,
+  created    TEXT NOT NULL,
+  PRIMARY KEY (message_id, member_id, emoji)
+);
+CREATE INDEX IF NOT EXISTS message_reactions_msg ON message_reactions (message_id);
 CREATE TABLE IF NOT EXISTS sessions (
   token     TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,
@@ -198,6 +232,29 @@ CREATE TABLE IF NOT EXISTS avatars (
   mime      TEXT NOT NULL,
   updated   TEXT NOT NULL
 );
+-- Cohorts ("crews"): a small, CLOSED group — a class, a friend circle. The unit
+-- of onboarding for a whole group at once: it fixes the cold-start problem (you
+-- land among friends, not alone) and gives minors a bounded, safer space. The
+-- invite 'code' rides in a shareable link (/join/<code>); joining mutually follows
+-- everyone already in (see wireCohortFollows), so a newcomer's feed is alive on
+-- arrival. Membership is its own concern, layered on the existing follow graph —
+-- not a second copy of it.
+CREATE TABLE IF NOT EXISTS cohorts (
+  id       TEXT PRIMARY KEY,
+  name     TEXT NOT NULL,
+  code     TEXT UNIQUE NOT NULL,   -- the invite code in /join/<code> (lowercase, unguessable)
+  owner_id TEXT NOT NULL,          -- the member who created it (also has a cohort_members row)
+  created  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cohort_members (
+  cohort_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  role      TEXT NOT NULL DEFAULT 'member',  -- 'owner' | 'member'
+  created   TEXT NOT NULL,
+  PRIMARY KEY (cohort_id, member_id)
+);
+CREATE INDEX IF NOT EXISTS cohort_members_member ON cohort_members (member_id);
+CREATE INDEX IF NOT EXISTS cohort_members_cohort ON cohort_members (cohort_id, created);
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
@@ -222,7 +279,7 @@ export const SESSION_TTL_SEC = 60 * 60 * 24 * 400;
 
 // Wipe all data — for local dev / tests / seeding a clean slate.
 export async function reset(): Promise<void> {
-  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, page_views, avatars");
+  await pool.query("TRUNCATE members, snapshots, edges, saves, pins, comments, sessions, magic_links, visits, page_views, avatars, cohorts, cohort_members");
 }
 
 // Manual fame tier (the prominence enum). Ordered: famous > notable > normal.
@@ -239,6 +296,7 @@ export type Member = {
   onboarded: boolean; verified: boolean;
   notify: Record<string, boolean>;    // email prefs: per-kind override ({} = all on)
   notified: Record<string, boolean>;  // one-time emails already sent (milestones, activation)
+  links: string[];                    // external/social profile URLs (presentation derived per-URL)
   created: string;
 };
 // The email kinds a member can mute (the /notify page renders one toggle each).
@@ -319,14 +377,20 @@ export async function createMember(m: {
 // (which lives on snapshots) — so a Partial<Member> can't accidentally generate
 // SQL against a column that no longer exists on the base table.
 const MUTABLE_MEMBER_COLS = new Set([
-  "handle", "name", "email", "google_sub", "url", "avatar",
+  "handle", "name", "email", "google_sub", "url", "avatar", "links",
   "views", "last_edited", "current_snapshot_id", "onboarded", "verified", "prominence",
 ]);
+// JSONB columns need an explicit ::jsonb cast and a JSON-encoded value — pg would
+// otherwise try to coerce a JS array into a Postgres array literal.
+const JSONB_MEMBER_COLS = new Set(["links"]);
 export async function updateMember(id: string, patch: Partial<Member>): Promise<Member | undefined> {
   const keys = Object.keys(patch).filter((k) => MUTABLE_MEMBER_COLS.has(k));
   if (!keys.length) return getMember(id);
-  const set = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
-  const vals = keys.map((k) => (patch as Record<string, unknown>)[k] ?? null);
+  const set = keys.map((k, i) => `${k} = $${i + 1}${JSONB_MEMBER_COLS.has(k) ? "::jsonb" : ""}`).join(", ");
+  const vals = keys.map((k) => {
+    const v = (patch as Record<string, unknown>)[k];
+    return JSONB_MEMBER_COLS.has(k) ? JSON.stringify(v ?? []) : (v ?? null);
+  });
   await pool.query(`UPDATE members SET ${set} WHERE id = $${keys.length + 1}`, [...vals, id]);
   return getMember(id);
 }
@@ -358,6 +422,18 @@ export async function claimUnclaimedMember(targetId: string, sourceId: string): 
     // Reparent any history the source accrued so deleting it orphans nothing; the
     // target keeps its own current_snapshot_id as the live version.
     await pool.query("UPDATE snapshots SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
+    // Cohort memberships + ownership follow the surviving id. (An unclaimed member
+    // is never in a crew in practice — joining needs a session — but remap anyway
+    // so a merge can't orphan a membership or leave a dangling owner.) The NOT
+    // EXISTS guard avoids a PK clash when the target is already in that cohort.
+    await pool.query(
+      `UPDATE cohort_members SET member_id = $1
+        WHERE member_id = $2
+          AND NOT EXISTS (SELECT 1 FROM cohort_members x WHERE x.cohort_id = cohort_members.cohort_id AND x.member_id = $1)`,
+      [targetId, sourceId]
+    );
+    await pool.query("DELETE FROM cohort_members WHERE member_id = $1", [sourceId]);
+    await pool.query("UPDATE cohorts SET owner_id = $1 WHERE owner_id = $2", [targetId, sourceId]);
     await pool.query("DELETE FROM members WHERE id = $1", [sourceId]);
     await pool.query("COMMIT");
     return getMember(targetId);
@@ -962,6 +1038,138 @@ export async function listOutgoing(authorId: string, limit = 500): Promise<Array
   return r.rows;
 }
 
+// ---- direct messages (DMs) -----------------------------------------------
+export type Message = {
+  id: string; sender_id: string; recipient_id: string;
+  body: string; created: string; edited: string | null; deleted: boolean; read: boolean;
+};
+export type MsgReaction = { emoji: string; member_id: string };
+export type ThreadMessage = Message & { reactions: MsgReaction[] };
+// One inbox row: the other member + the last line exchanged + how many of theirs
+// the viewer hasn't read.
+export type Conversation = {
+  peer_id: string; handle: string | null; name: string; avatar: string | null; url: string | null;
+  last_body: string; last_at: string; last_sender: string; last_deleted: boolean; unread: number;
+};
+
+export async function getMessage(id: string): Promise<Message | undefined> {
+  return (await pool.query("SELECT * FROM messages WHERE id = $1", [id])).rows[0];
+}
+
+export async function sendMessage(m: {
+  id: string; sender_id: string; recipient_id: string; body: string;
+}): Promise<Message> {
+  await pool.query(
+    "INSERT INTO messages (id, sender_id, recipient_id, body, created) VALUES ($1, $2, $3, $4, $5)",
+    [m.id, m.sender_id, m.recipient_id, m.body, now()]
+  );
+  return (await getMessage(m.id))!;
+}
+
+// Edit a message's body (sender-only — enforced in the API). Stamps `edited`, which
+// drives the "edited" hint; a no-op on an already-deleted row.
+export async function editMessage(id: string, body: string): Promise<Message | undefined> {
+  await pool.query("UPDATE messages SET body = $2, edited = $3 WHERE id = $1 AND deleted = FALSE", [id, body, now()]);
+  return getMessage(id);
+}
+
+// Soft-delete: blank the body but keep the row (so the thread keeps its shape) and
+// drop its reactions — a deleted message can't stay reacted-to.
+export async function deleteMessage(id: string): Promise<Message | undefined> {
+  await pool.query("UPDATE messages SET deleted = TRUE, body = '', edited = NULL WHERE id = $1", [id]);
+  await pool.query("DELETE FROM message_reactions WHERE message_id = $1", [id]);
+  return getMessage(id);
+}
+
+// Mark every message FROM `peer` TO `viewer` read — called when the viewer opens the
+// thread. The inbox recomputes its unread counts from this.
+export async function markThreadRead(viewerId: string, peerId: string): Promise<void> {
+  await pool.query(
+    "UPDATE messages SET read = TRUE WHERE recipient_id = $1 AND sender_id = $2 AND read = FALSE",
+    [viewerId, peerId]
+  );
+}
+
+export async function listReactions(messageId: string): Promise<MsgReaction[]> {
+  return (await pool.query(
+    "SELECT emoji, member_id FROM message_reactions WHERE message_id = $1 ORDER BY created ASC",
+    [messageId]
+  )).rows;
+}
+
+// Toggle one emoji by `memberId` on a message; returns the message's full reaction
+// set afterward. A second tap of the same emoji removes it.
+export async function toggleMessageReaction(messageId: string, memberId: string, emoji: string): Promise<MsgReaction[]> {
+  const existing = await pool.query(
+    "SELECT 1 FROM message_reactions WHERE message_id = $1 AND member_id = $2 AND emoji = $3",
+    [messageId, memberId, emoji]
+  );
+  if (existing.rowCount) {
+    await pool.query("DELETE FROM message_reactions WHERE message_id = $1 AND member_id = $2 AND emoji = $3", [messageId, memberId, emoji]);
+  } else {
+    await pool.query(
+      "INSERT INTO message_reactions (message_id, member_id, emoji, created) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+      [messageId, memberId, emoji, now()]
+    );
+  }
+  return listReactions(messageId);
+}
+
+// The full conversation between two members (either direction), oldest-first, each
+// message carrying its reactions. Two queries (messages, then their reactions),
+// stitched in memory — keeps the SQL simple and the payload exact.
+export async function listThread(a: string, b: string, limit = 500): Promise<ThreadMessage[]> {
+  const msgs = (await pool.query(
+    `SELECT * FROM messages
+      WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1)
+      ORDER BY created ASC
+      LIMIT $3`,
+    [a, b, limit]
+  )).rows as Message[];
+  if (!msgs.length) return [];
+  const reacts = (await pool.query(
+    "SELECT message_id, emoji, member_id FROM message_reactions WHERE message_id = ANY($1) ORDER BY created ASC",
+    [msgs.map((m) => m.id)]
+  )).rows as Array<MsgReaction & { message_id: string }>;
+  return msgs.map((m) => ({
+    ...m,
+    reactions: reacts.filter((r) => r.message_id === m.id).map((r) => ({ emoji: r.emoji, member_id: r.member_id })),
+  }));
+}
+
+// The viewer's inbox: one row per person they've messaged with, newest activity
+// first — the other member's identity, the last line (or its deleted flag), who
+// sent it, and how many of their messages the viewer hasn't read.
+export async function listConversations(viewerId: string): Promise<Conversation[]> {
+  return (await pool.query(
+    `WITH convo AS (
+       SELECT CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END AS peer_id,
+              body, created, sender_id, deleted
+         FROM messages
+        WHERE sender_id = $1 OR recipient_id = $1
+     ),
+     latest AS (
+       SELECT DISTINCT ON (peer_id) peer_id, body, created, sender_id, deleted
+         FROM convo
+        ORDER BY peer_id, created DESC
+     ),
+     unread AS (
+       SELECT sender_id AS peer_id, COUNT(*)::int AS n
+         FROM messages
+        WHERE recipient_id = $1 AND read = FALSE AND deleted = FALSE
+        GROUP BY sender_id
+     )
+     SELECT m.id AS peer_id, m.handle, m.name, m.avatar, m.url,
+            l.body AS last_body, l.created AS last_at, l.sender_id AS last_sender,
+            l.deleted AS last_deleted, COALESCE(u.n, 0)::int AS unread
+       FROM latest l
+       JOIN member_cards m ON m.id = l.peer_id
+       LEFT JOIN unread u ON u.peer_id = l.peer_id
+      ORDER BY l.created DESC`,
+    [viewerId]
+  )).rows;
+}
+
 // ---- sessions ------------------------------------------------------------
 export async function createSession(memberId: string, ttlSec = SESSION_TTL_SEC): Promise<string> {
   const t = token();
@@ -997,4 +1205,171 @@ export async function consumeMagicLink(tok: string): Promise<string | undefined>
   if (!m || m.consumed || new Date(m.expires) < new Date()) return undefined;
   await pool.query("UPDATE magic_links SET consumed = TRUE WHERE token = $1", [tok]);
   return m.email;
+}
+
+// ---- cohorts ("crews": closed groups) ------------------------------------
+// A class-sized cap. Bounds the O(n) follow wiring per join (and the n² edges a
+// full crew accrues), and keeps a crew intimate rather than a broadcast list.
+export const COHORT_MAX = 60;
+export const COHORT_NAME_MAX = 60;
+
+export type Cohort = { id: string; name: string; code: string; owner_id: string; created: string };
+export type CohortMember = Identity & { role: string; created: string };
+export type CohortSummary = Cohort & { role: string; memberCount: number; faces: Identity[] };
+
+export async function getCohort(id: string): Promise<Cohort | undefined> {
+  return (await pool.query("SELECT * FROM cohorts WHERE id = $1", [id])).rows[0];
+}
+export async function getCohortByCode(code: string): Promise<Cohort | undefined> {
+  return (await pool.query("SELECT * FROM cohorts WHERE code = $1", [code])).rows[0];
+}
+export async function isCohortMember(cohortId: string, memberId: string): Promise<boolean> {
+  return (await pool.query(
+    "SELECT 1 FROM cohort_members WHERE cohort_id = $1 AND member_id = $2", [cohortId, memberId]
+  )).rowCount! > 0;
+}
+export async function countCohortMembers(cohortId: string): Promise<number> {
+  return (await pool.query("SELECT COUNT(*)::int AS c FROM cohort_members WHERE cohort_id = $1", [cohortId])).rows[0].c;
+}
+
+// Create a crew and seat its creator as owner + first member, atomically.
+export async function createCohort(o: { id: string; name: string; code: string; ownerId: string }): Promise<Cohort> {
+  await pool.query("BEGIN");
+  try {
+    await pool.query(
+      "INSERT INTO cohorts (id, name, code, owner_id, created) VALUES ($1, $2, $3, $4, $5)",
+      [o.id, o.name, o.code, o.ownerId, now()]
+    );
+    await pool.query(
+      "INSERT INTO cohort_members (cohort_id, member_id, role, created) VALUES ($1, $2, 'owner', $3)",
+      [o.id, o.ownerId, now()]
+    );
+    await pool.query("COMMIT");
+  } catch (e) {
+    await pool.query("ROLLBACK");
+    throw e;
+  }
+  return (await getCohort(o.id))!;
+}
+
+// Add a member (idempotent). Follow wiring is a separate step (wireCohortFollows),
+// so re-adding an existing member never re-triggers it.
+export async function addCohortMember(cohortId: string, memberId: string, role = "member"): Promise<void> {
+  await pool.query(
+    `INSERT INTO cohort_members (cohort_id, member_id, role, created) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (cohort_id, member_id) DO NOTHING`,
+    [cohortId, memberId, role, now()]
+  );
+}
+
+// The cohort contract: everyone in a crew follows everyone. On a real join we add
+// the mutual follow edges between the newcomer and every existing member — so the
+// newcomer's feed is alive at once, and every member gains them. One bulk upsert:
+// idempotent (an existing edge, including a richer 'friend' rel, is left intact),
+// self excluded, and bounded by COHORT_MAX. Leaving a crew does NOT undo these — a
+// follow, once made, is the member's to keep or drop.
+export async function wireCohortFollows(cohortId: string, memberId: string): Promise<void> {
+  const others = (await pool.query(
+    "SELECT member_id FROM cohort_members WHERE cohort_id = $1 AND member_id <> $2 LIMIT $3",
+    [cohortId, memberId, COHORT_MAX]
+  )).rows.map((r: { member_id: string }) => r.member_id as string);
+  if (!others.length) return;
+  // Flat [follower, target, follower, target, …] for one parametrized multi-row
+  // insert: both directions (me→other, other→me) for each existing member.
+  const flat: string[] = [];
+  for (const o of others) { flat.push(memberId, o, o, memberId); }
+  const tupleCount = flat.length / 2;
+  const tuples = Array.from({ length: tupleCount }, (_, i) =>
+    `($${2 * i + 1}, $${2 * i + 2}, 'follow', $${flat.length + 1})`).join(", ");
+  await pool.query(
+    `INSERT INTO edges (follower_id, target_id, rel, created) VALUES ${tuples}
+     ON CONFLICT (follower_id, target_id) DO NOTHING`,
+    [...flat, now()]
+  );
+}
+
+// A crew's members with public identity + role (owner first, then join order) —
+// the roster the app + invite page render.
+export async function listCohortMembers(cohortId: string): Promise<CohortMember[]> {
+  return (await pool.query(
+    `SELECT m.id, m.handle, m.name, m.avatar, m.url, cm.role, cm.created
+       FROM cohort_members cm JOIN members m ON m.id = cm.member_id
+      WHERE cm.cohort_id = $1
+      ORDER BY (cm.role = 'owner') DESC, cm.created ASC`,
+    [cohortId]
+  )).rows;
+}
+
+// A small facepile for a crew (owner first, then join order) — for the dashboard
+// summary and the invite preview.
+async function cohortFaces(cohortId: string, limit: number): Promise<Identity[]> {
+  return (await pool.query(
+    `SELECT m.id, m.handle, m.name, m.avatar, m.url
+       FROM cohort_members cm JOIN members m ON m.id = cm.member_id
+      WHERE cm.cohort_id = $1
+      ORDER BY (cm.role = 'owner') DESC, cm.created ASC
+      LIMIT $2`,
+    [cohortId, limit]
+  )).rows;
+}
+
+// The crews a member is in — each with a facepile, total count, and the viewer's
+// own role. Newest crew first.
+export async function listCohortsForMember(memberId: string): Promise<CohortSummary[]> {
+  const rows = (await pool.query(
+    `SELECT c.id, c.name, c.code, c.owner_id, c.created, mine.role,
+            (SELECT COUNT(*)::int FROM cohort_members cm WHERE cm.cohort_id = c.id) AS member_count
+       FROM cohort_members mine JOIN cohorts c ON c.id = mine.cohort_id
+      WHERE mine.member_id = $1
+      ORDER BY c.created DESC`,
+    [memberId]
+  )).rows as Array<Cohort & { role: string; member_count: number }>;
+  const out: CohortSummary[] = [];
+  for (const c of rows) {
+    out.push({
+      id: c.id, name: c.name, code: c.code, owner_id: c.owner_id, created: c.created,
+      role: c.role, memberCount: c.member_count, faces: await cohortFaces(c.id, 5),
+    });
+  }
+  return out;
+}
+
+// Resolve an invite code to a public preview (name + count + a few faces) — what
+// the /join page shows BEFORE the visitor signs in (the "your friends are here"
+// incentive). No membership required.
+export async function cohortPreview(
+  code: string
+): Promise<{ cohort: Cohort; memberCount: number; faces: Identity[] } | undefined> {
+  const cohort = await getCohortByCode(code);
+  if (!cohort) return undefined;
+  return { cohort, memberCount: await countCohortMembers(cohort.id), faces: await cohortFaces(cohort.id, 6) };
+}
+
+// Leave a crew. Membership only — the follow edges the member made stay theirs. If
+// the owner leaves, ownership passes to the earliest remaining member; an empty
+// crew is deleted. Idempotent: leaving a crew you're not in is a no-op.
+export async function leaveCohort(cohortId: string, memberId: string): Promise<void> {
+  await pool.query("BEGIN");
+  try {
+    await pool.query("DELETE FROM cohort_members WHERE cohort_id = $1 AND member_id = $2", [cohortId, memberId]);
+    const next = (await pool.query(
+      "SELECT member_id FROM cohort_members WHERE cohort_id = $1 ORDER BY (role = 'owner') DESC, created ASC LIMIT 1",
+      [cohortId]
+    )).rows[0] as { member_id: string } | undefined;
+    if (!next) {
+      await pool.query("DELETE FROM cohorts WHERE id = $1", [cohortId]);
+    } else {
+      // Keep exactly one owner: promote the front-runner. A no-op when the owner
+      // stayed and a plain member left (next is the same owner).
+      await pool.query("UPDATE cohorts SET owner_id = $1 WHERE id = $2", [next.member_id, cohortId]);
+      await pool.query(
+        "UPDATE cohort_members SET role = 'owner' WHERE cohort_id = $1 AND member_id = $2",
+        [cohortId, next.member_id]
+      );
+    }
+    await pool.query("COMMIT");
+  } catch (e) {
+    await pool.query("ROLLBACK");
+    throw e;
+  }
 }

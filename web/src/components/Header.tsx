@@ -46,6 +46,9 @@ export function Header() {
             <NavLink className="navlink" to="/messages">
               Messages
             </NavLink>
+            <NavLink className="navlink" to="/notes">
+              Notes
+            </NavLink>
             <button className="btn sm naked" onClick={signOut}>
               Sign out
             </button>

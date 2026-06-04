@@ -17,12 +17,24 @@
  *   GET  /api/profile/:id/comments   list notes (private ones redacted unless owner/author)
  *   POST /api/profile/:id/comments   leave a note (members only; public|private)
  *   GET  /api/inbox              pigeon box: every note left on your site(s)
+ *   GET  /api/threads            DM inbox: your conversations, newest first
+ *   GET  /api/threads/:id        one conversation with a member (marks it read)
+ *   POST /api/threads/:id        send a message to a member
+ *   PATCH  /api/messages/:id     edit your own message
+ *   DELETE /api/messages/:id     delete your own message (soft)
+ *   POST /api/messages/:id/react toggle an emoji reaction on a message
  *   GET  /api/following          blogs the signed-in member follows
  *   POST /api/follow             follow or unfollow (toggle)
  *   POST /api/save               save or unsave (toggle)
  *   POST /api/register           mint an id + handle (agent-assisted onboarding)
  *   POST /api/sites/claim        widget self-registers a site by id (zero-fetch onboarding)
  *   POST /api/discover           fetch + index a site's me.json
+ *   POST /api/cohorts            create a crew (closed group); returns its invite link
+ *   GET  /api/cohorts            the crews you're in (facepile + count each)
+ *   GET  /api/cohorts/:id        one crew's roster (members only)
+ *   POST /api/cohorts/join       join a crew by code (mutually follows the crew)
+ *   POST /api/cohorts/:id/leave  leave a crew (your follows stay)
+ *   GET  /join/:code             the shareable invite page (server-rendered)
  *   GET  /@:handle               public profile page (server-rendered, shareable)
  */
 import { createHash } from "node:crypto";
@@ -31,7 +43,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken } from "./util.ts";
+import { newId, newHandle, newCohortId, newInviteCode, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken } from "./util.ts";
 import { inspectSite, siteHasWidget } from "./preview.ts";
 import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, type ActivityKind } from "./mail.ts";
 import * as auth from "./auth.ts";
@@ -57,12 +69,13 @@ export const app = new Hono();
 app.use("/api/*", cors({
   origin: (o) => o || "*",
   credentials: true,
-  allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
+  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["content-type", "authorization"],
 }));
 
 const publicMember = (m: db.Member | db.SiteCard) => ({
   id: m.id, handle: m.handle, name: m.name, url: m.url, avatar: m.avatar,
+  links: m.links ?? [],
   views: m.views, thumbnail: m.thumbnail, lastEdited: m.last_edited,
   savedCount: "saved_count" in m ? Number(m.saved_count || 0) : undefined,
   followerCount: "follower_count" in m ? Number(m.follower_count || 0) : undefined,
@@ -388,6 +401,7 @@ app.patch("/api/profile", async (c) => {
     if (owner && owner.id !== viewer.id) return c.json({ error: "handle taken" }, 409);
     patch.handle = h;
   }
+  if (Array.isArray(b.links)) patch.links = normalizeLinks(b.links);
   const updated = await db.updateMember(viewer.id, patch);
   return c.json(publicMember(updated!));
 });
@@ -460,6 +474,7 @@ app.post("/api/onboard", async (c) => {
     const url = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
     try { new URL(url); if (!isLocalUrl(url) && url !== viewer.url) { patch.url = url; patch.verified = false; } } catch { /* skip junk */ }
   }
+  if (Array.isArray(b?.links)) patch.links = normalizeLinks(b.links); // optional socials from the wizard
   const updated = await db.updateMember(viewer.id, patch);
   return c.json(viewerJson(updated!));
 });
@@ -470,6 +485,34 @@ const normSiteUrl = (raw: string): string | null => {
   const url = /^https?:\/\//i.test(t) ? t : "https://" + t;
   try { new URL(url); } catch { return null; }
   return isLocalUrl(url) ? null : url;
+};
+
+// Social/profile links the member adds (Instagram, X, …). Stored as plain URL
+// strings — presentation is derived from each host at render time. We normalize the
+// scheme, drop anything that isn't a real public http(s) URL, de-dupe, and cap the
+// count so the column stays small. This is the authority; the client just mirrors it.
+const MAX_LINKS = 10;
+const normalizeLink = (raw: string): string | null => {
+  const t = (raw || "").trim();
+  if (!t) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : "https://" + t;
+  let u: URL;
+  try { u = new URL(withScheme); } catch { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (!u.hostname.includes(".") || isLocalUrl(u.toString())) return null;
+  const s = u.toString();
+  return s.length <= 300 ? s : null;
+};
+const normalizeLinks = (input: unknown): string[] => {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const n = normalizeLink(raw);
+    if (n && !out.includes(n)) out.push(n);
+    if (out.length >= MAX_LINKS) break;
+  }
+  return out;
 };
 
 // Link a site and optimistically scrape it: capture a preview snapshot
@@ -862,6 +905,106 @@ app.get("/api/inbox", async (c) => {
   })));
 });
 
+// ---- direct messages (DMs) -----------------------------------------------
+// A basic 1:1 chat. A "thread" is addressed by the OTHER member's id — there's no
+// thread object to create, the first message makes it real. Edit + delete are
+// sender-only; either participant can react. Bodies are capped; receipts/typing are
+// deliberately omitted — keep it simple, leave room to grow.
+const MESSAGE_MAX = 4000;
+
+// Shape a stored message for the client: a deleted body reads as null; reactions ride
+// along as a flat (emoji, by) list that the client groups per-viewer (count + "I
+// reacted"). `from`/`to` are member ids.
+function messageJson(m: db.Message, reactions: db.MsgReaction[] = []) {
+  return {
+    id: m.id, from: m.sender_id, to: m.recipient_id,
+    body: m.deleted ? null : m.body,
+    created: m.created, edited: m.edited, deleted: m.deleted,
+    reactions: reactions.map((r) => ({ emoji: r.emoji, by: r.member_id })),
+  };
+}
+const peerJson = (m: db.Member) => ({ id: m.id, handle: m.handle, name: m.name, avatar: m.avatar, url: m.url });
+
+// The inbox: one row per conversation, newest activity first.
+app.get("/api/threads", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const rows = await db.listConversations(viewer.id);
+  return c.json(rows.map((r) => ({
+    peer: { id: r.peer_id, handle: r.handle, name: r.name, avatar: r.avatar, url: r.url },
+    lastBody: r.last_deleted ? null : r.last_body,
+    lastAt: r.last_at,
+    lastFromMe: r.last_sender === viewer.id,
+    lastDeleted: r.last_deleted,
+    unread: r.unread,
+  })));
+});
+
+// One conversation with member :id — the peer's identity + the full thread. Opening
+// it marks their messages read. Returns an empty thread (not 404) when none exists
+// yet, so a "Message" deep-link from a profile lands on a ready, empty chat.
+app.get("/api/threads/:id", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const peer = await db.getMember(c.req.param("id"));
+  if (!peer) return c.json({ error: "not found" }, 404);
+  await db.markThreadRead(viewer.id, peer.id);
+  const msgs = await db.listThread(viewer.id, peer.id);
+  return c.json({ peer: peerJson(peer), messages: msgs.map((m) => messageJson(m, m.reactions)) });
+});
+
+// Send a message to member :id. The first one to a person creates the conversation.
+app.post("/api/threads/:id", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const recipientId = c.req.param("id");
+  if (recipientId === viewer.id) return c.json({ error: "cannot message yourself" }, 400);
+  if (!(await db.getMember(recipientId))) return c.json({ error: "not found" }, 404);
+  const text = String((await body(c))?.body || "").trim().slice(0, MESSAGE_MAX);
+  if (!text) return c.json({ error: "empty message" }, 400);
+  const m = await db.sendMessage({ id: "msg_" + token(8), sender_id: viewer.id, recipient_id: recipientId, body: text });
+  return c.json(messageJson(m));
+});
+
+// Edit a message — sender only, never a deleted one. Re-sends the reactions so the
+// client can replace the message wholesale.
+app.patch("/api/messages/:id", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const m = await db.getMessage(c.req.param("id"));
+  if (!m || m.deleted) return c.json({ error: "not found" }, 404);
+  if (m.sender_id !== viewer.id) return c.json({ error: "not yours" }, 403);
+  const text = String((await body(c))?.body || "").trim().slice(0, MESSAGE_MAX);
+  if (!text) return c.json({ error: "empty message" }, 400);
+  const updated = await db.editMessage(m.id, text);
+  return c.json(messageJson(updated!, await db.listReactions(m.id)));
+});
+
+// Delete a message — sender only. Soft, so the thread keeps its shape ("deleted").
+app.delete("/api/messages/:id", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const m = await db.getMessage(c.req.param("id"));
+  if (!m) return c.json({ error: "not found" }, 404);
+  if (m.sender_id !== viewer.id) return c.json({ error: "not yours" }, 403);
+  const updated = await db.deleteMessage(m.id);
+  return c.json(messageJson(updated!));
+});
+
+// React to a message with an emoji (toggle). Either participant may react. Returns
+// the message's full reaction set after the change.
+app.post("/api/messages/:id/react", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const m = await db.getMessage(c.req.param("id"));
+  if (!m || m.deleted) return c.json({ error: "not found" }, 404);
+  if (viewer.id !== m.sender_id && viewer.id !== m.recipient_id) return c.json({ error: "not in this thread" }, 403);
+  const emoji = String((await body(c))?.emoji || "").trim().slice(0, 16);
+  if (!emoji) return c.json({ error: "emoji required" }, 400);
+  const reactions = await db.toggleMessageReaction(m.id, viewer.id, emoji);
+  return c.json(reactions.map((r) => ({ emoji: r.emoji, by: r.member_id })));
+});
+
 // ---- following list ------------------------------------------------------
 // Returns followed sites newest-edit-first, each tagged isNew for this viewer.
 app.get("/api/following", async (c) => {
@@ -919,6 +1062,91 @@ app.get("/api/comments/outgoing", async (c) => {
       url: r.target_url,
     },
   })));
+});
+
+// ---- cohorts ("crews": closed groups) ------------------------------------
+// The unit of onboarding for a whole friend group at once. A crew is closed (only
+// members see the roster) and self-wiring: joining mutually follows everyone in,
+// so a newcomer's feed is alive immediately. The shareable surface is the invite
+// link, GET /join/<code> (rendered further below).
+const cohortJson = (o: { id: string; name: string; code: string; role: string; memberCount: number; faces: db.Identity[] }) => ({
+  id: o.id, name: o.name, code: o.code, role: o.role,
+  memberCount: o.memberCount, joinUrl: `${BASE}/join/${o.code}`,
+  faces: o.faces.map(faceJson),
+});
+// One crew's full detail (roster + the viewer's role), shared by GET :id and join.
+function cohortDetail(cohort: db.Cohort, members: db.CohortMember[], viewerId: string) {
+  return {
+    id: cohort.id, name: cohort.name, code: cohort.code,
+    joinUrl: `${BASE}/join/${cohort.code}`,
+    role: members.find((m) => m.id === viewerId)?.role || "member",
+    members: members.map((m) => ({ ...faceJson(m), role: m.role })),
+  };
+}
+async function uniqueInviteCode(): Promise<string> {
+  for (let i = 0; i < 6; i++) {
+    const code = newInviteCode();
+    if (!(await db.getCohortByCode(code))) return code;
+  }
+  return newInviteCode(10); // a longer tail in the (vanishing) event of repeated collisions
+}
+
+// Create a crew. The creator becomes its owner + first member.
+app.post("/api/cohorts", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const name = String((await body(c))?.name || "").trim().slice(0, db.COHORT_NAME_MAX);
+  if (!name) return c.json({ error: "name required" }, 400);
+  const cohort = await db.createCohort({ id: newCohortId(), name, code: await uniqueInviteCode(), ownerId: viewer.id });
+  return c.json(cohortJson({ ...cohort, role: "owner", memberCount: 1, faces: [viewer] }));
+});
+
+// The crews the signed-in member is in.
+app.get("/api/cohorts", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return c.json((await db.listCohortsForMember(viewer.id)).map(cohortJson));
+});
+
+// One crew's roster — members only (the group is closed).
+app.get("/api/cohorts/:id", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const id = c.req.param("id");
+  const cohort = await db.getCohort(id);
+  if (!cohort) return c.json({ error: "not found" }, 404);
+  if (!(await db.isCohortMember(id, viewer.id))) return c.json({ error: "not a member" }, 403);
+  return c.json(cohortDetail(cohort, await db.listCohortMembers(id), viewer.id));
+});
+
+// Join a crew by invite code. Idempotent; a real (new) join mutually follows
+// everyone already in. Rejects only an unknown code or a full crew.
+app.post("/api/cohorts/join", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  const code = String((await body(c))?.code || "").trim().toLowerCase();
+  if (!code) return c.json({ error: "code required" }, 400);
+  const cohort = await db.getCohortByCode(code);
+  if (!cohort) return c.json({ error: "invite not found" }, 404);
+
+  const already = await db.isCohortMember(cohort.id, viewer.id);
+  if (!already) {
+    if ((await db.countCohortMembers(cohort.id)) >= db.COHORT_MAX)
+      return c.json({ error: "cohort full", limit: db.COHORT_MAX }, 409);
+    await db.addCohortMember(cohort.id, viewer.id, "member");
+    await db.wireCohortFollows(cohort.id, viewer.id); // the cohort contract: mutual follows
+  }
+  const members = await db.listCohortMembers(cohort.id);
+  return c.json({ ...cohortDetail(cohort, members, viewer.id), joined: !already });
+});
+
+// Leave a crew (membership only — your follows stay). Owner-leave reassigns
+// ownership to the next member; an empty crew is removed. Idempotent.
+app.post("/api/cohorts/:id/leave", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  await db.leaveCohort(c.req.param("id"), viewer.id);
+  return c.json({ ok: true });
 });
 
 // ---- auth (email magic link — the only thing a human ever does) ----------
@@ -1010,6 +1238,92 @@ app.get("/auth", (c) => {
       }
     </script>`));
 });
+
+// ---- join a crew (the shareable invite link) -----------------------------
+// Server-rendered so the link unfurls when shared in a chat and works without the
+// SPA. Shows who's already in (the incentive), then funnels to sign-in + a
+// one-tap join. Registered before the SPA/static catch-alls (in index.ts).
+app.get("/join/:code", async (c) => {
+  const code = c.req.param("code").toLowerCase();
+  const preview = await db.cohortPreview(code);
+  if (!preview) {
+    return c.html(sitePage("Invite not found · Den", "This invite link isn’t valid.", null,
+      `<div class="hero"><h1>This invite isn’t valid.</h1>
+       <p>The link may be mistyped, or the crew may have closed. Ask a friend for a fresh link.</p>
+       <a class="btn primary" href="/">Go to Den</a></div>`), 404);
+  }
+  const { cohort, memberCount, faces } = preview;
+  const viewer = await viewerOf(c);
+  const here = `${BASE}/join/${cohort.code}`;
+  const isMember = !!viewer && (await db.isCohortMember(cohort.id, viewer.id));
+  const desc = `Join ${cohort.name} on Den — ${memberCount} ${memberCount === 1 ? "site" : "sites"} in this crew.`;
+  return c.html(sitePage(
+    `Join ${cohort.name} · Den`, escapeHtml(desc), null,
+    renderJoin({ cohort, memberCount, faces, viewer, isMember }),
+    siteHeader(viewer, here),
+  ));
+});
+
+// A row of overlapping avatars (the crew) — the "your friends are here" proof.
+function joinFacepile(faces: db.Identity[], total: number): string {
+  if (!faces.length) return "";
+  const list = faces.slice(0, 6).map((f) => f.avatar
+    ? `<span class="jface" style="background-image:url(${escapeHtml(JSON.stringify(f.avatar))})"></span>`
+    : `<span class="jface jface-i">${escapeHtml((f.name || f.handle || "?").charAt(0).toUpperCase())}</span>`
+  ).join("");
+  const more = total > faces.length ? `<span class="jface jface-more">+${total - faces.length}</span>` : "";
+  return `<div class="jfaces">${list}${more}</div>`;
+}
+
+function renderJoin(o: {
+  cohort: db.Cohort; memberCount: number; faces: db.Identity[]; viewer?: db.Member; isMember: boolean;
+}): string {
+  const { cohort, memberCount, faces, viewer, isMember } = o;
+  const here = `${BASE}/join/${cohort.code}`;
+  const count = `${memberCount} ${memberCount === 1 ? "site" : "sites"} in this crew`;
+  let cta: string;
+  if (!viewer) {
+    // Sign-in IS sign-up here; on return the page shows the one-tap Join.
+    cta = `<a class="btn primary jcta" href="/auth?return=${encodeURIComponent(here)}">Sign in to join</a>
+      <p class="jfine">Joining follows everyone in the crew, and they’ll follow you. No passwords, no keys.</p>`;
+  } else if (isMember) {
+    cta = `<div class="jdone">You’re already in this crew.</div>
+      <a class="btn primary jcta" href="/">Go to your crew</a>`;
+  } else {
+    cta = `<button id="jbtn" class="btn primary jcta" type="button">Join ${escapeHtml(cohort.name)}</button>
+      <p class="jfine">Joining follows everyone in the crew, and they’ll follow you.</p>
+      <div id="jerr" class="jerr" hidden></div>`;
+  }
+  return `<div class="join"><div class="join-card">
+      <div class="jbadge">Crew invite</div>
+      <h1 class="jname">${escapeHtml(cohort.name)}</h1>
+      ${joinFacepile(faces, memberCount)}
+      <div class="jcount">${escapeHtml(count)}</div>
+      ${cta}
+    </div></div>
+    ${viewer && !isMember ? `<script>${joinScript(cohort.code)}</script>` : ""}`;
+}
+
+// One-tap join for a signed-in visitor: POST the code, then land in the app where
+// their new crew (and freshly populated feed) is waiting.
+function joinScript(code: string): string {
+  return `(function(){
+  var b=document.getElementById('jbtn'),e=document.getElementById('jerr');
+  if(!b)return;
+  var label=b.textContent;
+  b.addEventListener('click',function(){
+    b.disabled=true;b.textContent='Joining…';if(e){e.hidden=true;}
+    fetch('/api/cohorts/join',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({code:${JSON.stringify(code)}})})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+      .then(function(res){
+        if(res.ok){location.href='/';return;}
+        b.disabled=false;b.textContent=label;
+        if(e){e.hidden=false;e.textContent=(res.j&&res.j.error==='cohort full')?'This crew is full.':'Could not join. Try again.';}
+      })
+      .catch(function(){b.disabled=false;b.textContent=label;if(e){e.hidden=false;e.textContent='Could not join. Try again.';}});
+  });
+})();`;
+}
 
 // ---- public profile page (den.com/@handle) ------------------------------
 // Server-rendered so it's shareable + crawlable (link previews, instant load).

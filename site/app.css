@@ -225,6 +225,26 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 14px 32px 90px; }
   background: linear-gradient(150deg, #ffd6e0, #fff3f6);
 }
 
+/* The claim box: paste a site + Join, where the lone "Join now" used to sit.
+   The field mirrors the onboarding site input so the funnel feels continuous. */
+.land-claim-wrap { display: flex; flex-direction: column; gap: 11px; width: 100%; max-width: 460px; }
+.land-claim { display: flex; gap: 10px; width: 100%; }
+.land-claim-field {
+  flex: 1; min-width: 0; display: flex; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); padding: 0 15px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.land-claim-field:focus-within { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
+.land-claim-field.bad { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(234,76,137,.11); }
+.land-claim-field input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink);
+  font: var(--w-normal) 16px/1.4 'Sohne', system-ui, sans-serif; padding: 14px 0;
+}
+.land-claim-field input::placeholder { color: var(--faint); }
+.land-claim .btn { flex: 0 0 auto; }
+.land-hero .land-claim-hint { margin: 0; color: var(--faint); font-size: 14px; line-height: 1.5; max-width: 42ch; }
+
 /* The dedicated /auth sign-in page: focused form left, brand panel right. */
 .auth {
   display: grid;
@@ -553,6 +573,16 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .phero .pname { font-size: 30px; line-height: 1.05; }
 .pfollow { min-height: 48px; padding: 0 34px; font-size: 16px; }
 .phero-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* Social links: a row of quiet pills under the name, each linking out (rel=me). */
+.plinks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.plink {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 12px; font-size: 13px; font-weight: var(--w-semibold);
+  color: var(--ink); background: var(--surface);
+  transition: background 117ms ease, border-color 117ms ease;
+}
+.plink:hover { background: var(--surface-2); border-color: var(--muted); text-decoration: none; }
 /* Save: a round icon button in the header, mirroring the widget's save control —
    a soft circle with a bookmark that simply fills in once saved. No icon swap,
    no unsave state; click again to unfill. */
@@ -995,6 +1025,38 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
    step 1 so the header sits in the same place on every step */
 .onb-back.is-hidden { visibility: hidden; }
 
+/* optional "your socials" block in the wizard's site step */
+.onb-socials { display: flex; flex-direction: column; gap: 10px; }
+.onb-sub { color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
+.onb-opt { color: var(--faint); font-weight: var(--w-normal); margin-left: 4px; }
+
+/* ---- social links editor (shared: onboarding + edit profile) ------------- */
+.links-edit { display: flex; flex-direction: column; gap: 10px; }
+.link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.link-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); padding: 5px 6px 5px 13px;
+}
+.link-chip .link-name { color: var(--ink); font-size: 13px; font-weight: var(--w-semibold); }
+.link-chip .link-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.link-chip button {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--surface-2); color: var(--muted);
+  font-size: 11px; line-height: 1; cursor: pointer; transition: background 117ms ease, color 117ms ease;
+}
+.link-chip button:hover { background: var(--line); color: var(--ink); }
+.link-add { display: flex; gap: 8px; align-items: stretch; }
+.link-add input {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--ink);
+  font: var(--w-normal) 15px/1.4 'Sohne', system-ui, sans-serif; padding: 11px 14px; outline: none;
+}
+.link-add input:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.07); }
+.link-add input::placeholder { color: var(--faint); }
+.link-add .btn { flex: 0 0 auto; align-self: stretch; }
+
 @media (max-width: 460px) {
   .onb-card h1 { font-size: 27px; }
   .onb-prefix { font-size: 14px; }
@@ -1048,4 +1110,167 @@ a.note-card-who:hover .who { color: var(--accent); text-decoration: underline; t
 @media (prefers-reduced-motion: reduce) {
   .svg-spinner-circle { animation-duration: 1.2s; }
   .slide-down, .onb-step { animation: none; }
+}
+
+/* ---- crew (cohorts) on the dashboard ----------------------------------- */
+.crew { display: flex; flex-direction: column; gap: 14px; }
+.crew-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.crew-head h2 { margin: 0; color: var(--ink); font-size: 20px; font-weight: var(--w-semibold); }
+.crew-head .muted { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; font-weight: var(--w-normal); max-width: 56ch; }
+.crew-create { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.crew-create input {
+  flex: 1 1 260px; min-height: 42px; padding: 0 14px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; font-size: 15px;
+}
+.crew-create input:focus { outline: none; border-color: var(--ink); }
+.crew-empty {
+  padding: 16px 18px; border: 1px dashed var(--line); border-radius: var(--radius);
+  color: var(--muted); font-size: 14px; line-height: 1.5;
+}
+.crew-list { display: flex; flex-direction: column; gap: 10px; }
+.crew-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 13px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+}
+.crew-card-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+/* Overlapping facepile: row-reverse so the first member sits on top, each nudged
+   left under the previous; the visually-leftmost (DOM-last) gets no offset. */
+.crew-faces { display: flex; flex-direction: row-reverse; padding-left: 10px; }
+.crew-faces .avatar { width: 38px; height: 38px; font-size: 14px; margin-left: -10px; border: 2px solid var(--surface); }
+.crew-faces .avatar:last-child { margin-left: 0; }
+.crew-meta { display: flex; flex-direction: column; min-width: 0; }
+.crew-meta b { color: var(--ink); font-weight: var(--w-semibold); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crew-meta .muted { color: var(--muted); font-size: 13px; font-weight: var(--w-normal); }
+
+/* ---- join (the server-rendered crew invite page) ----------------------- */
+.join { display: flex; justify-content: center; padding: 40px 0; }
+.join-card {
+  width: 100%; max-width: 420px; text-align: center;
+  border: 1px solid var(--line); border-radius: 20px; background: var(--surface);
+  padding: 34px 30px; box-shadow: var(--shadow-card);
+}
+.jbadge {
+  display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--surface-3);
+  color: var(--muted); font-size: 12px; font-weight: var(--w-semibold); text-transform: uppercase; letter-spacing: .04em;
+}
+.jname { margin: 16px 0 18px; color: var(--ink); font-size: 30px; font-weight: var(--w-semibold); line-height: 1.15; }
+.jfaces { display: flex; flex-direction: row-reverse; justify-content: center; margin: 0 0 14px; padding-left: 12px; }
+.jface {
+  width: 48px; height: 48px; border-radius: 50%; margin-left: -12px; border: 3px solid var(--surface);
+  background-color: var(--surface-3); background-size: cover; background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-weight: var(--w-semibold); font-size: 17px; flex: 0 0 auto;
+}
+.jface:last-child { margin-left: 0; }
+.jface-more { background-color: var(--surface-2); font-size: 14px; }
+.jcount { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+.jcta { width: 100%; min-height: 48px; font-size: 16px; }
+.jfine { margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.jdone { margin: 0 0 16px; color: var(--ink); font-size: 16px; font-weight: var(--w-semibold); }
+.jerr { margin: 12px 0 0; color: #e5484d; font-size: 14px; }
+
+/* ---- direct messages (DMs) ----------------------------------------------- */
+/* Two panes: the conversation inbox on the left, the open thread on the right.
+   Both the inbox rows and the messages reuse the comment row (.cmt); the chat-only
+   bits (hover actions, reaction chips, the emoji tray, the composer) layer on top. */
+.dm {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 22px;
+  height: calc(100dvh - 210px);
+  min-height: 460px;
+}
+.dm-list { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.dm-list-title { margin: 2px 0 12px; }
+.dm-convos { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; min-width: 0; padding-right: 4px; }
+.dm-convo { gap: 12px; padding: 9px 12px; border-bottom: 0; border-radius: var(--radius-sm); color: inherit; }
+.dm-convo:hover, .dm-convo.on { background: var(--surface-2); }
+.dm-convo .avatar { width: 44px; height: 44px; font-size: 16px; }
+.dm-convo .cmt-line { font-size: 15px; }
+.dm-preview { margin-top: 1px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-convo.unread .dm-preview { color: var(--text); font-weight: var(--w-semibold); }
+.dm-unread {
+  flex: 0 0 auto; min-width: 20px; height: 20px; padding: 0 6px;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font: var(--w-semibold) 12px/1 'Sohne', system-ui, sans-serif;
+}
+
+.dm-main { display: flex; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.dm-blank { flex: 1; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
+.dm-blank p { margin: 0 0 12px; }
+.dm-chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.dm-head { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
+.dm-head .avatar { width: 40px; height: 40px; font-size: 15px; }
+.dm-head-id { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.dm-head-id .who { font-size: 16px; font-weight: var(--w-semibold); color: var(--ink); }
+.dm-head-sub { font-size: 13px; color: var(--muted); }
+
+.dm-scroll { flex: 1; overflow-y: auto; padding: 10px 18px; display: flex; flex-direction: column; gap: 2px; }
+.dm-empty { margin: auto; }
+
+/* one message — the comment row, top-aligned, with hover actions floated right */
+.dm-msg { position: relative; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 0; }
+.dm-msg .avatar { width: 38px; height: 38px; font-size: 14px; }
+.dm-text { white-space: pre-wrap; }
+.dm-deleted { font-style: italic; color: var(--faint); }
+.dm-edited { margin-left: 7px; color: var(--faint); font-size: 12px; }
+
+.dm-reacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dm-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+  cursor: pointer; font: var(--w-semibold) 12px/1.4 'Sohne', system-ui, sans-serif; color: var(--text);
+}
+.dm-chip:hover { background: var(--surface-2); }
+.dm-chip.on { border-color: var(--accent); background: var(--surface-2); color: var(--ink); }
+.dm-chip .react-emoji { font-size: 14px; }
+.dm-chip-n { color: var(--muted); }
+
+.dm-actions {
+  position: absolute; top: 2px; right: 0; display: none; align-items: center; gap: 2px;
+  padding: 2px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; box-shadow: var(--shadow-card);
+}
+.dm-msg:hover .dm-actions { display: inline-flex; }
+.dm-act {
+  appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--muted);
+  border-radius: 999px; padding: 4px 9px; font: var(--w-semibold) 13px/1 'Sohne', system-ui, sans-serif;
+}
+.dm-act:hover { background: var(--surface-2); color: var(--ink); }
+.dm-react-wrap { position: relative; display: inline-flex; }
+
+.dm-tray {
+  position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 5; display: flex; gap: 2px;
+  padding: 6px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; box-shadow: var(--shadow);
+}
+.dm-tray-emoji {
+  appearance: none; border: 0; background: transparent; cursor: pointer; font-size: 20px; line-height: 1;
+  padding: 4px; border-radius: 50%; transition: transform .12s ease, background .12s ease;
+}
+.dm-tray-emoji:hover { background: var(--surface-2); transform: translateY(-1px); }
+.dm-tray-emoji.on { background: var(--surface-2); }
+
+.dm-edit { margin-top: 4px; }
+.dm-edit-input, .dm-compose-input {
+  width: 100%; box-sizing: border-box; resize: none;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--ink);
+  font: var(--w-normal) 15px/1.45 'Sohne', system-ui, sans-serif; padding: 9px 12px;
+}
+.dm-edit-input:focus, .dm-compose-input:focus { outline: none; border-color: var(--ink); }
+.dm-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.dm-compose { display: flex; align-items: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.dm-compose-input { flex: 1; max-height: 140px; }
+.dm-send { flex: 0 0 auto; }
+
+/* "Message" buttons: on a note row (Notes page) + on a public profile header */
+.dm-msg-btn { flex: 0 0 auto; align-self: center; }
+
+@media (max-width: 720px) {
+  .dm { grid-template-columns: 1fr; height: auto; min-height: 0; gap: 16px; }
+  .dm-convos { max-height: 40vh; }
+  .dm-main { min-height: 60vh; }
 }

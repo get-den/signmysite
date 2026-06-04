@@ -272,7 +272,7 @@ export async function notifyActivity(opts: {
   // your inbox (to read + reply).
   const actorUrl = BASE && actor.handle ? `${BASE}/@${actor.handle}` : (actor.url || BASE || "#");
   const ownerProfile = BASE && owner.handle ? `${BASE}/@${owner.handle}` : (BASE || "#");
-  const inbox = BASE ? `${BASE}/#/messages` : ownerProfile;
+  const inbox = BASE ? `${BASE}/#/notes` : ownerProfile;
 
   const plan = {
     follow:   { verb: "followed your site.",        subject: `${who} followed you on Den`, cta: ["View their profile", actorUrl], extra: "",            text: `${who} followed your site.` },

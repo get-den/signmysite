@@ -4,6 +4,7 @@ import { Footer } from "./components/Footer";
 import { Protected } from "./ui";
 import { Home } from "./pages/Home";
 import { Messages } from "./pages/Messages";
+import { Notes } from "./pages/Notes";
 import { Edit } from "./pages/Edit";
 import { Compose } from "./pages/Compose";
 import { Reacted } from "./pages/Reacted";
@@ -24,6 +25,22 @@ export function App() {
             element={
               <Protected>
                 <Messages />
+              </Protected>
+            }
+          />
+          <Route
+            path="/messages/:id"
+            element={
+              <Protected>
+                <Messages />
+              </Protected>
+            }
+          />
+          <Route
+            path="/notes"
+            element={
+              <Protected>
+                <Notes />
               </Protected>
             }
           />
