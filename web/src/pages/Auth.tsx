@@ -1,8 +1,8 @@
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewer } from "../providers";
-import { JOIN_SITE_KEY } from "../lib";
 import { IconButton, Loading } from "../ui";
 import { SignIn } from "../components/SignIn";
+import { SignupHandleField } from "../components/SignupHandleField";
 import { ProfileMock } from "../components/ProfileMock";
 
 /**
@@ -17,10 +17,6 @@ export function Auth() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const ret = params.get("return") || "/";
-  // The site they pasted on the landing, carried across sign-in. We read it (but
-  // don't consume it — onboarding does that) so the prompt names what they're claiming.
-  let joinSite = "";
-  try { joinSite = localStorage.getItem(JOIN_SITE_KEY) || ""; } catch { /* ignore */ }
 
   if (loading) return <Loading />;
   // Already signed in: skip the page and resume wherever we were headed.
@@ -31,9 +27,8 @@ export function Auth() {
       <div className="auth-form">
         <IconButton icon="back" className="auth-back" onClick={() => navigate(backPath(ret))} />
         <h1 className="auth-title">Join signmysite</h1>
-        <p className="auth-sub">
-          {joinSite ? <>Sign in to claim <b>{joinSite}</b></> : "Sign in to claim your profile."}
-        </p>
+        <p className="auth-sub">Pick a username, then continue with Google or email.</p>
+        <SignupHandleField />
         <SignIn returnTo={ret} />
         <p className="auth-fine">We'll email you a link, no password needed.</p>
       </div>

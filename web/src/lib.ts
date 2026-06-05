@@ -107,8 +107,11 @@ export function authUrl(to: string = location.href): string {
 
 /* ---- usernames + websites (the onboarding funnel) ----------------------- */
 
-/** Where the landing stashes a pasted site so onboarding can pick it up post-auth. */
+/** Back-compat: older landing pages stashed a pasted site here before auth. */
 export const JOIN_SITE_KEY = "signmysite:join-site";
+
+/** Username typed before auth; onboarding claims it server-side once signed in. */
+export const SIGNUP_HANDLE_KEY = "signmysite:signup-handle";
 
 const HANDLE_MAX = 30;
 

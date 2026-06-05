@@ -89,6 +89,7 @@ function avatar(x: Identity, cls = ""): string {
 // inlined so the server-rendered page needs no icon runtime. Saving just fills
 // it in (.psave-btn.on svg{fill}) — no icon swap.
 const BOOKMARK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
+const EXTERNAL_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M9 7h8v8"/></svg>`;
 
 /* ---- components ---------------------------------------------------------- */
 
@@ -119,12 +120,14 @@ function preview(m: Member): string {
   const ext = m.url ? ' target="_blank" rel="noopener"' : "";
   return `<a class="psite-wrap" href="${href}"${ext} aria-label="View ${escapeHtml(m.name)}'s site">
     <span class="psite" style="${bgUrl(siteThumb(m))}"></span>
+    <span class="psite-open" aria-hidden="true">${EXTERNAL_SVG}</span>
   </a>`;
 }
 
 function actions(m: Member, s: Stats): string {
-  const view = m.url ? `<a class="btn pink" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ↗</a>` : "";
-  return `<div class="pactions">${view}
+  const view = m.url ? `<a class="btn psite-view" href="${escapeHtml(m.url)}" target="_blank" rel="noopener">View site ${EXTERNAL_SVG}</a>` : "";
+  return `<div class="pactions psite-actions">${view}
+    ${m.url ? `<span class="psite-host">${escapeHtml(hostOf(m.url))}</span>` : ""}
     <span id="pcounts" class="pcounts">${num(s.views)} views</span>
   </div>`;
 }

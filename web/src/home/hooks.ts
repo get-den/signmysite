@@ -170,16 +170,17 @@ export function useAutoReverify(viewer: Member): void {
 
 /** Total unread direct messages — the badge on the Chat nav item. Refreshes on
  *  mount, on route change, and on a gentle interval (mirrors the notification bell). */
-export function useUnreadCount(): number {
+export function useUnreadCount(enabled = true): number {
   const [n, setN] = useState(0);
   useEffect(() => {
+    if (!enabled) { setN(0); return; }
     let alive = true;
     const load = () =>
       getThreads().then((cs) => alive && setN(cs.reduce((a, c) => a + c.unread, 0)), () => {});
     load();
     const timer = setInterval(() => document.visibilityState === "visible" && load(), 30000);
     return () => { alive = false; clearInterval(timer); };
-  }, []);
+  }, [enabled]);
   return n;
 }
 

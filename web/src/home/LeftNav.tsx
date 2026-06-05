@@ -8,8 +8,9 @@
  * fills its icon and goes ink-black — no accent — matching iOS/Twitter-style nav.
  */
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import type { Member } from "../api";
+import { useViewer } from "../providers";
 import { AvatarMenu } from "./AvatarMenu";
 import { useUnreadCount } from "./hooks";
 
@@ -45,8 +46,8 @@ function NavRow({ item, kind }: { item: NavItem; kind: "rail" | "tab" }) {
 }
 
 /** The desktop left rail: nav at the top, the account chip pinned to the bottom. */
-export function NavRail({ viewer }: { viewer: Member }) {
-  const unread = useUnreadCount();
+export function NavRail({ viewer }: { viewer: Member | null }) {
+  const unread = useUnreadCount(!!viewer);
   const items = navItems(unread);
   return (
     <div className="rail">
@@ -54,7 +55,7 @@ export function NavRail({ viewer }: { viewer: Member }) {
         {items.map((it) => <NavRow key={it.label} item={it} kind="rail" />)}
       </nav>
       <div className="rail-foot">
-        <AvatarMenu viewer={viewer} />
+        {viewer ? <AvatarMenu viewer={viewer} /> : <LoggedOutChip />}
       </div>
     </div>
   );
@@ -62,12 +63,28 @@ export function NavRail({ viewer }: { viewer: Member }) {
 
 /** The mobile bottom tab bar — the same destinations as icon tabs. */
 export function MobileTabs() {
-  const unread = useUnreadCount();
+  const { viewer } = useViewer();
+  const unread = useUnreadCount(!!viewer);
   const items = navItems(unread);
   return (
     <nav className="tabbar" aria-label="Primary">
       {items.map((it) => <NavRow key={it.label} item={it} kind="tab" />)}
     </nav>
+  );
+}
+
+function LoggedOutChip() {
+  const location = useLocation();
+  const here = location.pathname + location.search + location.hash;
+  return (
+    <Link className="loggedout-chip" to={`/auth?return=${encodeURIComponent(here)}`}>
+      <span className="loggedout-avatar" aria-hidden="true">?</span>
+      <span className="who-id">
+        <span className="who-name">Logged out</span>
+        <span className="who-sub">Sign up or sign in</span>
+      </span>
+      <span className="who-chev" aria-hidden="true">›</span>
+    </Link>
   );
 }
 

@@ -44,6 +44,20 @@
 }
 .rail-foot { margin-top: auto; padding-top: 12px; }
 
+.loggedout-chip {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 8px; border-radius: 14px; color: var(--ink);
+  transition: background 117ms ease;
+}
+.loggedout-chip:hover { background: var(--surface-2); text-decoration: none; }
+.loggedout-avatar {
+  width: 40px; height: 40px; flex: 0 0 auto;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--surface-2); color: var(--muted);
+  font: var(--w-semibold) 16px/1 'Sohne', system-ui, sans-serif;
+}
+.loggedout-chip:hover .loggedout-avatar { background: var(--line); color: var(--ink); }
+
 /* ---- account chip + menu (rail foot, and header on mobile) --------------- */
 .who-menu { position: relative; }
 .who-trigger {
@@ -256,6 +270,27 @@
 
 .settings-page, .messages-page, .profile-page { display: flex; flex-direction: column; min-height: 0; }
 .profile-page { gap: 18px; }
+.pmore { position: relative; flex: 0 0 auto; }
+.pmore-trigger {
+  width: 48px; height: 48px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--surface); color: var(--ink); cursor: pointer;
+  transition: background 117ms ease, border-color 117ms ease;
+}
+.pmore-trigger:hover, .pmore-trigger.on { background: var(--surface-2); border-color: var(--line); }
+.pmore-trigger svg { width: 22px; height: 22px; }
+.pmore-pop {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; width: 172px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); padding: 6px; animation: who-pop-in 120ms ease;
+}
+.pmore-item {
+  display: block; width: 100%; text-align: left; appearance: none; border: 0; background: transparent;
+  padding: 10px 12px; border-radius: 10px; cursor: pointer;
+  color: var(--ink); font: var(--w-semibold) 14px/1.2 'Sohne', system-ui, sans-serif;
+}
+.pmore-item:hover { background: var(--surface-2); text-decoration: none; }
+.pmore-item:disabled { opacity: .55; cursor: default; }
 /* Following / followers count, up top — full numbers, underline on hover. */
 .pcounts-row { display: flex; gap: 26px; }
 .pcount { color: var(--muted); font-size: 15px; cursor: pointer; }
@@ -267,6 +302,7 @@
 
 /* The profile's site preview reuses the shared SiteThumbnail <img>; fill the frame. */
 .psite-wrap .site-thumb { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
+.profile-page .psite-actions { margin-top: -6px; }
 
 /* a quiet empty line inside a rail block */
 .rail-empty { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }

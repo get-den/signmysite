@@ -192,8 +192,8 @@ export const claimHandle = (handle: string) =>
 
 /** Finish signup: claim a username + optionally attach social links. (The site
  * itself is already saved via scrapeSite by this point.) */
-export const onboard = (handle: string, links?: string[]) =>
-  req<Member>("/api/onboard", { method: "POST", ...jsonBody({ handle, links: links ?? [] }) });
+export const onboard = (handle: string, links?: string[], url?: string) =>
+  req<Member>("/api/onboard", { method: "POST", ...jsonBody({ handle, links: links ?? [], url }) });
 
 /** Link a site and optimistically scrape its thumbnail + inferred profile picture. */
 export const scrapeSite = (url: string) =>

@@ -1,5 +1,5 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useToast, useViewer } from "./providers";
 import { host, initials, profilePath, siteThumb, PLACEHOLDER_THUMB } from "./lib";
@@ -427,8 +427,12 @@ export function Protected({
   requireOnboarded?: boolean;
 }) {
   const { viewer, loading } = useViewer();
+  const location = useLocation();
   if (loading) return <Loading />;
-  if (!viewer) return <Navigate to="/" replace />;
+  if (!viewer) {
+    const ret = location.pathname + location.search + location.hash;
+    return <Navigate to={`/auth?return=${encodeURIComponent(ret)}`} replace />;
+  }
   if (requireOnboarded && !viewer.onboarded) return <Navigate to="/" replace />; // finish signup first
   return <>{children}</>;
 }

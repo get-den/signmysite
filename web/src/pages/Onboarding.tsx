@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, checkHandle, claimHandle, onboard, scrapeSite } from "../api";
 import { useToast, useViewer } from "../providers";
-import { host, handleFromSite, normHandle, validateSite, JOIN_SITE_KEY } from "../lib";
+import { host, handleFromSite, normHandle, validateSite, JOIN_SITE_KEY, SIGNUP_HANDLE_KEY } from "../lib";
 import { Button, IconButton, Spinner } from "../ui";
 import { WidgetSetup } from "../components/WidgetSetup";
 
-// Username candidates for the picker: a pasted website wins the top slot (it's
-// what they just told us), then their display name, broken into useful variants.
-function suggestions(name: string, fallback: string | null, site?: string | null): string[] {
+// Username candidates for the picker: a pre-auth username draft wins, then any
+// legacy site prefill, then their display name, broken into useful variants.
+function suggestions(name: string, fallback: string | null, site?: string | null, draft?: string | null): string[] {
   const out = new Set<string>();
   const add = (h: string) => {
     if (!h) return;
@@ -16,6 +16,7 @@ function suggestions(name: string, fallback: string | null, site?: string | null
     const first = h.split("-")[0];
     if (first) out.add(first);
   };
+  if (draft) add(draft);
   if (site) add(handleFromSite(site));
   add(normHandle(name || ""));
   if (out.size === 0 && fallback) out.add(normHandle(fallback));
@@ -29,9 +30,8 @@ type Check =
   | { state: "bad"; reason: string };
 
 // Everything the wizard collects, persisted verbatim so a reload (or coming back
-// later) never loses a step. `siteKnown` records that a site arrived before the
-// site step — pasted on the landing or already linked — so we skip asking for it
-// and the back button/progress dots stay honest across reloads.
+// later) never loses a step. `siteKnown` means the account already had a linked
+// site before this wizard, so the explicit website step can stay skipped.
 type Draft = { step: 1 | 2 | 3; handle: string; site: string; siteKnown: boolean };
 
 const draftKey = (id: string) => `signmysite:onboard:${id}`;
@@ -54,42 +54,45 @@ export function Onboarding() {
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
 
-  // A website pasted into the landing claim box, carried across sign-in. Read once;
-  // it seeds both the username guess and the site field below.
+  const [signupHandle] = useState<string>(() => {
+    try { return localStorage.getItem(SIGNUP_HANDLE_KEY) || ""; } catch { return ""; }
+  });
+  // Older sessions may still have a pre-auth website. Keep it as a prefill, but
+  // do not skip the site step; the new funnel asks for the website after username.
   const [joinSite] = useState<string>(() => {
     try { return localStorage.getItem(JOIN_SITE_KEY) || ""; } catch { return ""; }
   });
 
   const picks = useMemo(
-    () => suggestions(viewer?.name ?? "", viewer?.handle ?? null, joinSite),
-    [viewer?.name, viewer?.handle, joinSite],
+    () => suggestions(viewer?.name ?? "", viewer?.handle ?? null, joinSite, signupHandle),
+    [viewer?.name, viewer?.handle, joinSite, signupHandle],
   );
 
   // Restore in-progress work once, so a reload (or coming back later) never loses
   // anything. Prefer a local draft; otherwise resume from what the server saved
   // (a linked site means they already reached the verify step); otherwise this is
-  // a fresh sign-up, so seed from a site they pasted on the way in.
+  // a fresh sign-up, seeded from the pre-auth username draft.
   const restored = useRef(false);
   useEffect(() => {
     if (restored.current || !viewer) return;
     restored.current = true;
     const d = loadDraft(viewer.id);
     if (d) {
-      setHandle(d.handle || picks[0] || "");
+      setHandle(d.handle || signupHandle || picks[0] || "");
       setSite(d.site || "");
       setSiteKnown(!!d.siteKnown);
       setStep(d.step || 1);
     } else if (viewer.url) {
-      setHandle(viewer.handle || picks[0] || "");
+      setHandle(viewer.handle || signupHandle || picks[0] || "");
       setSite(host(viewer.url));
       setSiteKnown(true);
       setStep(3);
     } else {
-      setHandle(picks[0] || "");
-      if (joinSite) { setSite(joinSite); setSiteKnown(true); }
+      setHandle(signupHandle || picks[0] || "");
+      if (joinSite) setSite(joinSite);
     }
-    try { localStorage.removeItem(JOIN_SITE_KEY); } catch { /* ignore */ } // consume once
-  }, [viewer, picks, joinSite]);
+    try { localStorage.removeItem(JOIN_SITE_KEY); } catch { /* ignore */ }
+  }, [viewer, picks, joinSite, signupHandle]);
 
   // Persist the draft on every meaningful change (durable across reloads).
   useEffect(() => {
@@ -122,18 +125,14 @@ export function Onboarding() {
   const ready = check.state === "ok";
   const siteCheck = validateSite(site);
 
-  // Step 1 → reserve the username server-side (durable). If we already have their
-  // site (pasted on the landing, or linked before), save it and jump straight to
-  // the widget step — no reason to ask again. Otherwise stop at the site step.
+  // Step 1 → reserve the username server-side (durable), then ask for the website.
+  // If the account already has a site (e.g. widget-created), go straight to setup.
   async function toSite() {
     if (!ready || claiming) return;
     setClaiming(true);
     try {
       await claimHandle(handle);
-      const sc = validateSite(site);
-      if (sc.ok) {
-        try { await scrapeSite(sc.url!); } catch { /* unreachable is fine — the url still saves */ }
-        setSiteKnown(true);
+      if (siteKnown && validateSite(site).ok) {
         setStep(3);
       } else {
         setStep(2);
@@ -168,8 +167,10 @@ export function Onboarding() {
     if (saving) return;
     setSaving(true);
     try {
-      const updated = await onboard(handle);
+      const sc = validateSite(site);
+      const updated = await onboard(handle, undefined, sc.ok ? sc.url : undefined);
       try { localStorage.removeItem(draftKey(vid)); } catch { /* ignore */ }
+      try { localStorage.removeItem(SIGNUP_HANDLE_KEY); } catch { /* ignore */ }
       setViewer(updated);
     } catch (e) {
       setSaving(false);

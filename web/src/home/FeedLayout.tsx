@@ -16,7 +16,7 @@ export const WIDE = "(min-width: 1080px)";
 export function FeedLayout({
   viewer, children, rail,
 }: {
-  viewer: Member;
+  viewer: Member | null;
   children: ReactNode;
   rail?: ReactNode;
 }) {

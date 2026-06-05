@@ -7,13 +7,14 @@
  * pieces below. The public, server-rendered /@<handle> page stays for logged-out
  * visitors + crawlers.
  */
-import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
-  follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
+  ApiError, follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
+  save as apiSave, togglePin,
   type Member, type NoteAuthor, type PinnedSite, type PublicProfile, type Stats,
 } from "../api";
-import { useViewer } from "../providers";
+import { useToast, useViewer } from "../providers";
 import { host, isReaction, profilePath, relTime, socialLabel } from "../lib";
 import { Avatar, EmptyState, IdentityLink, PageHead, SiteThumbnail, Spinner } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
@@ -22,8 +23,8 @@ import { FollowButton, SiteCTA } from "../home/parts";
 export function Profile() {
   const { handle } = useParams();
   const { viewer } = useViewer();
-  if (!viewer) return null; // /profile + /u/:handle are Protected, so a viewer is guaranteed
-  const own = !handle || handle.toLowerCase() === (viewer.handle || "").toLowerCase();
+  if (!handle && !viewer) return null; // /profile is Protected; this is just a type guard
+  const own = !handle || handle.toLowerCase() === (viewer?.handle || "").toLowerCase();
   return own ? <OwnerProfile viewer={viewer} /> : <MemberProfile handle={handle!} viewer={viewer} />;
 }
 
@@ -64,17 +65,19 @@ function OwnerProfile({ viewer }: { viewer: Member }) {
 
 /* ---- someone else's profile ---------------------------------------------- */
 
-function MemberProfile({ handle, viewer }: { handle: string; viewer: Member }) {
+function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | null }) {
+  const location = useLocation();
+  const toast = useToast();
   const [data, setData] = useState<PublicProfile | null>(null);
   const [missing, setMissing] = useState(false);
-  const [following, setFollowing] = useState(false);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    setData(null); setMissing(false);
+    setData(null); setStats(null); setMissing(false);
     getPublicProfile(handle)
-      .then((d) => { if (!alive) return; setData(d); setFollowing(d.stats.viewerFollows); })
+      .then((d) => { if (!alive) return; setData(d); setStats(d.stats); })
       .catch(() => alive && setMissing(true));
     return () => { alive = false; };
   }, [handle]);
@@ -97,18 +100,25 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member }) {
   }
 
   const m = data.member;
-  const isSelf = m.id === viewer.id;
+  const profileStats = stats ?? data.stats;
+  const isSelf = m.id === viewer?.id;
   const publicNotes = data.comments.filter((n) => !n.redacted);
   const firstName = (m.name || "they").split(/\s+/)[0];
+  const authRoute = `/auth?return=${encodeURIComponent(location.pathname + location.search + location.hash)}`;
 
   const toggleFollow = () => {
     if (busy) return;
     setBusy(true);
-    const willFollow = !following;
-    setFollowing(willFollow); // optimistic; reconcile to the server's truth
+    const prev = profileStats;
+    const willFollow = !profileStats.viewerFollows;
+    setStats({
+      ...profileStats,
+      viewerFollows: willFollow,
+      followers: Math.max(0, profileStats.followers + (willFollow ? 1 : -1)),
+    });
     apiFollow(m.id)
-      .then((s) => setFollowing(s.viewerFollows))
-      .catch(() => setFollowing(!willFollow))
+      .then(setStats)
+      .catch(() => { setStats(prev); toast("Couldn't update follow. Try again."); })
       .finally(() => setBusy(false));
   };
 
@@ -119,16 +129,120 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member }) {
         <ProfileHero member={m}>
           {!isSelf && (
             <>
-              <FollowButton following={following} onToggle={toggleFollow} sm={false} />
-              <Link className="btn" to={`/messages/${m.id}`}>Message</Link>
+              {viewer ? (
+                <>
+                  <FollowButton following={profileStats.viewerFollows} onToggle={toggleFollow} sm={false} />
+                  <ProfileMoreMenu member={m} stats={profileStats} onStats={setStats} />
+                </>
+              ) : (
+                <>
+                  <Link className="btn primary pfollow" to={authRoute}>Follow</Link>
+                  <Link className="btn" to={authRoute}>Message</Link>
+                </>
+              )}
             </>
           )}
         </ProfileHero>
-        <Counts following={data.stats.following} followers={data.stats.followers} />
+        <Counts following={profileStats.following} followers={profileStats.followers} />
         <SitePreviewImg member={m} label={`View ${m.name}'s site`} />
         <NotesSection heading={`Notes on ${firstName}'s site`} notes={publicNotes} empty="No notes here yet." />
       </div>
     </FeedLayout>
+  );
+}
+
+function ProfileMoreMenu({
+  member,
+  stats,
+  onStats,
+}: {
+  member: Member;
+  stats: Stats;
+  onStats: (stats: Stats) => void;
+}) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<"save" | "pin" | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  async function saveSite() {
+    if (busy) return;
+    setBusy("save");
+    try {
+      const next = await apiSave(member.id);
+      onStats(next);
+      toast(next.viewerSaved ? "Saved." : "Removed from saved.");
+      setOpen(false);
+    } catch {
+      toast("Couldn't update saved. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pinSite() {
+    if (busy) return;
+    setBusy("pin");
+    try {
+      const next = await togglePin(member.id);
+      onStats(next);
+      toast(next.viewerPinned ? "Pinned to your profile." : "Removed from pinned.");
+      setOpen(false);
+    } catch (e) {
+      toast(e instanceof ApiError && e.status === 409
+        ? "You can pin up to 3 sites. Unpin one first."
+        : "Couldn't update pinned. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="pmore" ref={ref}>
+      <button
+        type="button"
+        className={"pmore-trigger" + (open ? " on" : "")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More profile actions"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <DotsIcon />
+      </button>
+      {open && (
+        <div className="pmore-pop" role="menu">
+          <Link className="pmore-item" to={`/messages/${member.id}`} role="menuitem">Message</Link>
+          <button className="pmore-item" type="button" role="menuitem" disabled={busy === "save"} onClick={saveSite}>
+            {stats.viewerSaved ? "Saved" : "Save"}
+          </button>
+          <button className="pmore-item" type="button" role="menuitem" disabled={busy === "pin"} onClick={pinSite}>
+            {stats.viewerPinned ? "Pinned" : "Pin"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DotsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="6" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="18" cy="12" r="1.8" />
+    </svg>
   );
 }
 
@@ -175,9 +289,28 @@ function Counts({ following, followers }: { following: number; followers: number
 function SitePreviewImg({ member, label }: { member: Member; label: string }) {
   if (!member.url) return null;
   return (
-    <a className="psite-wrap" href={member.url} target="_blank" rel="noopener" aria-label={label}>
-      <SiteThumbnail site={member} className="psite-img" />
-    </a>
+    <div className="psite-block">
+      <a className="psite-wrap" href={member.url} target="_blank" rel="noopener" aria-label={label}>
+        <SiteThumbnail site={member} className="psite-img" />
+        <span className="psite-open" aria-hidden="true"><ExternalLinkIcon /></span>
+      </a>
+      <div className="psite-actions">
+        <a className="btn psite-view" href={member.url} target="_blank" rel="noopener">
+          View site <ExternalLinkIcon />
+        </a>
+        <span className="psite-host">{host(member.url)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7 17 17 7" />
+      <path d="M9 7h8v8" />
+    </svg>
   );
 }
 
