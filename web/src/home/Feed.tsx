@@ -100,7 +100,10 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
       </IdentityLink>
       <div className="feed-body">
         <div className="feed-head">
-          <p className="feed-line"><b>{who}</b> {verb()}</p>
+          <p className="feed-line">
+            {a ? <IdentityLink of={a} className="feed-name"><b>{who}</b></IdentityLink> : <b>{who}</b>}
+            {" "}{verb()}
+          </p>
           <div className="feed-aside">
             <time className="feed-time">{relTime(it.at)}</time>
             {!yours && <FollowSite site={it.target} store={store} />}

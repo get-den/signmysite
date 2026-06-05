@@ -129,6 +129,9 @@
 .feed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .feed-line { margin: 0; min-width: 0; color: var(--ink); font-size: 15px; line-height: 1.45; }
 .feed-line b { font-weight: var(--w-semibold); }
+.feed-name { color: var(--ink); }
+.feed-name:hover { text-decoration: none; }
+.feed-name:hover b { text-decoration: underline; text-underline-offset: 2px; }
 .feed-react { font-size: 1.2em; vertical-align: -.12em; }
 .feed-rec { color: #9a9aa0; font-weight: var(--w-normal); }
 .feed-tgt:hover { text-decoration: none; }
