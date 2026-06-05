@@ -156,7 +156,7 @@ export function VerifyButton({
   onVerified?: () => void;
   onMiss?: () => void;
 }) {
-  const { viewer, setViewer } = useViewer();
+  const { viewer, setViewer, refreshViewer } = useViewer();
   const toast = useToast();
   const [checking, setChecking] = useState(false);
   const [missed, setMissed] = useState(false);
@@ -167,7 +167,11 @@ export function VerifyButton({
     try {
       const r = await verifySite();
       if (r.verified) {
+        // Verifying can also CLAIM a placeholder for this site (the real owner inheriting
+        // e.g. @pg), which changes our handle + identity server-side. Flip the flag
+        // optimistically, then refetch so the inherited identity shows without a reload.
         setViewer({ ...viewer, verified: true });
+        await refreshViewer();
         toast("Verified ✓");
         onVerified?.();
       } else {
