@@ -52,28 +52,64 @@ export type Curated = {
   avatar: string; thumbnail: string | null; reason: string;
 };
 
-// The blanket recommendation set (for_id NULL — everyone sees these). Generated preview
-// cards where we don't have the real og:image; paulgraham.com has none → placeholder.
-// Stable ids so the boot baseline upserts (never duplicates) across deploys.
+// A live 1200×630 screenshot of a site, as a short cacheable URL. Most of these personal
+// homepages expose no og:image, so a real screenshot is the truest preview (and beats the
+// old generated name-card); thum.io renders + caches them server-side. Swap this one line
+// to change the provider.
+const SHOT = (url: string): string =>
+  `https://image.thum.io/get/width/1200/crop/630/noanimate/${url}`;
+
+// The blanket recommendation set (for_id NULL — everyone sees these). Each carries a real
+// site preview (SHOT) + a favicon avatar. Stable ids so the boot baseline upserts (never
+// duplicates) across deploys; db.seedCurated refreshes an unclaimed placeholder's preview
+// when these change, but never overwrites a real owner who has claimed the site. Add a row
+// here and it's recommended to everyone.
 export const CURATED: Curated[] = [
   {
     id: "signmysite:0a1b2c3d4e5f0b77", handle: "pg", name: "Paul Graham", url: "https://paulgraham.com",
-    avatar: favicon("paulgraham.com"), thumbnail: null,
+    avatar: favicon("paulgraham.com"), thumbnail: SHOT("https://paulgraham.com"),
     reason: "Essays on startups, work, and how to think clearly.",
   },
   {
     id: "signmysite:3d4e5f6071820eaa", handle: "patrick", name: "Patrick Collison", url: "https://patrickcollison.com",
-    avatar: favicon("patrickcollison.com"), thumbnail: siteCard("Patrick Collison", 4),
+    avatar: favicon("patrickcollison.com"), thumbnail: SHOT("https://patrickcollison.com"),
     reason: "Reading lists and big open questions, from Stripe's cofounder.",
   },
   {
     id: "signmysite:4e5f60718293afbb", handle: "notboring", name: "Not Boring", url: "https://www.notboring.co",
-    avatar: favicon("notboring.co"), thumbnail: siteCard("Not Boring", 3),
-    reason: "Business strategy, made genuinely fun. by Packy McCormick.",
+    avatar: favicon("notboring.co"),
+    // Substack blocks headless capture (the screenshot comes back black), so use its real og:image.
+    thumbnail: "https://substackcdn.com/image/fetch/$s_!Boeq!,f_auto,q_auto:best,fl_progressive:steep/https%3A%2F%2Fnotboring.substack.com%2Ftwitter%2Fsubscribe-card.jpg%3Fv%3D808001550%26version%3D9",
+    reason: "Business strategy, made genuinely fun, by Packy McCormick.",
   },
   {
     id: "signmysite:5f6071829304b0cc", handle: "waitbutwhy", name: "Wait But Why", url: "https://waitbutwhy.com",
-    avatar: favicon("waitbutwhy.com"), thumbnail: siteCard("Wait But Why", 5),
+    avatar: favicon("waitbutwhy.com"), thumbnail: SHOT("https://waitbutwhy.com"),
     reason: "Long, illustrated deep-dives by Tim Urban.",
+  },
+  {
+    id: "signmysite:60718293a4b5c1dd", handle: "thesephist", name: "Linus Lee", url: "https://thesephist.com",
+    avatar: favicon("thesephist.com"), thumbnail: SHOT("https://thesephist.com"),
+    reason: "Experiments in tools for thought and AI interfaces, by Linus Lee.",
+  },
+  {
+    id: "signmysite:718293a4b5c6d2ee", handle: "simonw", name: "Simon Willison", url: "https://simonwillison.net",
+    avatar: favicon("simonwillison.net"), thumbnail: SHOT("https://simonwillison.net"),
+    reason: "Daily field notes on LLMs, Python, and building in the open.",
+  },
+  {
+    id: "signmysite:8293a4b5c6d7e3ff", handle: "karpathy", name: "Andrej Karpathy", url: "https://karpathy.ai",
+    avatar: favicon("karpathy.ai"), thumbnail: SHOT("https://karpathy.ai"),
+    reason: "Neural nets built from scratch, and clear-eyed essays on AI.",
+  },
+  {
+    id: "signmysite:93a4b5c6d7e8f400", handle: "ciechanowski", name: "Bartosz Ciechanowski", url: "https://ciechanow.ski",
+    avatar: favicon("ciechanow.ski"), thumbnail: SHOT("https://ciechanow.ski"),
+    reason: "Mesmerizing interactive explainers of how the world works.",
+  },
+  {
+    id: "signmysite:a4b5c6d7e8f90511", handle: "geoffreylitt", name: "Geoffrey Litt", url: "https://www.geoffreylitt.com",
+    avatar: favicon("geoffreylitt.com"), thumbnail: SHOT("https://www.geoffreylitt.com"),
+    reason: "Malleable software and end-user programming as a tool for thought.",
   },
 ];

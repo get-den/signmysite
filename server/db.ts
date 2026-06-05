@@ -1015,34 +1015,48 @@ export async function addRecommendation(targetId: string, reason: string, forId?
 export async function seedCurated(): Promise<void> {
   const t = now();
   for (const c of CURATED) {
-    // Who represents this site now? A verified real owner who has claimed it wins;
-    // otherwise the curated placeholder (created here by its stable id on first boot).
-    // This is what lets the recommendation survive a claim: once the real owner takes
-    // over the site (see claimPlaceholderByUrl) the placeholder is gone, and we neither
-    // resurrect it nor point the recommendation back at an empty shell.
-    let owner = (await pool.query(
-      `SELECT * FROM members WHERE ${URLKEY("url")} = ${URLKEY("$1")}
-        ORDER BY ((email IS NOT NULL OR google_sub IS NOT NULL) AND verified) DESC, created ASC
-        LIMIT 1`,
-      [c.url]
-    )).rows[0] as Member | undefined;
-    if (!owner) {
+    try {
+      // Who represents this site now? A verified real owner who has claimed it wins;
+      // otherwise the curated placeholder (created here by its stable id on first boot).
+      // URL-keyed so once the real owner claims the site (see claimPlaceholderByUrl) we
+      // neither resurrect the placeholder nor point the recommendation at an empty shell.
+      let owner = (await pool.query(
+        `SELECT * FROM members WHERE ${URLKEY("url")} = ${URLKEY("$1")}
+          ORDER BY ((email IS NOT NULL OR google_sub IS NOT NULL) AND verified) DESC, created ASC
+          LIMIT 1`,
+        [c.url]
+      )).rows[0] as Member | undefined;
+      if (!owner) {
+        await pool.query(
+          `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
+           ON CONFLICT (id) DO NOTHING`,
+          [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
+        );
+        owner = await getMember(c.id);
+      } else if (!owner.email && !owner.google_sub) {
+        // An existing UNCLAIMED placeholder — refresh its curated display fields so edits
+        // to CURATED (a new preview image, a reworded name) propagate on the next boot.
+        // The email/google_sub guard means a real person who has claimed the site is left
+        // entirely alone.
+        await pool.query(
+          "UPDATE members SET name = $2, avatar = $3, thumbnail = $4 WHERE id = $1 AND email IS NULL AND google_sub IS NULL",
+          [owner.id, c.name, c.avatar, c.thumbnail]
+        );
+      }
+      if (!owner) continue;
+      // Ensure the blanket recommendation exists, pointing at the current owner. Refresh
+      // the reason, but NEVER the target_id — a claim may have already moved it onto the
+      // real account, and we must not point it back at a shell.
       await pool.query(
-        `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
-         ON CONFLICT (id) DO NOTHING`,
-        [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
+        `INSERT INTO recommendations (id, target_id, for_id, reason, created)
+         VALUES ($1, $2, NULL, $3, $4) ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason`,
+        ["rec_blanket_" + c.handle, owner.id, c.reason, t]
       );
-      owner = await getMember(c.id);
+    } catch (e) {
+      // One bad row (e.g. a handle that later got taken) must not abort the rest.
+      console.error(`[db] seedCurated: ${c.handle} failed:`, e);
     }
-    if (!owner) continue;
-    // Ensure the blanket recommendation exists, pointing at the current owner. DO NOTHING
-    // (not UPDATE) so a claim that already moved it onto the real account is never undone.
-    await pool.query(
-      `INSERT INTO recommendations (id, target_id, for_id, reason, created)
-       VALUES ($1, $2, NULL, $3, $4) ON CONFLICT (id) DO NOTHING`,
-      ["rec_blanket_" + c.handle, owner.id, c.reason, t]
-    );
   }
 }
 
