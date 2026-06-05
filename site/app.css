@@ -129,12 +129,10 @@ a:hover { text-decoration: none; }
 /* Identity links (avatar + name → profile): on hover the name warms to the
    accent and underlines, so every clickable name reads the same everywhere. */
 .shot-author:hover .shot-name,
-.note-line:hover b,
 a.cmt:hover .who,
 .blog:hover .bn,
 a.confirm-who:hover .who,
-a.sheet-to:hover .who,
-a.dash-you:hover .dash-name {
+a.sheet-to:hover .who {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -428,56 +426,15 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .help-item code { background: var(--surface-2); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; word-break: break-word; }
 .help-item a { color: var(--accent); font-weight: var(--w-semibold); text-decoration: underline; text-underline-offset: 2px; }
 
-/* ---- dashboard ----------------------------------------------------------- */
-/* Calm top-to-bottom flow: who you are → your numbers → notes + widget →
-   pinned → explore. One pink accent, hairline borders, lots of breathing room. */
-.dash { display: flex; flex-direction: column; gap: 38px; padding-top: 6px; }
-
-/* identity */
-.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-.dash-you { display: flex; align-items: center; gap: 18px; min-width: 0; }
-.dash-you .avatar { width: 66px; height: 66px; font-size: 25px; }
-.dash-name { margin: 0; color: var(--ink); font-size: 28px; font-weight: var(--w-semibold); line-height: 1.1; }
-.dash-handle { color: var(--muted); font-weight: var(--w-normal); font-size: 15px; margin-top: 2px; }
-.dash-head-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-/* stat tiles */
-.stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.stat { flex: 1 1 0; min-width: 130px; display: flex; flex-direction: column; gap: 5px; padding: 16px 18px; border-radius: var(--radius); background: var(--surface-3); }
-.stat b { color: var(--ink); font-size: 24px; font-weight: var(--w-semibold); }
-.stat span { color: var(--muted); font-size: 13px; font-weight: var(--w-normal); }
-
-/* notes + widget */
-.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+/* ---- card + widget panel (public, server-rendered /@handle profile) ------ */
+/* The signed-in app lives in the feed shell now; these are the shared card + widget
+   styles the server-rendered profile (server/profile.ts) still uses. */
 .card { min-width: 0; border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .card-head h3 { margin: 0; font-size: 16px; font-weight: var(--w-semibold); color: var(--ink); }
 .card-head a { color: var(--accent); font-size: 13px; font-weight: var(--w-semibold); }
 .card-head a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .card .empty { padding: 8px 0; color: var(--muted); font-size: 14px; }
-
-/* relational analytics — the signmysite members who've read you, ready to follow back */
-.visitors-card { margin-top: 16px; border-radius: var(--radius); background: var(--surface); padding: 20px 22px; }
-.visitors-card .card-head { margin-bottom: 14px; }
-.visitors-card .empty { padding: 4px 0; }
-.visitors-nudge { margin: 0 0 12px; color: var(--ink); font-size: 14px; }
-.visitor-list { list-style: none; margin: 0; padding: 0; }
-.visitor { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
-.visitor:first-child { border-top: 0; }
-.visitor-id { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; min-width: 0; color: inherit; }
-.visitor-id:hover { text-decoration: none; }
-.visitor-id .avatar { width: 40px; height: 40px; font-size: 14px; }
-.visitor-meta { display: flex; flex-direction: column; min-width: 0; }
-.visitor-meta b { color: var(--ink); font-weight: var(--w-semibold); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.visitor-sub { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-.visitor-tag { padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: var(--w-semibold); }
-.visitor-following { flex: 0 0 auto; color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
-
-.note-line { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 0; color: inherit; }
-.note-line:hover { text-decoration: none; }
-.note-line .avatar { width: 36px; height: 36px; font-size: 13px; }
-.note-line b { color: var(--ink); font-weight: var(--w-semibold); font-size: 14px; }
-.note-line p { margin: 2px 0 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .dash-widget .btn { width: 100%; }
 .snippet {
@@ -583,32 +540,6 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .shot-pin.on { opacity: 1; background: var(--accent); color: var(--accent-ink); }
 .shot-pin svg { width: 16px; height: 16px; }
 
-/* dashboard pin showcase */
-.pin-shelf { display: flex; flex-direction: column; gap: 14px; }
-.pin-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.pin-head h2 { margin: 0; color: var(--ink); font-size: 20px; font-weight: var(--w-semibold); }
-.pin-head .muted { color: var(--muted); font-size: 13px; font-weight: var(--w-normal); }
-.pin-empty { padding: 22px; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--muted); font-size: 14px; text-align: center; }
-.pin-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.pin-card {
-  position: relative;
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 16px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface);
-}
-.pin-card .shot-author { padding-right: 36px; }
-.pin-card .avatar { width: 44px; height: 44px; font-size: 16px; }
-.pin-card-unpin {
-  position: absolute; top: 12px; right: 12px;
-  width: 32px; height: 32px; display: grid; place-items: center;
-  border: 0; border-radius: 50%;
-  background: var(--accent); color: var(--accent-ink);
-  cursor: pointer;
-}
-.pin-card-unpin:hover { background: #e5244f; }
-.pin-card-unpin svg { width: 15px; height: 15px; }
-.pin-card-notes { display: flex; flex-direction: column; gap: 7px; }
-
 /* ---- avatar -------------------------------------------------------------- */
 .avatar {
   width: 72px;
@@ -625,17 +556,11 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 }
 
 /* ---- public profile page ------------------------------------------------- */
-.phead { display: flex; align-items: center; gap: 20px; padding: 8px 0 4px; }
-.phead .avatar { width: 96px; height: 96px; font-size: 36px; }
 .pname { color: var(--ink); font-size: 36px; line-height: 1.05; font-weight: var(--w-semibold); }
 .phandle { color: var(--muted); font-weight: var(--w-normal); margin-top: 4px; }
 .purl { margin-top: 6px; font-weight: var(--w-semibold); }
 .purl a { color: var(--accent); }
 .purl a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.pstats { display: flex; gap: 28px; flex-wrap: wrap; margin: 20px 0 4px; }
-.pstats > div { display: flex; align-items: baseline; gap: 7px; }
-.pstats .n { color: var(--ink); font-weight: var(--w-semibold); font-size: 20px; }
-.pstats .l { color: var(--muted); font-weight: var(--w-normal); }
 .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .muted-p { color: var(--muted); }
 
@@ -856,10 +781,6 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 }
 @media (max-width: 640px) {
   .pins { grid-template-columns: 1fr; }
-  .pin-cards { grid-template-columns: 1fr; }
-}
-@media (max-width: 920px) {
-  .dash-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .top { padding: 16px; align-items: center; gap: 12px; }
@@ -875,15 +796,9 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   .seg::-webkit-scrollbar { display: none; }
   .seg-btn { flex: 1 0 auto; }
   .search { flex: 1 1 100%; }
-  .phead { gap: 16px; }
-  .phead .avatar { width: 72px; height: 72px; font-size: 28px; }
   .pname { font-size: 28px; }
 }
 @media (max-width: 460px) {
-  .dash-you { gap: 14px; }
-  .dash-you .avatar { width: 58px; height: 58px; font-size: 22px; }
-  .dash-name { font-size: 24px; }
-  .stat { min-width: calc(50% - 6px); }
   .hero h1 { font-size: 40px; }
 }
 
