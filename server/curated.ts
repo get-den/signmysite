@@ -59,6 +59,10 @@ export type Curated = {
 const SHOT = (url: string): string =>
   `https://image.thum.io/get/width/1200/crop/630/noanimate/${url}`;
 
+// A real, stable, cacheable profile photo via GitHub — better than a site favicon for an
+// individual. (Publications keep their brand favicon; folks with no GitHub use initials.)
+const gh = (user: string): string => `https://github.com/${user}.png?size=200`;
+
 // The blanket recommendation set (for_id NULL — everyone sees these). Each carries a real
 // site preview (SHOT) + a favicon avatar. Stable ids so the boot baseline upserts (never
 // duplicates) across deploys; db.seedCurated refreshes an unclaimed placeholder's preview
@@ -67,12 +71,12 @@ const SHOT = (url: string): string =>
 export const CURATED: Curated[] = [
   {
     id: "signmysite:0a1b2c3d4e5f0b77", handle: "pg", name: "Paul Graham", url: "https://paulgraham.com",
-    avatar: favicon("paulgraham.com"), thumbnail: SHOT("https://paulgraham.com"),
+    avatar: initialsAvatar("Paul Graham", 0), thumbnail: SHOT("https://paulgraham.com"),
     reason: "Essays on startups, work, and how to think clearly.",
   },
   {
     id: "signmysite:3d4e5f6071820eaa", handle: "patrick", name: "Patrick Collison", url: "https://patrickcollison.com",
-    avatar: favicon("patrickcollison.com"), thumbnail: SHOT("https://patrickcollison.com"),
+    avatar: initialsAvatar("Patrick Collison", 4), thumbnail: SHOT("https://patrickcollison.com"),
     reason: "Reading lists and big open questions, from Stripe's cofounder.",
   },
   {
@@ -89,54 +93,54 @@ export const CURATED: Curated[] = [
   },
   {
     id: "signmysite:60718293a4b5c1dd", handle: "thesephist", name: "Linus Lee", url: "https://thesephist.com",
-    avatar: favicon("thesephist.com"), thumbnail: SHOT("https://thesephist.com"),
+    avatar: gh("thesephist"), thumbnail: SHOT("https://thesephist.com"),
     reason: "Experiments in tools for thought and AI interfaces, by Linus Lee.",
   },
   {
     id: "signmysite:718293a4b5c6d2ee", handle: "simonw", name: "Simon Willison", url: "https://simonwillison.net",
-    avatar: favicon("simonwillison.net"), thumbnail: SHOT("https://simonwillison.net"),
+    avatar: gh("simonw"), thumbnail: SHOT("https://simonwillison.net"),
     reason: "Daily field notes on LLMs, Python, and building in the open.",
   },
   {
     id: "signmysite:8293a4b5c6d7e3ff", handle: "karpathy", name: "Andrej Karpathy", url: "https://karpathy.ai",
-    avatar: favicon("karpathy.ai"), thumbnail: SHOT("https://karpathy.ai"),
+    avatar: gh("karpathy"), thumbnail: SHOT("https://karpathy.ai"),
     reason: "Neural nets built from scratch, and clear-eyed essays on AI.",
   },
   {
     id: "signmysite:93a4b5c6d7e8f400", handle: "ciechanowski", name: "Bartosz Ciechanowski", url: "https://ciechanow.ski",
-    avatar: favicon("ciechanow.ski"), thumbnail: SHOT("https://ciechanow.ski"),
+    avatar: gh("ciechanowski"), thumbnail: SHOT("https://ciechanow.ski"),
     reason: "Mesmerizing interactive explainers of how the world works.",
   },
   {
     id: "signmysite:a4b5c6d7e8f90511", handle: "geoffreylitt", name: "Geoffrey Litt", url: "https://www.geoffreylitt.com",
-    avatar: favicon("geoffreylitt.com"), thumbnail: SHOT("https://www.geoffreylitt.com"),
+    avatar: gh("geoffreylitt"), thumbnail: SHOT("https://www.geoffreylitt.com"),
     reason: "Malleable software and end-user programming as a tool for thought.",
   },
   {
     id: "signmysite:b5c6d7e8f9a01622", handle: "alanagoyal", name: "Alana Goyal", url: "https://www.alanagoyal.com",
-    avatar: favicon("alanagoyal.com"),
+    avatar: gh("alanagoyal"),
     // A JS desktop sim that screenshots blank, so use her own (perfectly on-brand) og:image.
     thumbnail: "https://alanagoyal.com/notes/api/og/?title=about%20me&emoji=%F0%9F%91%8B%F0%9F%8F%BC",
     reason: "Seed-stage investing, on a personal site lovingly rebuilt as iMessage.",
   },
   {
     id: "signmysite:c6d7e8f9a0b12733", handle: "wattenberger", name: "Amelia Wattenberger", url: "https://wattenberger.com",
-    avatar: favicon("wattenberger.com"), thumbnail: SHOT("https://wattenberger.com"),
+    avatar: gh("wattenberger"), thumbnail: SHOT("https://wattenberger.com"),
     reason: "Playful, gorgeous interactive essays on design and thinking with software.",
   },
   {
     id: "signmysite:d7e8f9a0b1c23844", handle: "rauno", name: "Rauno Freiberg", url: "https://rauno.me",
-    avatar: favicon("rauno.me"), thumbnail: SHOT("https://rauno.me"),
+    avatar: gh("raunofreiberg"), thumbnail: SHOT("https://rauno.me"),
     reason: "Interface design and the craft of small details, done exceptionally well.",
   },
   {
     id: "signmysite:e8f9a0b1c2d34955", handle: "andymatuschak", name: "Andy Matuschak", url: "https://andymatuschak.org",
-    avatar: favicon("andymatuschak.org"), thumbnail: SHOT("https://andymatuschak.org"),
+    avatar: gh("andymatuschak"), thumbnail: SHOT("https://andymatuschak.org"),
     reason: "Working notes on memory, learning, and tools for thought.",
   },
   {
     id: "signmysite:f9a0b1c2d3e45a66", handle: "robinrendle", name: "Robin Rendle", url: "https://robinrendle.com",
-    avatar: favicon("robinrendle.com"), thumbnail: SHOT("https://robinrendle.com"),
+    avatar: gh("robinrendle"), thumbnail: SHOT("https://robinrendle.com"),
     reason: "A designer and writer on typography, the web, and the joy of newsletters.",
   },
 ];
