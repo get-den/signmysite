@@ -1483,8 +1483,18 @@ app.get("/:at{@.+}", async (c) => {
 
   const inner = renderProfileInner({ m, s, pinned, comments, isOwner });
   const desc = `${m.name} on signmysite`;
-  return c.html(sitePage(`${m.name} (@${m.handle}) · signmysite`, escapeHtml(desc), m.avatar, inner, siteHeader(viewer, `${BASE}/@${m.handle}`, isOwner)));
+  return c.html(sitePage(`${m.name} (@${m.handle}) · signmysite`, escapeHtml(desc), m.avatar, inner, profileChrome(!!viewer, m.handle ?? "")));
 });
+
+// Clean, minimal chrome for the public profile: just the wordmark + a single CTA — no
+// app nav bar. A logged-out visitor lands on the profile itself with one way to get
+// their own; a signed-in visitor gets a jump into the in-app shell (/u/<handle>).
+function profileChrome(signedIn: boolean, handle: string): string {
+  const cta = signedIn
+    ? `<a class="btn sm" href="/#/u/${escapeHtml(handle)}">Open in app</a>`
+    : `<a class="btn sm primary" href="/">Get your own</a>`;
+  return `<header class="pbar"><a class="brand" href="/">signmysite</a>${cta}</header>`;
+}
 
 function notFoundPage(handle: string): string {
   return sitePage("Not on signmysite", "", null, `
@@ -1509,7 +1519,7 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
 <link rel="stylesheet" href="/site/app.css">
 </head><body>
 ${header || `<header class="top"><a class="brand" href="/">signmysite</a><nav><a class="btn sm" href="/">Home</a></nav></header>`}
-<main>${inner}</main>
+<main class="sr-main">${inner}</main>
 <footer class="foot"><span>signmysite is an open protocol.</span><a href="/skill.md">For agents</a><a href="/widget/demo.html">Widget demo</a></footer>
 </body></html>`;
 }

@@ -171,6 +171,16 @@ b, strong { font-weight: var(--w-semibold); }
   border-radius: 999px;
 }
 .navlink:hover, .navlink.active { color: var(--ink); background: var(--surface-2); text-decoration: none; }
+/* Minimal chrome for the public, server-rendered /@handle profile: just the wordmark +
+   one CTA, no app nav — a clean, logged-out-friendly version of the profile. */
+.pbar {
+  max-width: var(--maxw); margin: 0 auto; padding: 22px 32px 2px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+/* Server-rendered pages (profile, invite, notify) render into <main class="sr-main">:
+   center to the shared width + align with the header/footer. (The in-app feed uses its
+   own <main class="feed-main">, untouched.) */
+.sr-main { max-width: var(--maxw); margin: 0 auto; padding: 12px 32px 24px; }
 
 /* Non-feed pages render straight into .shell-page; give them comfortable breathing
    room (the feed panes set their own, tighter, padding). */
@@ -788,6 +798,7 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   .top nav::-webkit-scrollbar { display: none; }
   .navlink, .top nav .btn { flex: 0 0 auto; }
   main { padding: 10px 16px 80px; }
+  .sr-main { padding: 10px 16px 64px; }
   .foot { padding-inline: 16px; }
   .shots { grid-template-columns: 1fr; gap: 28px; }
   .search input { font-size: 16px; }
