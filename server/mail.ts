@@ -28,6 +28,82 @@ const FROM = `signmysite <noreply@${new URL(BASE).host}>`;
 export const MAIL_LIVE = !!API_KEY;
 
 const hostOf = (u: string) => { try { return new URL(u).host; } catch { return u; } };
+const style = (...rules: Array<string | false | null | undefined>): string => rules.filter(Boolean).join(";");
+
+const mailCss = {
+  page: style(
+    "margin:0",
+    `background:${theme.surface}`,
+    "padding:32px 16px",
+    `font-family:${theme.font}`,
+    "-webkit-font-smoothing:antialiased",
+  ),
+  card: "max-width:440px",
+  content: "padding:30px 28px",
+  heading: style(
+    "margin:22px 0 8px",
+    "font-size:20px",
+    "font-weight:600",
+    "letter-spacing:-.02em",
+    `color:${theme.ink}`,
+  ),
+  paragraph: style("margin:0", "font-size:15px", "line-height:1.55", `color:${theme.text}`),
+  buttonWrap: "margin:24px 0 0",
+  buttonCell: style("border-radius:999px", `background:${theme.accent}`),
+  buttonLink: style(
+    "display:inline-block",
+    "padding:12px 24px",
+    "font-size:15px",
+    "font-weight:600",
+    "line-height:1",
+    `color:${theme.accentInk}`,
+    "text-decoration:none",
+  ),
+  footnote: style("margin:24px 0 0", "font-size:13px", "line-height:1.5", `color:${theme.muted}`),
+  footnoteLink: style(`color:${theme.muted}`, "text-decoration:underline"),
+  image: style(
+    "width:100%",
+    "max-width:384px",
+    `border-radius:${theme.radiusSm}`,
+    `border:1px solid ${theme.line}`,
+    "margin:18px 0 0",
+    "display:block",
+  ),
+  inset: style(
+    "padding:14px 16px",
+    `background:${theme.surface3}`,
+    `border:1px solid ${theme.line}`,
+    `border-radius:${theme.radiusSm}`,
+    "font-size:15px",
+    "line-height:1.5",
+    `color:${theme.text}`,
+  ),
+  code: style(
+    "padding:13px 15px",
+    `background:${theme.surface3}`,
+    `border:1px solid ${theme.line}`,
+    `border-radius:${theme.radiusSm}`,
+    "font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+    `color:${theme.ink}`,
+    "word-break:break-all",
+  ),
+  avatarImg: "width:44px;height:44px;border-radius:50%;object-fit:cover;display:block;border:0",
+  avatarInitial: style(
+    "width:44px",
+    "height:44px",
+    "border-radius:50%",
+    `background:${theme.surface3}`,
+    `border:1px solid ${theme.line}`,
+    "text-align:center",
+    "line-height:42px",
+    "font-size:17px",
+    "font-weight:600",
+    `color:${theme.ink}`,
+  ),
+  actorWrap: "margin:24px 0 0",
+  actorName: style("font-size:16px", "line-height:1.45", `color:${theme.text}`),
+  actorStrong: style(`color:${theme.ink}`, "font-weight:600"),
+} as const;
 
 // ---- transport -----------------------------------------------------------
 // The one place we hit Resend. Returns true on a successful send; false — logged,
@@ -59,15 +135,15 @@ async function send(msg: { to: string; subject: string; html: string; text: stri
 }
 
 // ---- shared layout + content helpers -------------------------------------
-// Every signmysite email is this shell: a recessed page with one white rounded card
-// holding `inner` (assembled from the helpers below). No logo mark here — the brand
-// lives only in the app's top-left wordmark; the email heading names it in words. The
+// Every signmysite email is this shell: a centered column holding `inner`
+// (assembled from the helpers below). No logo mark here — the brand lives only
+// in the app's top-left wordmark; the email heading names it in words. The
 // per-email footnote lives inside `inner`, so this stays generic across all emails.
 function layout(inner: string): string {
-  return `<!doctype html><html><body style="margin:0;background:${theme.pageBg};padding:32px 16px;font-family:${theme.font};-webkit-font-smoothing:antialiased">
+  return `<!doctype html><html><body style="${mailCss.page}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px;background:${theme.surface};border:1px solid ${theme.line};border-radius:${theme.radius}">
-      <tr><td style="padding:30px 28px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${mailCss.card}">
+      <tr><td style="${mailCss.content}">
         ${inner}
       </td></tr>
     </table>
@@ -76,35 +152,35 @@ function layout(inner: string): string {
 }
 
 function heading(text: string): string {
-  return `<h1 style="margin:22px 0 8px;font-size:20px;font-weight:600;letter-spacing:-.02em;color:${theme.ink}">${escapeHtml(text)}</h1>`;
+  return `<h1 style="${mailCss.heading}">${escapeHtml(text)}</h1>`;
 }
 function paragraph(text: string): string {
-  return `<p style="margin:0;font-size:15px;line-height:1.55;color:${theme.text}">${escapeHtml(text)}</p>`;
+  return `<p style="${mailCss.paragraph}">${escapeHtml(text)}</p>`;
 }
 // A pill button in the brand accent — the same shape + color as the app/widget.
 function button(label: string, url: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0"><tr>
-    <td style="border-radius:999px;background:${theme.accent}"><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 24px;font-size:15px;font-weight:600;line-height:1;color:${theme.accentInk};text-decoration:none">${escapeHtml(label)}</a></td>
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="${mailCss.buttonWrap}"><tr>
+    <td style="${mailCss.buttonCell}"><a href="${escapeHtml(url)}" style="${mailCss.buttonLink}">${escapeHtml(label)}</a></td>
   </tr></table>`;
 }
 // A small muted footnote. `html` is trusted (we build it) so a managed link can ride along.
 function footnote(html: string): string {
-  return `<p style="margin:24px 0 0;font-size:13px;line-height:1.5;color:${theme.muted}">${html}</p>`;
+  return `<p style="${mailCss.footnote}">${html}</p>`;
 }
 // A site preview / thumbnail.
 function image(src: string): string {
-  return `<img src="${escapeHtml(src)}" alt="" width="384" style="width:100%;max-width:384px;border-radius:${theme.radiusSm};border:1px solid ${theme.line};margin:18px 0 0;display:block">`;
+  return `<img src="${escapeHtml(src)}" alt="" width="384" style="${mailCss.image}">`;
 }
 // A quoted note (written comments). User text — escaped.
 function quote(text: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 0"><tr>
-    <td style="padding:14px 16px;background:${theme.surface3};border:1px solid ${theme.line};border-radius:${theme.radiusSm};font-size:15px;line-height:1.5;color:${theme.text}">${escapeHtml(text)}</td>
+    <td style="${mailCss.inset}">${escapeHtml(text)}</td>
   </tr></table>`;
 }
 // A monospace code block (the widget tag in the activation email). User-free, escaped.
 function code(text: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 0"><tr>
-    <td style="padding:13px 15px;background:${theme.surface3};border:1px solid ${theme.line};border-radius:${theme.radiusSm};font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${theme.ink};word-break:break-all">${escapeHtml(text)}</td>
+    <td style="${mailCss.code}">${escapeHtml(text)}</td>
   </tr></table>`;
 }
 // The tokenized "manage notifications" link — works from email with no sign-in.
@@ -121,19 +197,18 @@ function unsubHeaders(id: string, kind?: NotifyKind): Record<string, string> {
 // The standard footer: why you got this, plus how to tune it OR leave entirely.
 function manageFootnote(id: string, reason: string, kind?: NotifyKind): string {
   if (!BASE) return footnote(escapeHtml(reason));
-  const s = `color:${theme.muted};text-decoration:underline`;
-  return footnote(`${escapeHtml(reason)} <a href="${manageUrl(id)}" style="${s}">Manage notifications</a> · <a href="${unsubUrl(id, kind)}" style="${s}">Unsubscribe</a>.`);
+  return footnote(`${escapeHtml(reason)} <a href="${manageUrl(id)}" style="${mailCss.footnoteLink}">Manage notifications</a> · <a href="${unsubUrl(id, kind)}" style="${mailCss.footnoteLink}">Unsubscribe</a>.`);
 }
 
 // The actor line: avatar (external image, else an initial tile) + "<b>Name</b> verb".
 function actorLine(name: string, avatar: string | null, verb: string): string {
   const safe = escapeHtml(name || "Someone");
   const pic = avatar && /^https?:\/\//.test(avatar)
-    ? `<img src="${escapeHtml(avatar)}" width="44" height="44" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;display:block;border:0">`
-    : `<div style="width:44px;height:44px;border-radius:50%;background:${theme.surface3};border:1px solid ${theme.line};text-align:center;line-height:42px;font-size:17px;font-weight:600;color:${theme.ink}">${escapeHtml((name || "?").trim().charAt(0).toUpperCase() || "?")}</div>`;
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0"><tr>
+    ? `<img src="${escapeHtml(avatar)}" width="44" height="44" alt="" style="${mailCss.avatarImg}">`
+    : `<div style="${mailCss.avatarInitial}">${escapeHtml((name || "?").trim().charAt(0).toUpperCase() || "?")}</div>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="${mailCss.actorWrap}"><tr>
     <td valign="middle" style="padding-right:13px">${pic}</td>
-    <td valign="middle" style="font-size:16px;line-height:1.45;color:${theme.text}"><b style="color:${theme.ink};font-weight:600">${safe}</b> ${escapeHtml(verb)}</td>
+    <td valign="middle" style="${mailCss.actorName}"><b style="${mailCss.actorStrong}">${safe}</b> ${escapeHtml(verb)}</td>
   </tr></table>`;
 }
 
