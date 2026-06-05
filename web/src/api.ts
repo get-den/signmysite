@@ -210,6 +210,32 @@ export const getProfile = (id: string) =>
 export const getStats = (id: string) =>
   req<Stats>(`/api/profile/${encodeURIComponent(id)}/stats`);
 
+/** A public note shown on a profile (private ones arrive redacted). */
+export type ProfileComment = {
+  id: string;
+  body: string | null;
+  visibility: "public" | "private";
+  created: string;
+  redacted: boolean;
+  author: NoteAuthor | null;
+};
+/** Everything the in-app profile page needs for ANY member, fetched by handle in one
+ *  round-trip: their identity, stats (incl. whether you follow them), pinned showcase,
+ *  and the public notes on their site. `isOwner` when it's the signed-in viewer. */
+export type PublicProfile = {
+  member: Member;
+  stats: Stats;
+  comments: ProfileComment[];
+  pinned: PinnedSite[];
+  isOwner: boolean;
+};
+export const getPublicProfile = (handle: string) =>
+  req<PublicProfile>(`/api/u/${encodeURIComponent(handle)}`);
+
+/** People search for the header: accounts matching a name, @handle, or site URL. */
+export const searchAccounts = (q: string) =>
+  req<Member[]>(`/api/search?q=${encodeURIComponent(q)}`);
+
 /** Relational analytics for your own site, scoped to a time range: counts, avg
  *  engaged time, named visitors. Defaults to all-time. */
 export const getAnalytics = (range: AnalyticsRange = "all") =>

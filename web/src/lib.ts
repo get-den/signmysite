@@ -40,6 +40,14 @@ export function host(url: string): string {
 export const profileHref = (of: { handle?: string | null; url?: string | null }): string =>
   of.handle ? `/@${of.handle}` : of.url || "#";
 
+/**
+ * The in-app route to a member's profile — opens inside the feed shell (the Twitter
+ * layout), not the server-rendered /@handle page. Null when we have no handle to route
+ * to (the caller then falls back to their external site). See <IdentityLink>.
+ */
+export const profilePath = (of: { handle?: string | null }): string | null =>
+  of.handle ? `/u/${of.handle}` : null;
+
 /** Compact relative time for note feeds: now, 5m, 15h, 2d, 3w, 4mo, 1y. */
 export function relTime(s: string | null | undefined): string {
   const t = Date.parse(s || "");

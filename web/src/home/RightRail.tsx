@@ -8,10 +8,10 @@
  * here and in the feed reflects the same shared graph, so a row flips to "Following"
  * the instant you act. On narrow screens it renders compact, atop the feed column.
  */
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { AnalyticsRange, FeedActor, Site } from "../api";
-import { compact, fmtDuration, host, profileHref, relTime } from "../lib";
-import { Avatar } from "../ui";
+import { compact, fmtDuration, host, relTime } from "../lib";
+import { Avatar, IdentityLink } from "../ui";
 import { FollowButton, SiteCTA } from "./parts";
 import { useMediaQuery, type HomeStore as Store } from "./hooks";
 import { WIDE } from "./FeedLayout";
@@ -90,10 +90,15 @@ function FollowBack({ store }: { store: Store }) {
 /* ---- who to follow ------------------------------------------------------ */
 
 function WhoToFollow({ store, limit }: { store: Store; limit: number }) {
-  // Pure discovery: drop yourself and anyone you already follow (incl. just now).
-  const people = store.recommended
-    .filter((s) => s.id !== store.viewer.id && !store.isFollowing(s.id))
-    .slice(0, limit);
+  // Snapshot once recommendations load: drop yourself + anyone you already followed at
+  // THAT moment, then keep the list stable. So following someone here flips their button
+  // to "Following" in place rather than popping them off the list. (isFollowing is left
+  // out of the deps on purpose — re-running on every follow is exactly what we avoid.)
+  const people = useMemo(
+    () => store.recommended.filter((s) => s.id !== store.viewer.id && !store.isFollowing(s.id)).slice(0, limit),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store.recommended, store.viewer.id, limit],
+  );
   if (!people.length) return null;
   return (
     <section className="rail-block">
@@ -113,13 +118,13 @@ function Person({ actor, sub, store }: { actor: FeedActor; sub: string; store: S
   const name = actor.name || (actor.handle ? `@${actor.handle}` : "Someone");
   return (
     <li className="person">
-      <a className="person-id" href={profileHref(actor)}>
+      <IdentityLink of={actor} className="person-id">
         <Avatar of={actor} />
         <span className="person-meta">
           <b>{name}</b>
           <span className="person-sub">{sub}</span>
         </span>
-      </a>
+      </IdentityLink>
       {actor.id === store.viewer.id ? null : (
         <FollowButton following={store.isFollowing(actor.id)} onToggle={() => store.toggleFollow(actor)} />
       )}

@@ -1,109 +1,210 @@
 /*
- * Your profile, in-app — the owner's view of /@you, living inside the feed shell
- * (nav rail + main + right rail). The main column mirrors the public, server-rendered
- * profile (identity, site preview, counts, the notes left on your site); the right
- * rail carries the owner-only bits: the add/verify-your-site CTA and your pinned
- * showcase. The public page at /@handle stays server-rendered for visitors + crawlers.
+ * The profile page, in-app — for ANYONE, inside the feed shell (nav rail + center + right
+ * rail). Your own (/profile, or /u/<your-handle>) is the owner view: Edit profile, the
+ * add/verify-site CTA + your pinned showcase in the rail, and the notes left on your site.
+ * Someone else's (/u/<handle>) is the visitor view: Follow + Message, their site preview,
+ * their public notes, and their pinned showcase. Both share the same presentational
+ * pieces below. The public, server-rendered /@<handle> page stays for logged-out
+ * visitors + crawlers.
  */
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
-  getInbox, getPinned, getStats, orEmpty,
-  type InboxNote, type Member, type PinnedSite, type Stats,
+  follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
+  type Member, type NoteAuthor, type PinnedSite, type PublicProfile, type Stats,
 } from "../api";
 import { useViewer } from "../providers";
-import { host, isReaction, profileHref, relTime, socialLabel } from "../lib";
-import { Avatar, PageHead, SiteThumbnail } from "../ui";
+import { host, isReaction, profilePath, relTime, socialLabel } from "../lib";
+import { Avatar, EmptyState, IdentityLink, PageHead, SiteThumbnail, Spinner } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
-import { SiteCTA } from "../home/parts";
+import { FollowButton, SiteCTA } from "../home/parts";
 
 export function Profile() {
+  const { handle } = useParams();
   const { viewer } = useViewer();
+  if (!viewer) return null; // /profile + /u/:handle are Protected, so a viewer is guaranteed
+  const own = !handle || handle.toLowerCase() === (viewer.handle || "").toLowerCase();
+  return own ? <OwnerProfile viewer={viewer} /> : <MemberProfile handle={handle!} viewer={viewer} />;
+}
+
+/* ---- your own profile ---------------------------------------------------- */
+
+function OwnerProfile({ viewer }: { viewer: Member }) {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [notes, setNotes] = useState<InboxNote[]>([]);
+  const [notes, setNotes] = useState<NoteLike[]>([]);
   const [pinned, setPinned] = useState<PinnedSite[]>([]);
 
   useEffect(() => {
-    if (!viewer) return;
     let alive = true;
     getStats(viewer.id).then((s) => alive && setStats(s)).catch(() => {});
     orEmpty(getInbox()).then((n) => alive && setNotes(n));
     orEmpty(getPinned()).then((p) => alive && setPinned(p));
     return () => { alive = false; };
-  }, [viewer?.id]);
+  }, [viewer.id]);
 
-  if (!viewer) return null;
   const publicNotes = notes.filter((n) => n.visibility === "public");
-
   return (
-    <FeedLayout viewer={viewer} rail={<ProfileRail viewer={viewer} pinned={pinned} />}>
+    <FeedLayout viewer={viewer} rail={<OwnerRail viewer={viewer} pinned={pinned} />}>
       <div className="profile-page">
         <PageHead title="Profile" />
-
-        <div className="phero">
-          <div className="pid">
-            <Avatar of={viewer} />
-            <div>
-              <div className="pname">{viewer.name || "You"}</div>
-              {viewer.url ? (
-                <div className="purl">
-                  <a href={viewer.url} target="_blank" rel="noopener">{host(viewer.url)}</a>
-                  {!viewer.verified && <span className="unverified"> (unverified)</span>}
-                </div>
-              ) : (
-                <div className="phandle">@{viewer.handle}</div>
-              )}
-              {viewer.links && viewer.links.length > 0 && (
-                <div className="plinks">
-                  {viewer.links.map((u) => (
-                    <a key={u} className="plink" href={u} target="_blank" rel="me noopener">{socialLabel(u)}</a>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="phero-actions">
-            <Link className="btn primary pfollow" to="/edit">Edit profile</Link>
-          </div>
-        </div>
-
-        {stats && (
-          <div className="pcounts-row">
-            <span className="pcount"><b>{stats.following.toLocaleString()}</b> Following</span>
-            <span className="pcount"><b>{stats.followers.toLocaleString()}</b> Followers</span>
-          </div>
-        )}
-
-        {viewer.url && (
-          <a className="psite-wrap" href={viewer.url} target="_blank" rel="noopener" aria-label="View your site">
-            <SiteThumbnail site={viewer} className="psite-img" />
-          </a>
-        )}
-
-        <section className="pcomments">
-          <h2 className="pside-head">Notes on your site</h2>
-          {publicNotes.length ? (
-            <div className="cmt-list">
-              {publicNotes.map((n) => <CommentRow key={n.id} note={n} />)}
-            </div>
-          ) : (
-            <div className="empty">No notes yet. When someone writes on your site, it shows up here.</div>
-          )}
-        </section>
+        <ProfileHero member={viewer} unverified={!!viewer.url && !viewer.verified}>
+          <Link className="btn primary pfollow" to="/edit">Edit profile</Link>
+        </ProfileHero>
+        {stats && <Counts following={stats.following} followers={stats.followers} />}
+        <SitePreviewImg member={viewer} label="View your site" />
+        <NotesSection
+          heading="Notes on your site"
+          notes={publicNotes}
+          empty="No notes yet. When someone writes on your site, it shows up here."
+        />
       </div>
     </FeedLayout>
   );
 }
 
-// One note left on your site, mirroring the public profile's comment row (.cmt).
-function CommentRow({ note }: { note: InboxNote }) {
+/* ---- someone else's profile ---------------------------------------------- */
+
+function MemberProfile({ handle, viewer }: { handle: string; viewer: Member }) {
+  const [data, setData] = useState<PublicProfile | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setData(null); setMissing(false);
+    getPublicProfile(handle)
+      .then((d) => { if (!alive) return; setData(d); setFollowing(d.stats.viewerFollows); })
+      .catch(() => alive && setMissing(true));
+    return () => { alive = false; };
+  }, [handle]);
+
+  if (missing) {
+    return (
+      <FeedLayout viewer={viewer}>
+        <div className="profile-page"><PageHead title="Profile" />
+          <EmptyState>We couldn't find @{handle}.</EmptyState>
+        </div>
+      </FeedLayout>
+    );
+  }
+  if (!data) {
+    return (
+      <FeedLayout viewer={viewer}>
+        <div className="feed-loading"><Spinner size={22} /></div>
+      </FeedLayout>
+    );
+  }
+
+  const m = data.member;
+  const isSelf = m.id === viewer.id;
+  const publicNotes = data.comments.filter((n) => !n.redacted);
+  const firstName = (m.name || "they").split(/\s+/)[0];
+
+  const toggleFollow = () => {
+    if (busy) return;
+    setBusy(true);
+    const willFollow = !following;
+    setFollowing(willFollow); // optimistic; reconcile to the server's truth
+    apiFollow(m.id)
+      .then((s) => setFollowing(s.viewerFollows))
+      .catch(() => setFollowing(!willFollow))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <FeedLayout viewer={viewer} rail={<MemberRail member={m} pinned={data.pinned} />}>
+      <div className="profile-page">
+        <PageHead title={m.name || `@${m.handle}`} />
+        <ProfileHero member={m}>
+          {!isSelf && (
+            <>
+              <FollowButton following={following} onToggle={toggleFollow} sm={false} />
+              <Link className="btn" to={`/messages/${m.id}`}>Message</Link>
+            </>
+          )}
+        </ProfileHero>
+        <Counts following={data.stats.following} followers={data.stats.followers} />
+        <SitePreviewImg member={m} label={`View ${m.name}'s site`} />
+        <NotesSection heading={`Notes on ${firstName}'s site`} notes={publicNotes} empty="No notes here yet." />
+      </div>
+    </FeedLayout>
+  );
+}
+
+/* ---- shared presentational pieces ---------------------------------------- */
+
+function ProfileHero({ member, unverified, children }: { member: Member; unverified?: boolean; children?: ReactNode }) {
+  return (
+    <div className="phero">
+      <div className="pid">
+        <Avatar of={member} />
+        <div>
+          <div className="pname">{member.name || (member.handle ? `@${member.handle}` : "Someone")}</div>
+          {member.url ? (
+            <div className="purl">
+              <a href={member.url} target="_blank" rel="noopener">{host(member.url)}</a>
+              {unverified && <span className="unverified"> (unverified)</span>}
+            </div>
+          ) : (
+            <div className="phandle">@{member.handle}</div>
+          )}
+          {member.links && member.links.length > 0 && (
+            <div className="plinks">
+              {member.links.map((u) => (
+                <a key={u} className="plink" href={u} target="_blank" rel="me noopener">{socialLabel(u)}</a>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {children && <div className="phero-actions">{children}</div>}
+    </div>
+  );
+}
+
+function Counts({ following, followers }: { following: number; followers: number }) {
+  return (
+    <div className="pcounts-row">
+      <span className="pcount"><b>{following.toLocaleString()}</b> Following</span>
+      <span className="pcount"><b>{followers.toLocaleString()}</b> Followers</span>
+    </div>
+  );
+}
+
+function SitePreviewImg({ member, label }: { member: Member; label: string }) {
+  if (!member.url) return null;
+  return (
+    <a className="psite-wrap" href={member.url} target="_blank" rel="noopener" aria-label={label}>
+      <SiteThumbnail site={member} className="psite-img" />
+    </a>
+  );
+}
+
+function NotesSection({ heading, notes, empty }: { heading: string; notes: NoteLike[]; empty: string }) {
+  return (
+    <section className="pcomments">
+      <h2 className="pside-head">{heading}</h2>
+      {notes.length ? (
+        <div className="cmt-list">{notes.map((n) => <CommentRow key={n.id} note={n} />)}</div>
+      ) : (
+        <div className="empty">{empty}</div>
+      )}
+    </section>
+  );
+}
+
+// One note left on a site. Shared by both views: an incoming inbox note (yours) and a
+// public note on someone else's profile have the same shape here. The author chip opens
+// their in-app profile.
+type NoteLike = { id: string; body: string | null; visibility: "public" | "private"; created: string; author: NoteAuthor | null };
+function CommentRow({ note }: { note: NoteLike }) {
   const a = note.author;
-  const name = a.name || "Someone";
-  const react = isReaction(note.body) ? note.body.trim() : "";
-  const href = a.handle ? `/@${a.handle}` : a.url || "";
+  const name = a?.name || "Someone";
+  const react = note.body && isReaction(note.body) ? note.body.trim() : "";
   const inner = (
     <>
-      <Avatar of={a} />
+      <Avatar of={a ?? { name: "?" }} />
       <div className="meta">
         {react ? (
           <div className="cmt-line">
@@ -121,28 +222,43 @@ function CommentRow({ note }: { note: InboxNote }) {
       </div>
     </>
   );
-  return href ? (
-    <a className="cmt" href={href} target={a.handle ? undefined : "_blank"} rel="noopener">{inner}</a>
-  ) : (
-    <div className="cmt">{inner}</div>
-  );
+  return a ? <IdentityLink of={a} className="cmt">{inner}</IdentityLink> : <div className="cmt">{inner}</div>;
 }
 
-// The owner-only right rail: add/verify-your-site, then the pinned showcase.
-function ProfileRail({ viewer, pinned }: { viewer: Member; pinned: PinnedSite[] }) {
+/* ---- right rails --------------------------------------------------------- */
+
+// Your rail: add/verify-your-site CTA, then your pinned showcase.
+function OwnerRail({ viewer, pinned }: { viewer: Member; pinned: PinnedSite[] }) {
   return (
     <div className="rail-r">
       <SiteCTA viewer={viewer} />
-      <section className="rail-block">
-        <div className="rail-block-head"><h2>Pinned</h2></div>
-        {pinned.length ? (
-          <div className="pins pins-col">
-            {pinned.map((p) => (
-              <a
-                key={p.id} className="pin"
-                href={p.url || profileHref(p)}
-                target={p.url ? "_blank" : undefined} rel="noopener"
-              >
+      <PinnedBlock pinned={pinned} empty="Pin a site from anyone's page to feature it here, up to three." />
+    </div>
+  );
+}
+
+// Someone else's rail: just their pinned showcase.
+function MemberRail({ member, pinned }: { member: Member; pinned: PinnedSite[] }) {
+  const firstName = (member.name || "They").split(/\s+/)[0];
+  return (
+    <div className="rail-r">
+      <PinnedBlock pinned={pinned} empty={`${firstName} hasn't pinned any sites yet.`} />
+    </div>
+  );
+}
+
+function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string }) {
+  return (
+    <section className="rail-block">
+      <div className="rail-block-head"><h2>Pinned</h2></div>
+      {pinned.length ? (
+        <div className="pins pins-col">
+          {pinned.map((p) => {
+            // A pin points at the real site (open it) when it has a URL; otherwise the
+            // pinned member's in-app profile.
+            const inApp = p.url ? null : profilePath(p);
+            const body = (
+              <>
                 <Avatar of={p} />
                 <div className="meta">
                   <div className="bn">{p.name || "Untitled"}</div>
@@ -153,13 +269,18 @@ function ProfileRail({ viewer, pinned }: { viewer: Member; pinned: PinnedSite[] 
                     {p.notes.map((n) => <span key={n.id} className="pin-bubble">{n.body}</span>)}
                   </div>
                 )}
-              </a>
-            ))}
-          </div>
-        ) : (
-          <p className="rail-empty">Pin a site from anyone's page to feature it here, up to three.</p>
-        )}
-      </section>
-    </div>
+              </>
+            );
+            return inApp ? (
+              <Link key={p.id} className="pin" to={inApp}>{body}</Link>
+            ) : (
+              <a key={p.id} className="pin" href={p.url || "#"} target="_blank" rel="noopener">{body}</a>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rail-empty">{empty}</p>
+      )}
+    </section>
   );
 }

@@ -328,6 +328,34 @@ app.get("/api/profile/:id/stats", async (c) => {
   return c.json(await db.stats(c.req.param("id"), viewer?.id));
 });
 
+// People search (header typeahead): by name, @handle, or site URL. Open-ended — a thin
+// wrapper over one relevance-ranked query; returns public member cards.
+app.get("/api/search", async (c) => {
+  const q = (c.req.query("q") || "").trim();
+  if (!q) return c.json([]);
+  return c.json((await db.searchMembers(q, 8)).map(publicMember));
+});
+
+// One member's public profile bundle, by handle — the in-app /u/<handle> view in the
+// feed shell. Same data the server-rendered /@<handle> page gathers, as JSON for the SPA.
+app.get("/api/u/:handle", async (c) => {
+  const m = await db.getMemberByHandle(c.req.param("handle").toLowerCase());
+  if (!m) return c.json({ error: "not found" }, 404);
+  const viewer = await viewerOf(c);
+  const [s, comments, pinned] = await Promise.all([
+    db.stats(m.id, viewer?.id),
+    db.listComments(m.id),
+    db.listPinned(m.id),
+  ]);
+  return c.json({
+    member: publicMember(m),
+    stats: s,
+    comments: shapeComments(comments, m.id, viewer?.id),
+    pinned: pinned.map((p) => ({ ...publicMember(p), notes: p.notes })),
+    isOwner: viewer?.id === m.id,
+  });
+});
+
 app.post("/api/follow", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.json({ error: "sign in" }, 401);

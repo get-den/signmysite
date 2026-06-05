@@ -14,8 +14,8 @@ import {
   type Thread,
 } from "../api";
 import { useToast, useViewer } from "../providers";
-import { Avatar, EmptyState, Loading, PageHead, Spinner } from "../ui";
-import { profileHref, relTime, REACTIONS } from "../lib";
+import { Avatar, EmptyState, IdentityLink, Loading, PageHead, Spinner } from "../ui";
+import { relTime, REACTIONS } from "../lib";
 import { FeedLayout } from "../home/FeedLayout";
 
 /**
@@ -157,9 +157,9 @@ function Chat({ peerId, onActivity }: { peerId: string; onActivity: () => void }
       <header className="dm-head">
         <Avatar of={peer} />
         <div className="dm-head-id">
-          <a className="who" href={profileHref(peer)} target={peer.handle ? undefined : "_blank"} rel="noopener">
+          <IdentityLink of={peer} className="who">
             {peer.name || "Someone"}
-          </a>
+          </IdentityLink>
           {peer.handle && <span className="dm-head-sub">@{peer.handle}</span>}
         </div>
       </header>

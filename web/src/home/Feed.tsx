@@ -9,8 +9,8 @@
  */
 import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
-import { compact, isReaction, profileHref, relTime } from "../lib";
-import { Avatar, CloseIcon, EmptyState, SiteThumbnail, Spinner } from "../ui";
+import { compact, isReaction, profilePath, relTime } from "../lib";
+import { Avatar, CloseIcon, EmptyState, IdentityLink, SiteThumbnail, Spinner } from "../ui";
 import { useSearch } from "../providers";
 import { FollowButton } from "./parts";
 import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
@@ -95,9 +95,9 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
 
   return (
     <article className="feed-item">
-      <a className="feed-av" href={a ? profileHref(a) : "#"} aria-label={who}>
+      <IdentityLink of={a ?? {}} className="feed-av" ariaLabel={who}>
         <Avatar of={a ?? { name: "?" }} />
-      </a>
+      </IdentityLink>
       <div className="feed-body">
         <div className="feed-head">
           <p className="feed-line"><b>{who}</b> {verb()}</p>
@@ -130,22 +130,24 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
   }
 }
 
-/** "{name}'s site" as a link to that site/profile. */
+/** "{name}'s site" as a link to that member's in-app profile. */
 function SiteLabel({ site }: { site: FeedSite }) {
   return (
-    <Link className="feed-tgt" to={profileHref(site)}>
+    <IdentityLink of={site} className="feed-tgt">
       <b>{site.name || `@${site.handle}`}'s site</b>
-    </Link>
+    </IdentityLink>
   );
 }
 
-/** The target site's og:image — the visual anchor of every row. */
+/** The target site's og:image — the visual anchor of every row. Opens the real site
+ *  when it has a URL, else the member's in-app profile. */
 function SitePreview({ site }: { site: FeedSite }) {
-  const href = site.url || profileHref(site);
-  return (
-    <a className="feed-media" href={href} target={site.url ? "_blank" : undefined} rel="noopener" aria-label={`Open ${site.name}`}>
-      <SiteThumbnail site={site} />
-    </a>
+  const inApp = site.url ? null : profilePath(site);
+  const thumb = <SiteThumbnail site={site} />;
+  return inApp ? (
+    <Link className="feed-media" to={inApp} aria-label={`Open ${site.name}`}>{thumb}</Link>
+  ) : (
+    <a className="feed-media" href={site.url || "#"} target="_blank" rel="noopener" aria-label={`Open ${site.name}`}>{thumb}</a>
   );
 }
 

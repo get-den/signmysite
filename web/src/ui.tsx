@@ -2,7 +2,7 @@ import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useToast, useViewer } from "./providers";
-import { host, initials, profileHref, siteThumb, PLACEHOLDER_THUMB } from "./lib";
+import { host, initials, profilePath, siteThumb, PLACEHOLDER_THUMB } from "./lib";
 import { verifySite, type Site } from "./api";
 
 /** Wrap the app once so tooltips share hover-intent timing. */
@@ -377,11 +377,30 @@ export function GoogleIcon() {
   );
 }
 
+/**
+ * Links an identity (an avatar/name chip) to its profile: in-app to /u/<handle> inside
+ * the feed shell when we know the handle, else out to their external site, else inert.
+ * One source of truth so every name + avatar across the app opens the same in-shell
+ * profile — the "Twitter layout" for anyone, not just you.
+ */
+export function IdentityLink({
+  of, className, children, ariaLabel,
+}: {
+  of: { handle?: string | null; url?: string | null };
+  className?: string;
+  children: ReactNode;
+  ariaLabel?: string;
+}) {
+  const path = profilePath(of);
+  if (path) return <Link className={className} to={path} aria-label={ariaLabel}>{children}</Link>;
+  if (of.url) return <a className={className} href={of.url} target="_blank" rel="noopener" aria-label={ariaLabel}>{children}</a>;
+  return <span className={className}>{children}</span>;
+}
+
 /** A followed/saved site as a list row, linking to the member's signmysite profile. */
 export function BlogRow({ blog }: { blog: Site }) {
-  const href = profileHref(blog);
   return (
-    <a className="blog" href={href} rel="noopener">
+    <IdentityLink of={blog} className="blog">
       <Avatar of={blog} />
       <div className="meta">
         <div className="bn">
@@ -390,7 +409,7 @@ export function BlogRow({ blog }: { blog: Site }) {
         </div>
         <div className="bh">{blog.url ? host(blog.url) : "@" + (blog.handle || "")}</div>
       </div>
-    </a>
+    </IdentityLink>
   );
 }
 

@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { updateProfile, type Member, type Site } from "../api";
 import { host, profileHref, validateSite } from "../lib";
 import { useToast, useViewer } from "../providers";
-import { Avatar, Button, PinIcon, SiteThumbnail, VerifyButton } from "../ui";
+import { Avatar, Button, IdentityLink, PinIcon, SiteThumbnail, VerifyButton } from "../ui";
 
 /**
  * The one follow control, shared by the feed and both rails — the same lifecycle as
@@ -39,14 +39,12 @@ export function SiteTile({
 }: {
   site: Site; pinned?: boolean; canPin?: boolean; onPin?: (s: Site) => void;
 }) {
-  const profile = profileHref(site);
-  const external = !!site.url;
   return (
     <article className="tile">
       <a
         className="tile-thumb"
-        href={site.url || profile}
-        target={external ? "_blank" : undefined}
+        href={site.url || profileHref(site)}
+        target={site.url ? "_blank" : undefined}
         rel="noopener"
         aria-label={`Open ${site.name}`}
       >
@@ -66,10 +64,10 @@ export function SiteTile({
         </button>
       )}
       <div className="tile-foot">
-        <a className="tile-author" href={profile}>
+        <IdentityLink of={site} className="tile-author">
           <Avatar of={site} />
           <span className="tile-name">{site.name}</span>
-        </a>
+        </IdentityLink>
         {site.reason && <span className="tile-reason">{site.reason}</span>}
       </div>
     </article>

@@ -35,6 +35,17 @@ export function App() {
               </Protected>
             }
           />
+          {/* Anyone's profile, in the feed shell (the Twitter layout). Your own handle
+              renders the owner view; the public, server-rendered /@handle stays for
+              logged-out visitors + crawlers. */}
+          <Route
+            path="/u/:handle"
+            element={
+              <Protected>
+                <Profile />
+              </Protected>
+            }
+          />
           <Route
             path="/messages"
             element={

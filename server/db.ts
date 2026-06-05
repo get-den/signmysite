@@ -355,6 +355,24 @@ export async function getMemberByUrl(url: string): Promise<Member | undefined> {
 export async function getMemberByGoogleSub(sub: string): Promise<Member | undefined> {
   return (await pool.query("SELECT * FROM members WHERE google_sub = $1", [sub])).rows[0];
 }
+// People search for the header typeahead: match a free query against name, @handle, or
+// site URL. Prefix matches (and more prominent / more-viewed members) rank first.
+// Deliberately one relevance-ranked query — open-ended; add columns to the WHERE to
+// search more fields later. Only returns rows that are linkable (a handle or a URL).
+export async function searchMembers(query: string, limit = 8): Promise<Member[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const esc = q.replace(/[%_\\]/g, (ch) => "\\" + ch);
+  const like = `%${esc}%`, prefix = `${esc}%`;
+  return (await pool.query(
+    `SELECT * FROM members
+      WHERE (handle IS NOT NULL OR url IS NOT NULL)
+        AND (name ILIKE $1 OR handle ILIKE $1 OR url ILIKE $1)
+      ORDER BY (handle ILIKE $2 OR name ILIKE $2) DESC, prominence DESC, views DESC, name ASC
+      LIMIT $3`,
+    [like, prefix, limit]
+  )).rows;
+}
 export async function createMember(m: {
   id: string; name: string; handle?: string | null; email?: string | null;
   google_sub?: string | null; url?: string | null; avatar?: string | null;
