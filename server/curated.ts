@@ -112,4 +112,31 @@ export const CURATED: Curated[] = [
     avatar: favicon("geoffreylitt.com"), thumbnail: SHOT("https://www.geoffreylitt.com"),
     reason: "Malleable software and end-user programming as a tool for thought.",
   },
+  {
+    id: "signmysite:b5c6d7e8f9a01622", handle: "alanagoyal", name: "Alana Goyal", url: "https://www.alanagoyal.com",
+    avatar: favicon("alanagoyal.com"),
+    // A JS desktop sim that screenshots blank, so use her own (perfectly on-brand) og:image.
+    thumbnail: "https://alanagoyal.com/notes/api/og/?title=about%20me&emoji=%F0%9F%91%8B%F0%9F%8F%BC",
+    reason: "Seed-stage investing, on a personal site lovingly rebuilt as iMessage.",
+  },
+  {
+    id: "signmysite:c6d7e8f9a0b12733", handle: "wattenberger", name: "Amelia Wattenberger", url: "https://wattenberger.com",
+    avatar: favicon("wattenberger.com"), thumbnail: SHOT("https://wattenberger.com"),
+    reason: "Playful, gorgeous interactive essays on design and thinking with software.",
+  },
+  {
+    id: "signmysite:d7e8f9a0b1c23844", handle: "rauno", name: "Rauno Freiberg", url: "https://rauno.me",
+    avatar: favicon("rauno.me"), thumbnail: SHOT("https://rauno.me"),
+    reason: "Interface design and the craft of small details, done exceptionally well.",
+  },
+  {
+    id: "signmysite:e8f9a0b1c2d34955", handle: "andymatuschak", name: "Andy Matuschak", url: "https://andymatuschak.org",
+    avatar: favicon("andymatuschak.org"), thumbnail: SHOT("https://andymatuschak.org"),
+    reason: "Working notes on memory, learning, and tools for thought.",
+  },
+  {
+    id: "signmysite:f9a0b1c2d3e45a66", handle: "robinrendle", name: "Robin Rendle", url: "https://robinrendle.com",
+    avatar: favicon("robinrendle.com"), thumbnail: SHOT("https://robinrendle.com"),
+    reason: "A designer and writer on typography, the web, and the joy of newsletters.",
+  },
 ];

@@ -14,7 +14,7 @@ export const theme = {
   ink: "#0a0a0a", // --ink — near-black headings + the wordmark
   text: "#2b2b2b", // --text — body copy
   muted: "#6e6e73", // --muted — secondary copy, timestamps, footnotes
-  line: "#ececec", // --line — hairline borders
+  line: "#f1f1f2", // --line — hairline borders + separators (slightly lighter than before)
   surface: "#ffffff", // --surface — the card
   surface3: "#fafafa", // --surface-3 — avatar / quote fill
   pageBg: "#f3f3f4", // --surface-2 — the recessed page behind the card

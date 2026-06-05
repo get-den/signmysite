@@ -105,7 +105,8 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
             {" "}{verb()}
           </p>
           <div className="feed-aside">
-            <time className="feed-time">{relTime(it.at)}</time>
+            {/* A recommendation isn't an event, so it has no meaningful "when". */}
+            {it.kind !== "recommendation" && <time className="feed-time">{relTime(it.at)}</time>}
             {!yours && <FollowSite site={it.target} store={store} />}
           </div>
         </div>
