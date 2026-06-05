@@ -391,53 +391,162 @@ export async function updateMember(id: string, patch: Partial<Member>): Promise<
   return getMember(id);
 }
 
-export async function claimUnclaimedMember(targetId: string, sourceId: string): Promise<Member | undefined> {
-  if (targetId === sourceId) return getMember(targetId);
-  const target = await getMember(targetId);
-  const source = await getMember(sourceId);
-  if (!target || !source || target.email || target.google_sub) return undefined;
+// ---- claiming / merging members ------------------------------------------
+// Two rows can turn out to be the same person's site: a no-login placeholder (crawled,
+// or a curated recommendation like @pg) and the real owner. Whoever's widget id is
+// installed on the page must SURVIVE the merge, or that <script src=".../w/<id>.js">
+// breaks. So there are two entry points over one shared primitive (absorbMember):
+// claimUnclaimedMember keeps the placeholder (its id is what's installed — the agent /
+// local-first path); claimPlaceholderByUrl keeps the real account (a normal signup,
+// whose own id is installed).
 
-  await pool.query("BEGIN");
+// Normalized site key for matching two rows to the same site: host+path, lowercased,
+// without scheme, a leading "www.", or trailing slashes. Applied identically to a
+// column or a bind param so both sides of a comparison normalize the same way.
+// (function, not const — seedCurated() calls this from the boot block above, before
+// this point in the module is evaluated; a function declaration is hoisted, a const isn't.)
+function URLKEY(col: string): string {
+  return `lower(regexp_replace(regexp_replace(${col}, '^https?://(www\\.)?', ''), '/+$', ''))`;
+}
+
+function isLocalUrlish(url: string): boolean {
   try {
-    await pool.query("UPDATE members SET email = NULL, google_sub = NULL WHERE id = $1", [sourceId]);
-    await pool.query(
-      `UPDATE members
-          SET email = $2,
-              google_sub = $3,
-              avatar = COALESCE(avatar, $4)
-        WHERE id = $1`,
-      [targetId, source.email, source.google_sub, source.avatar]
-    );
-    await pool.query("UPDATE sessions SET member_id = $1 WHERE member_id = $2", [targetId, sourceId]);
-    await pool.query("UPDATE comments SET author_id = $1 WHERE author_id = $2", [targetId, sourceId]);
-    await pool.query("UPDATE comments SET target_id = $1 WHERE target_id = $2", [targetId, sourceId]);
-    await moveEdges(sourceId, targetId);
-    await movePairs("saves", "member_id", "target_id", sourceId, targetId);
-    await movePairs("pins", "member_id", "target_id", sourceId, targetId);
-    await moveVisits(sourceId, targetId);
-    // Cohort memberships + ownership follow the surviving id. (An unclaimed member
-    // is never in a crew in practice — joining needs a session — but remap anyway
-    // so a merge can't orphan a membership or leave a dangling owner.) The NOT
-    // EXISTS guard avoids a PK clash when the target is already in that cohort.
-    await pool.query(
-      `UPDATE cohort_members SET member_id = $1
-        WHERE member_id = $2
-          AND NOT EXISTS (SELECT 1 FROM cohort_members x WHERE x.cohort_id = cohort_members.cohort_id AND x.member_id = $1)`,
-      [targetId, sourceId]
-    );
-    await pool.query("DELETE FROM cohort_members WHERE member_id = $1", [sourceId]);
-    await pool.query("UPDATE cohorts SET owner_id = $1 WHERE owner_id = $2", [targetId, sourceId]);
-    await pool.query("DELETE FROM members WHERE id = $1", [sourceId]);
-    await pool.query("COMMIT");
-    return getMember(targetId);
+    const h = new URL(url).hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".local");
+  } catch { return false; }
+}
+
+// Run fn inside ONE pooled connection's transaction (commit on success, roll back on
+// error). pool.query() can hand each call a different connection, so a BEGIN/COMMIT pair
+// issued through the pool wouldn't actually wrap anything — a member merge must hold a
+// single client for real atomicity.
+async function withTx<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
   } catch (error) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw error;
+  } finally {
+    client.release();
   }
 }
 
-async function movePairs(table: string, left: string, right: string, sourceId: string, targetId: string): Promise<void> {
-  await pool.query(
+// Flow A: the widget on the page carries the PLACEHOLDER's id. A signed-in viewer who
+// controls that origin claims it — the placeholder survives (its installed widget keeps
+// working) and adopts the claimant's login.
+export async function claimUnclaimedMember(placeholderId: string, claimantId: string): Promise<Member | undefined> {
+  if (placeholderId === claimantId) return getMember(placeholderId);
+  const placeholder = await getMember(placeholderId);
+  const claimant = await getMember(claimantId);
+  if (!placeholder || !claimant || placeholder.email || placeholder.google_sub) return undefined;
+  await withTx(async (client) => {
+    // The placeholder adopts the claimant's login (+ avatar if it had none). Free the
+    // claimant's UNIQUE columns first so the placeholder can take them.
+    await client.query("UPDATE members SET email = NULL, google_sub = NULL WHERE id = $1", [claimantId]);
+    await client.query(
+      "UPDATE members SET email = $2, google_sub = $3, avatar = COALESCE(avatar, $4) WHERE id = $1",
+      [placeholderId, claimant.email, claimant.google_sub, claimant.avatar]
+    );
+    await absorbMember(client, claimantId, placeholderId);
+  });
+  return getMember(placeholderId);
+}
+
+// Flow B: a normal signup proves ownership of a site a placeholder already represents
+// (the real Paul Graham verifying paulgraham.com over the curated @pg). The real account
+// SURVIVES — its installed widget id stays valid — and inherits the placeholder's
+// well-known handle, public identity, social graph, and recommendation; the placeholder
+// is absorbed. Run right after a member is verified; a no-op when no such placeholder
+// exists. Returns the updated survivor if a merge happened.
+export async function claimPlaceholderByUrl(keepId: string): Promise<Member | undefined> {
+  const keep = await getMember(keepId);
+  if (!keep || !keep.url || isLocalUrlish(keep.url)) return undefined;
+  const merged = await withTx(async (client) => {
+    const placeholder = (await client.query(
+      `SELECT * FROM members
+        WHERE id <> $1 AND email IS NULL AND google_sub IS NULL
+          AND ${URLKEY("url")} = ${URLKEY("$2")}
+        ORDER BY (handle IS NOT NULL) DESC, created ASC
+        LIMIT 1`,
+      [keepId, keep.url]
+    )).rows[0] as Member | undefined;
+    if (!placeholder) return false;
+    // Inherit the placeholder's well-known handle; take its name only if ours is still a
+    // default (so a real name from Google sign-in wins). Keep our own avatar/url/login.
+    // Free the placeholder's handle first so the UNIQUE constraint lets us take it.
+    const keepNameIsDefault = !keep.name || keep.name === "New member" ||
+      (!!keep.email && keep.name === keep.email.split("@")[0]);
+    const newHandle = placeholder.handle ?? keep.handle;
+    const newName = keepNameIsDefault ? placeholder.name : keep.name;
+    await client.query("UPDATE members SET handle = NULL WHERE id = $1", [placeholder.id]);
+    await client.query(
+      `UPDATE members
+          SET handle = $2, name = $3,
+              avatar = COALESCE(avatar, $4),
+              thumbnail = COALESCE(thumbnail, $5),
+              prominence = GREATEST(prominence, $6),
+              onboarded = TRUE
+        WHERE id = $1`,
+      [keepId, newHandle, newName, placeholder.avatar, placeholder.thumbnail, placeholder.prominence]
+    );
+    await absorbMember(client, placeholder.id, keepId);
+    return true;
+  });
+  return merged ? getMember(keepId) : undefined;
+}
+
+// The shared merge primitive: re-point every reference from dropId onto keepId, then
+// delete dropId. Composite-key tables (edges/saves/pins/visits/reactions/cohort_members)
+// move with a conflict / NOT-EXISTS guard so a row already on keepId can't clash; the
+// rest are plain re-points. MUST run inside a transaction (both callers open one).
+async function absorbMember(client: pg.PoolClient, dropId: string, keepId: string): Promise<void> {
+  await client.query("UPDATE sessions SET member_id = $1 WHERE member_id = $2", [keepId, dropId]);
+  await client.query("UPDATE comments SET author_id = $1 WHERE author_id = $2", [keepId, dropId]);
+  await client.query("UPDATE comments SET target_id = $1 WHERE target_id = $2", [keepId, dropId]);
+  await client.query("UPDATE recommendations SET target_id = $1 WHERE target_id = $2", [keepId, dropId]);
+  await client.query("UPDATE recommendations SET for_id = $1 WHERE for_id = $2", [keepId, dropId]);
+  await client.query("UPDATE page_views SET target_id = $1 WHERE target_id = $2", [keepId, dropId]);
+  await client.query("UPDATE page_views SET viewer_id = $1 WHERE viewer_id = $2", [keepId, dropId]);
+  await client.query("UPDATE messages SET sender_id = $1 WHERE sender_id = $2", [keepId, dropId]);
+  await client.query("UPDATE messages SET recipient_id = $1 WHERE recipient_id = $2", [keepId, dropId]);
+  await client.query("DELETE FROM messages WHERE sender_id = $1 AND recipient_id = $1", [keepId]);
+  await client.query(
+    `INSERT INTO message_reactions (message_id, member_id, emoji, created)
+     SELECT message_id, $1, emoji, created FROM message_reactions WHERE member_id = $2
+     ON CONFLICT DO NOTHING`,
+    [keepId, dropId]
+  );
+  await client.query("DELETE FROM message_reactions WHERE member_id = $1", [dropId]);
+  await moveEdges(client, dropId, keepId);
+  await movePairs(client, "saves", "member_id", "target_id", dropId, keepId);
+  await movePairs(client, "pins", "member_id", "target_id", dropId, keepId);
+  await moveVisits(client, dropId, keepId);
+  await client.query(
+    `INSERT INTO avatars (member_id, bytes, mime, updated)
+     SELECT $1, bytes, mime, updated FROM avatars WHERE member_id = $2
+     ON CONFLICT (member_id) DO NOTHING`,
+    [keepId, dropId]
+  );
+  await client.query("DELETE FROM avatars WHERE member_id = $1", [dropId]);
+  // Cohort memberships + ownership follow the surviving id; the NOT EXISTS guard avoids
+  // a PK clash when keepId is already in that cohort.
+  await client.query(
+    `UPDATE cohort_members SET member_id = $1
+      WHERE member_id = $2
+        AND NOT EXISTS (SELECT 1 FROM cohort_members x WHERE x.cohort_id = cohort_members.cohort_id AND x.member_id = $1)`,
+    [keepId, dropId]
+  );
+  await client.query("DELETE FROM cohort_members WHERE member_id = $1", [dropId]);
+  await client.query("UPDATE cohorts SET owner_id = $1 WHERE owner_id = $2", [keepId, dropId]);
+  await client.query("DELETE FROM members WHERE id = $1", [dropId]);
+}
+
+async function movePairs(client: pg.PoolClient, table: string, left: string, right: string, sourceId: string, targetId: string): Promise<void> {
+  await client.query(
     `INSERT INTO ${table} (${left}, ${right}, created)
      SELECT CASE WHEN ${left} = $1 THEN $2 ELSE ${left} END,
             CASE WHEN ${right} = $1 THEN $2 ELSE ${right} END,
@@ -449,11 +558,11 @@ async function movePairs(table: string, left: string, right: string, sourceId: s
      ON CONFLICT DO NOTHING`,
     [sourceId, targetId]
   );
-  await pool.query(`DELETE FROM ${table} WHERE ${left} = $1 OR ${right} = $1`, [sourceId]);
+  await client.query(`DELETE FROM ${table} WHERE ${left} = $1 OR ${right} = $1`, [sourceId]);
 }
 
-async function moveEdges(sourceId: string, targetId: string): Promise<void> {
-  await pool.query(
+async function moveEdges(client: pg.PoolClient, sourceId: string, targetId: string): Promise<void> {
+  await client.query(
     `INSERT INTO edges (follower_id, target_id, created)
      SELECT CASE WHEN follower_id = $1 THEN $2 ELSE follower_id END,
             CASE WHEN target_id = $1 THEN $2 ELSE target_id END,
@@ -465,11 +574,11 @@ async function moveEdges(sourceId: string, targetId: string): Promise<void> {
      ON CONFLICT DO NOTHING`,
     [sourceId, targetId]
   );
-  await pool.query("DELETE FROM edges WHERE follower_id = $1 OR target_id = $1", [sourceId]);
+  await client.query("DELETE FROM edges WHERE follower_id = $1 OR target_id = $1", [sourceId]);
 }
 
-async function moveVisits(sourceId: string, targetId: string): Promise<void> {
-  await pool.query(
+async function moveVisits(client: pg.PoolClient, sourceId: string, targetId: string): Promise<void> {
+  await client.query(
     `INSERT INTO visits (viewer_id, target_id, last_seen)
      SELECT CASE WHEN viewer_id = $1 THEN $2 ELSE viewer_id END,
             CASE WHEN target_id = $1 THEN $2 ELSE target_id END,
@@ -481,7 +590,7 @@ async function moveVisits(sourceId: string, targetId: string): Promise<void> {
      ON CONFLICT DO NOTHING`,
     [sourceId, targetId]
   );
-  await pool.query("DELETE FROM visits WHERE viewer_id = $1 OR target_id = $1", [sourceId]);
+  await client.query("DELETE FROM visits WHERE viewer_id = $1 OR target_id = $1", [sourceId]);
 }
 
 // ---- edges (follow) ------------------------------------------------------
@@ -888,16 +997,33 @@ export async function addRecommendation(targetId: string, reason: string, forId?
 export async function seedCurated(): Promise<void> {
   const t = now();
   for (const c of CURATED) {
-    await pool.query(
-      `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
-       ON CONFLICT (id) DO NOTHING`,
-      [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
-    );
+    // Who represents this site now? A verified real owner who has claimed it wins;
+    // otherwise the curated placeholder (created here by its stable id on first boot).
+    // This is what lets the recommendation survive a claim: once the real owner takes
+    // over the site (see claimPlaceholderByUrl) the placeholder is gone, and we neither
+    // resurrect it nor point the recommendation back at an empty shell.
+    let owner = (await pool.query(
+      `SELECT * FROM members WHERE ${URLKEY("url")} = ${URLKEY("$1")}
+        ORDER BY ((email IS NOT NULL OR google_sub IS NOT NULL) AND verified) DESC, created ASC
+        LIMIT 1`,
+      [c.url]
+    )).rows[0] as Member | undefined;
+    if (!owner) {
+      await pool.query(
+        `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
+      );
+      owner = await getMember(c.id);
+    }
+    if (!owner) continue;
+    // Ensure the blanket recommendation exists, pointing at the current owner. DO NOTHING
+    // (not UPDATE) so a claim that already moved it onto the real account is never undone.
     await pool.query(
       `INSERT INTO recommendations (id, target_id, for_id, reason, created)
        VALUES ($1, $2, NULL, $3, $4) ON CONFLICT (id) DO NOTHING`,
-      ["rec_blanket_" + c.handle, c.id, c.reason, t]
+      ["rec_blanket_" + c.handle, owner.id, c.reason, t]
     );
   }
 }

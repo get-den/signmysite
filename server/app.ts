@@ -554,8 +554,13 @@ app.post("/api/verify", async (c) => {
   if (!viewer) return c.json({ error: "sign in" }, 401);
   if (!viewer.url) return c.json({ verified: false, reason: "no-site" }, 400);
   const found = await siteHasWidget(viewer.url, viewer.id.replace(/^signmysite:/, ""));
-  const updated = found ? await db.updateMember(viewer.id, { verified: true }) : viewer;
-  return c.json({ verified: !!updated!.verified, reason: found ? null : "not-found" });
+  if (!found) return c.json({ verified: false, reason: "not-found" });
+  await db.updateMember(viewer.id, { verified: true });
+  // Proven ownership: fold in any unclaimed placeholder that already represents this
+  // site (e.g. the curated @pg), so the owner inherits its handle, followers, and
+  // recommendation. The real account is the survivor, so their installed widget keeps working.
+  const me = (await db.claimPlaceholderByUrl(viewer.id)) || (await db.getMember(viewer.id))!;
+  return c.json({ verified: !!me.verified, reason: null, handle: me.handle });
 });
 
 // ---- views & analytics ---------------------------------------------------
@@ -825,7 +830,11 @@ async function cardPayload(c: Context, id: string) {
   // observed live instead. Only the owner controls that origin, so even an
   // anonymous visitor's load is valid proof. Flip verified once, the instant it runs.
   if (m.url && !m.verified && sameOrigin(origin, m.url)) {
-    m = (await db.updateMember(m.id, { verified: true })) || m;
+    await db.updateMember(m.id, { verified: true });
+    // The same claim as /api/verify, observed passively: the owner inherits any
+    // placeholder for this site. The real account is the survivor, so m's id (and the
+    // widget loading this very card) stays valid.
+    m = (await db.claimPlaceholderByUrl(m.id)) || (await db.getMember(m.id)) || m;
     if (viewer && viewer.id === m.id) viewer = m;
   }
   // Social proof on someone else's card: who notable follows them, and which of
