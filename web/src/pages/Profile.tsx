@@ -23,8 +23,8 @@ import { FollowButton, SiteCTA } from "../home/parts";
 export function Profile() {
   const { handle } = useParams();
   const { viewer } = useViewer();
-  if (!handle && !viewer) return null; // /profile is Protected; this is just a type guard
-  const own = !handle || handle.toLowerCase() === (viewer?.handle || "").toLowerCase();
+  if (!viewer) return null; // both /profile and /u/:handle are Protected; this is just a type guard
+  const own = !handle || handle.toLowerCase() === (viewer.handle || "").toLowerCase();
   return own ? <OwnerProfile viewer={viewer} /> : <MemberProfile handle={handle!} viewer={viewer} />;
 }
 
