@@ -113,6 +113,16 @@ async function viewerAuth(c: Context): Promise<{ member?: db.Member; via: "beare
 const viewerOf = async (c: Context): Promise<db.Member | undefined> => (await viewerAuth(c)).member;
 const body = (c: Context) => c.req.json().catch(() => ({} as any));
 
+// The /admin dashboard is gated to a small allowlist of operator emails, set in
+// ADMIN_EMAILS (comma-separated) on the host — falls back to the founders so it is
+// never wide-open and still works in local dev. A viewer is an admin only if they are
+// signed in AND their account email is on the list.
+const ADMIN_EMAILS = new Set(
+  (process.env.ADMIN_EMAILS || "justin@getden.io,justinkhlee27@gmail.com")
+    .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+);
+const isAdmin = (m?: db.Member): boolean => !!m?.email && ADMIN_EMAILS.has(m.email.toLowerCase());
+
 // Fire-and-forget: email a site's owner that someone followed/saved/reacted/noted.
 // Best-effort by design — runs after the response, swallows every error, and skips
 // self-actions + owners with no email on file (mail.notifyActivity re-checks email).
@@ -653,6 +663,90 @@ app.get("/api/analytics", async (c) => {
   const range = (["day", "week", "month", "all"] as const).find((r) => r === c.req.query("range")) ?? "all";
   return c.json(await db.analytics(viewer.id, range));
 });
+
+// The operator dashboard — whole-instance health at a glance (signup funnel, new
+// users per week, graph size). Gated to ADMIN_EMAILS (see isAdmin): a signed-out
+// visitor gets a sign-in link back here; a signed-in non-admin gets a plain 404, so
+// the page's existence is never advertised to regular users.
+app.get("/admin", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.html(adminSignIn());
+  if (!isAdmin(viewer)) return c.notFound();
+  return c.html(adminPage(await db.adminStats(), viewer.email!));
+});
+
+function adminSignIn(): string {
+  return sitePage("Admin · signmysite", "", null, `
+    <div class="narrow" style="text-align:center;padding:48px 0">
+      <h1 style="font-size:24px;font-weight:600;color:var(--ink);margin:0 0 8px">Admin</h1>
+      <p style="color:var(--muted);margin:0 0 24px">Sign in with an operator account to continue.</p>
+      <a class="btn pink" href="/api/auth/google?return=/admin">Sign in with Google</a>
+    </div>`);
+}
+
+// The dashboard itself. All inputs are server-computed numbers and ISO date strings,
+// so the only untrusted value to escape is the signed-in admin's own email. Styling
+// reuses the shared theme tokens (theme.css), like the notify page.
+function adminPage(s: db.AdminStats, email: string): string {
+  const n = (x: number) => x.toLocaleString("en-US");
+  const pct = (x: number) => (s.users ? Math.round((x / s.users) * 100) : 0);
+  const maxWeek = Math.max(1, ...s.perWeek.map((w) => w.count));
+  const stage = (label: string, value: number, sub?: string) =>
+    `<div class="astat"><div class="anum">${n(value)}</div>
+       <div class="alabel">${label}</div>
+       ${sub ? `<div class="asub">${sub}</div>` : ""}</div>`;
+  const mini = (label: string, value: number) =>
+    `<div class="amini"><div class="amininum">${n(value)}</div><div class="aminilabel">${label}</div></div>`;
+  const bars = s.perWeek.map((w) =>
+    `<div class="abar"><span class="abarwk">${w.week}</span>
+       <span class="abartrack"><span class="abarfill" style="width:${Math.round((w.count / maxWeek) * 100)}%"></span></span>
+       <span class="abarn">${w.count}</span></div>`).join("");
+
+  const inner = `<div class="awrap">
+    <h1 class="atitle">Admin</h1>
+    <p class="asubtitle">signmysite at a glance · ${escapeHtml(email)}</p>
+
+    <div class="afunnel">
+      ${stage("Total users", s.users)}
+      ${stage("Added a site", s.withSite, pct(s.withSite) + "% of users")}
+      ${stage("Verified site", s.verified, pct(s.verified) + "% of users")}
+    </div>
+
+    <div class="aminis">
+      ${mini("New this week", s.new7d)}
+      ${mini("Onboarded", s.onboarded)}
+      ${mini("Follows", s.follows)}
+      ${mini("Total views", s.views)}
+      ${mini("Sites indexed", s.indexed)}
+    </div>
+
+    <h2 class="ah2">New users per week</h2>
+    <div class="abars">${bars || `<p class="asubtitle">No sign-ups yet.</p>`}</div>
+  </div>
+  <style>
+    .awrap{max-width:760px;margin:0 auto}
+    .atitle{margin:18px 0 4px;font-size:26px;font-weight:600;color:var(--ink)}
+    .asubtitle{margin:0 0 24px;color:var(--muted);font-size:14px}
+    .afunnel{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+    .astat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px 20px}
+    .anum{font-size:40px;font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
+    .alabel{margin-top:10px;color:var(--text);font-size:14px;font-weight:500}
+    .asub{margin-top:4px;color:var(--accent);font-size:13px;font-weight:500}
+    .aminis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:34px}
+    .amini{background:var(--surface-3);border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px 16px}
+    .amininum{font-size:22px;font-weight:600;color:var(--ink)}
+    .aminilabel{margin-top:3px;color:var(--muted);font-size:12px}
+    .ah2{font-size:15px;font-weight:600;color:var(--ink);margin:0 0 14px}
+    .abars{display:flex;flex-direction:column;gap:9px}
+    .abar{display:flex;align-items:center;gap:12px;font-size:13px}
+    .abarwk{width:92px;color:var(--muted);flex:0 0 auto;font-variant-numeric:tabular-nums}
+    .abartrack{flex:1;height:10px;background:var(--surface-3);border-radius:999px;overflow:hidden}
+    .abarfill{display:block;height:100%;background:var(--accent);border-radius:999px}
+    .abarn{width:40px;text-align:right;color:var(--ink);font-weight:600;flex:0 0 auto;font-variant-numeric:tabular-nums}
+    @media(max-width:620px){.afunnel{grid-template-columns:1fr}.aminis{grid-template-columns:repeat(2,1fr)}}
+  </style>`;
+  return sitePage("Admin · signmysite", "", null, inner);
+}
 
 // The home feed — one reverse-chron activity stream (see db.feed). Cursor-paginated
 // by the `at` of the oldest item shown: pass it back as ?before= for the next page.

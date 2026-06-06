@@ -881,6 +881,68 @@ export async function analytics(id: string, range: Range = "all"): Promise<Analy
   };
 }
 
+// ---- platform admin stats ------------------------------------------------
+// A whole-instance health read for the operator dashboard (/admin) — distinct from
+// analytics() above, which is one owner's own site. "Users" means real accounts:
+// anyone who actually signed in, i.e. has an email OR a google_sub. That deliberately
+// excludes the crawled / curated placeholder rows (seedCurated inserts those with
+// neither) that also live in `members`. The headline is the signup funnel
+// users -> added a site -> verified it, plus new sign-ups per week and a couple of
+// whole-graph totals.
+export type AdminStats = {
+  users: number;     // real accounts (signed in at least once)
+  withSite: number;  // ...who added a site URL
+  verified: number;  // ...whose site we verified (found their widget on it)
+  onboarded: number; // ...who finished the signup wizard
+  new7d: number;     // ...created in the last 7 days
+  indexed: number;   // every members row, incl. crawled/curated placeholders
+  views: number;     // lifetime widget impressions across all sites
+  follows: number;   // edges in the social graph
+  perWeek: { week: string; count: number }[]; // new accounts by week (Mon), oldest->newest
+};
+
+// A real account has an email or a google_sub; placeholder rows (crawled sites, curated
+// recommendations) have neither. This one predicate separates people from the indexed-
+// site frontier in every count below. (A constant we control — never user input.)
+const ACCOUNT = "(email IS NOT NULL OR google_sub IS NOT NULL)";
+
+export async function adminStats(weeks = 12): Promise<AdminStats> {
+  const [totals, weekly] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE ${ACCOUNT})::int                                                   AS users,
+         COUNT(*) FILTER (WHERE ${ACCOUNT} AND url IS NOT NULL AND url <> '')::int                  AS with_site,
+         COUNT(*) FILTER (WHERE ${ACCOUNT} AND url IS NOT NULL AND url <> '' AND verified)::int     AS verified,
+         COUNT(*) FILTER (WHERE ${ACCOUNT} AND onboarded)::int                                      AS onboarded,
+         COUNT(*) FILTER (WHERE ${ACCOUNT} AND created::timestamptz > now() - interval '7 days')::int AS new7d,
+         COUNT(*)::int                                                                              AS indexed,
+         COALESCE(SUM(views), 0)::bigint                                                            AS views,
+         (SELECT COUNT(*) FROM edges)::int                                                          AS follows
+       FROM members`
+    ),
+    pool.query(
+      `SELECT to_char(date_trunc('week', created::timestamptz), 'YYYY-MM-DD') AS week,
+              COUNT(*)::int AS count
+         FROM members
+        WHERE ${ACCOUNT}
+        GROUP BY 1 ORDER BY 1 DESC LIMIT $1`,
+      [weeks]
+    ),
+  ]);
+  const t = totals.rows[0] || {};
+  return {
+    users: Number(t.users || 0),
+    withSite: Number(t.with_site || 0),
+    verified: Number(t.verified || 0),
+    onboarded: Number(t.onboarded || 0),
+    new7d: Number(t.new7d || 0),
+    indexed: Number(t.indexed || 0),
+    views: Number(t.views || 0),
+    follows: Number(t.follows || 0),
+    perWeek: weekly.rows.reverse().map((r) => ({ week: r.week, count: Number(r.count) })),
+  };
+}
+
 // ---- the home feed -------------------------------------------------------
 // One reverse-chron activity stream: what your network does to sites, what happens to
 // yours, plus curated recommendations so a fresh feed is never empty. Kinds — saved /
