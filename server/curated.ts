@@ -151,4 +151,19 @@ export const CURATED: Curated[] = [
     avatar: initialsAvatar("Christina Cacioppo", 1), thumbnail: siteCard("Christina Cacioppo", 6),
     reason: "First-principles essays on building companies and hiring, from Vanta's founder.",
   },
+  {
+    id: "signmysite:3c4d5e6f7a8b9cad", handle: "eugenewei", name: "Eugene Wei", url: "https://www.eugenewei.com",
+    avatar: gh("eugenewei"), thumbnail: SHOT("https://www.eugenewei.com"),
+    reason: "Legendary long-form essays on tech, media, and how products really work.",
+  },
+  {
+    id: "signmysite:4d5e6f7a8b9cadbe", handle: "benkuhn", name: "Ben Kuhn", url: "https://www.benkuhn.net",
+    avatar: gh("benkuhn"), thumbnail: SHOT("https://www.benkuhn.net"),
+    reason: "Hard-won essays on engineering, management, and doing work that matters.",
+  },
+  {
+    id: "signmysite:5e6f7a8b9cadbecf", handle: "julianshapiro", name: "Julian Shapiro", url: "https://www.julian.com",
+    avatar: gh("julianshapiro"), thumbnail: SHOT("https://www.julian.com"),
+    reason: "Crisp handbooks on writing, startups, and learning skills deeply.",
+  },
 ];
