@@ -143,4 +143,12 @@ export const CURATED: Curated[] = [
     avatar: gh("robinrendle"), thumbnail: SHOT("https://robinrendle.com"),
     reason: "A designer and writer on typography, the web, and the joy of newsletters.",
   },
+  {
+    id: "signmysite:1a2b3c4d5e6f7a8b", handle: "christinacacioppo", name: "Christina Cacioppo", url: "https://www.christinacacioppo.com",
+    // Minimal site: no og:image, screenshots blank, no favicon, no reliable photo — so a
+    // clean generated card + initials. (When she signs up + verifies the site,
+    // claimPlaceholderByUrl folds this placeholder into her real account — see db.ts.)
+    avatar: initialsAvatar("Christina Cacioppo", 1), thumbnail: siteCard("Christina Cacioppo", 6),
+    reason: "First-principles essays on building companies and hiring, from Vanta's founder.",
+  },
 ];
