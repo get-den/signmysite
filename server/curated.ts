@@ -166,4 +166,22 @@ export const CURATED: Curated[] = [
     avatar: gh("julianshapiro"), thumbnail: SHOT("https://www.julian.com"),
     reason: "Crisp handbooks on writing, startups, and learning skills deeply.",
   },
+  {
+    id: "signmysite:6f7a8b9cadbecfd0", handle: "daviddeutsch", name: "David Deutsch", url: "https://www.daviddeutsch.org.uk",
+    avatar: initialsAvatar("David Deutsch", 2), thumbnail: SHOT("https://www.daviddeutsch.org.uk"),
+    reason: "Quantum-computing pioneer on knowledge, explanation, and infinite progress.",
+  },
+  {
+    id: "signmysite:7a8b9cadbecfd0e1", handle: "richardsutton", name: "Richard Sutton", url: "http://incompleteideas.net",
+    // Old http site that screenshots as a thum.io error, no og:image/favicon — generated card + initials.
+    avatar: initialsAvatar("Richard Sutton", 5), thumbnail: siteCard("Richard Sutton", 5),
+    reason: "The father of reinforcement learning, and home of 'The Bitter Lesson'.",
+  },
+  {
+    id: "signmysite:8b9cadbecfd0e1f2", handle: "naval", name: "Naval Ravikant", url: "https://nav.al",
+    // His site exposes its own avatar ("Navatar") as the og:image — use it directly.
+    avatar: "https://i0.wp.com/nav.al/wp-content/uploads/2019/12/Navatar.png?fit=1080%2C1080&ssl=1",
+    thumbnail: SHOT("https://nav.al"),
+    reason: "Aphorisms and essays on wealth, happiness, and clear thinking.",
+  },
 ];
