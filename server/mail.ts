@@ -34,12 +34,12 @@ const mailCss = {
   page: style(
     "margin:0",
     `background:${theme.surface}`,
-    "padding:32px 16px",
+    "padding:24px 0",
     `font-family:${theme.font}`,
     "-webkit-font-smoothing:antialiased",
   ),
   card: "max-width:440px",
-  content: "padding:30px 28px",
+  content: "padding:28px 20px",
   heading: style(
     "margin:22px 0 8px",
     "font-size:20px",
@@ -64,7 +64,7 @@ const mailCss = {
   image: style(
     "width:100%",
     "max-width:384px",
-    `border-radius:${theme.radiusSm}`,
+    `border-radius:${theme.radius}`,
     `border:1px solid ${theme.line}`,
     "margin:18px 0 0",
     "display:block",
@@ -73,16 +73,18 @@ const mailCss = {
     "padding:14px 16px",
     `background:${theme.surface3}`,
     `border:1px solid ${theme.line}`,
-    `border-radius:${theme.radiusSm}`,
+    `border-radius:${theme.radius}`,
     "font-size:15px",
     "line-height:1.5",
     `color:${theme.text}`,
+    "word-break:break-word",
+    "overflow-wrap:anywhere",
   ),
   code: style(
     "padding:13px 15px",
     `background:${theme.surface3}`,
     `border:1px solid ${theme.line}`,
-    `border-radius:${theme.radiusSm}`,
+    `border-radius:${theme.radius}`,
     "font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
     `color:${theme.ink}`,
     "word-break:break-all",
@@ -101,7 +103,7 @@ const mailCss = {
     `color:${theme.ink}`,
   ),
   actorWrap: "margin:24px 0 0",
-  actorName: style("font-size:16px", "line-height:1.45", `color:${theme.text}`),
+  actorName: style("font-size:16px", "line-height:1.45", `color:${theme.text}`, "word-break:break-word"),
   actorStrong: style(`color:${theme.ink}`, "font-weight:600"),
 } as const;
 
@@ -380,7 +382,7 @@ export async function notifyActivity(opts: {
       actorLine(who, actor.avatar, plan.verb) +
       plan.extra +
       button(plan.cta[0], plan.cta[1]) +
-      manageFootnote(owner.id, "You're getting this because someone interacted with your site on signmysite.", kind),
+      manageFootnote(owner.id, "Someone interacted with your site on signmysite.", kind),
     ),
     text: `${plan.text}${BASE ? `\n\n${plan.cta[1]}` : ""}`,
     headers: unsubHeaders(owner.id, kind),
