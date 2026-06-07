@@ -384,17 +384,18 @@ export function GoogleIcon() {
  * profile — the "Twitter layout" for anyone, not just you.
  */
 export function IdentityLink({
-  of, className, children, ariaLabel,
+  of, className, children, ariaLabel, id,
 }: {
   of: { handle?: string | null; url?: string | null };
   className?: string;
   children: ReactNode;
   ariaLabel?: string;
+  id?: string;
 }) {
   const path = profilePath(of);
-  if (path) return <Link className={className} to={path} aria-label={ariaLabel}>{children}</Link>;
-  if (of.url) return <a className={className} href={of.url} target="_blank" rel="noopener" aria-label={ariaLabel}>{children}</a>;
-  return <span className={className}>{children}</span>;
+  if (path) return <Link id={id} className={className} to={path} aria-label={ariaLabel}>{children}</Link>;
+  if (of.url) return <a id={id} className={className} href={of.url} target="_blank" rel="noopener" aria-label={ariaLabel}>{children}</a>;
+  return <span id={id} className={className}>{children}</span>;
 }
 
 /** A followed/saved site as a list row, linking to the member's signmysite profile. */

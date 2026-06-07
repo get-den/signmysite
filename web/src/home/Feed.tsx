@@ -105,6 +105,9 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
   const yours = it.target.id === store.viewer.id;
   const react = it.kind === "comment" && it.body && isReaction(it.body) ? it.body.trim() : "";
   const showQuote = !!it.body && !react; // a comment's text or a recommendation's reason
+  // A comment quote deep-links to that comment on the target's profile, where it
+  // scrolls into view and flash-highlights. (A recommendation reason is just text.)
+  const quotePath = it.kind === "comment" && it.id ? profilePath(it.target) : null;
 
   return (
     <article className="feed-item">
@@ -125,7 +128,9 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
         </div>
         {/* Your own site's preview is redundant — you know what it looks like. */}
         {!yours && <SitePreview site={it.target} />}
-        {showQuote && <p className="feed-quote">{it.body}</p>}
+        {showQuote && (quotePath
+          ? <Link className="feed-quote" to={`${quotePath}#comment-${it.id}`}>{it.body}</Link>
+          : <p className="feed-quote">{it.body}</p>)}
       </div>
     </article>
   );

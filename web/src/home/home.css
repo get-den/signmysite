@@ -173,6 +173,9 @@
 }
 /* tuck the comment up close under its thumbnail (cancels most of the body gap) */
 .feed-media + .feed-quote { margin-top: -7px; }
+/* a comment quote that links to its source reads as tappable */
+a.feed-quote { display: block; text-decoration: none; cursor: pointer; transition: filter .12s ease; }
+a.feed-quote:hover { filter: brightness(0.96); }
 .feed-more { display: grid; place-items: center; min-height: 56px; color: var(--muted); }
 
 /* ---- right rail ---------------------------------------------------------- */
@@ -345,4 +348,54 @@
 
 @media (prefers-reduced-motion: reduce) {
   .feed-item, .tile, .who-pop { animation: none; }
+  .highlight-element-on-navigate { animation: none; }
 }
+
+/* Slack-style "jump to": an element reached via a #hash (e.g. a comment at
+   ...#comment-<id>) flashes a soft highlight that fades out. React app only — see
+   useHighlightOnNavigate in pages/Profile.tsx; the server-rendered profile has
+   its own .cmt.bgHighlight. */
+:root { --bgHighlighted: #fdf4dd; }
+@keyframes flash-highlight {
+  0%, 20% { background-color: var(--bgHighlighted); }
+  100%    { background-color: transparent; }
+}
+.highlight-element-on-navigate {
+  transition: background-color 2s ease;
+  background-color: var(--bgHighlighted);
+  border-radius: 4px;
+  animation: flash-highlight 4s ease forwards;
+}
+
+/* Long comments clamp to a few lines with a YouTube-style "Read more" toggle
+   (CommentBody). Scoped to the app so the server page keeps showing full text for
+   its deep-linked, floated comment. */
+.cmt-body {
+  margin-top: 3px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  opacity: .8;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.cmt-body.is-expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.cmt-more {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: var(--w-semibold);
+  cursor: pointer;
+}
+.cmt-more:hover { color: var(--ink); }

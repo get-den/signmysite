@@ -1197,7 +1197,9 @@
       '.mail-badge{position:absolute;right:-5px;bottom:-5px;width:23px;height:23px;border-radius:50%;background:var(--bg);box-shadow:0 1px 4px rgba(0,0,0,.18);display:grid;place-items:center;color:#ff2d55;font-size:13px}' +
       '.note-copy{min-width:0}.note-line{font:400 16px/1.45 var(--ff);color:var(--ink);overflow-wrap:anywhere;opacity:.9}.author,.note-line b{color:var(--ink);font-weight:600;text-decoration:none}.author:hover{text-decoration:underline}' +
       '.act{color:var(--muted)}.react-emoji{font-size:1.25em;line-height:1;vertical-align:-.12em}.note-time{margin-left:6px;color:var(--muted);font-size:14px;white-space:nowrap}' +
-      '.note p{margin:3px 0 0;font-size:15px;color:var(--ink);opacity:.8;overflow-wrap:anywhere}' +
+      // Clamp a long comment to a few lines so one note can't dominate the card —
+      // the row links through to the full comment on the profile.
+      '.note p{margin:3px 0 0;font-size:15px;color:var(--ink);opacity:.8;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}' +
       '.badge{margin-left:7px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;color:var(--muted)}.empty{color:var(--muted);font-size:14px}.see-all{justify-self:start;display:inline-flex;align-items:center;gap:5px;min-height:38px;margin-top:2px;padding:0 8px;color:var(--muted);text-decoration:none;font:600 14px/1 var(--ff)}.see-all::after{content:"→"}.see-all:hover{color:var(--ink);text-decoration:none}' +
       '.status{color:var(--muted);font-size:13px;margin-top:10px;overflow-wrap:anywhere}.status:empty{display:none}' +
       '.composer{display:flex;align-items:center;gap:4px;margin-top:24px;padding:6px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07);transition:box-shadow .15s ease}.composer:focus-within{box-shadow:0 0 0 3px rgba(0,0,0,.05),0 10px 36px rgba(0,0,0,.07)}.composer[hidden]{display:none}' +

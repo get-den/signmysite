@@ -7,7 +7,7 @@
  * pieces below. The public, server-rendered /@<handle> page stays for logged-out
  * visitors + crawlers.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   ApiError, follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
@@ -314,7 +314,24 @@ function ExternalLinkIcon() {
   );
 }
 
+// Slack-style "jump to": when the URL hash points at an element on this page
+// (...#comment-<id>), scroll it into view and flash a highlight that fades out,
+// then pull the class back off so a later jump can replay it. React app only.
+function useHighlightOnNavigate(ready: boolean) {
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!ready || !hash) return;
+    const el = document.getElementById(hash.slice(1));
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("highlight-element-on-navigate");
+    const t = setTimeout(() => el.classList.remove("highlight-element-on-navigate"), 4200);
+    return () => clearTimeout(t);
+  }, [hash, ready]);
+}
+
 function NotesSection({ heading, notes, empty }: { heading: string; notes: NoteLike[]; empty: string }) {
+  useHighlightOnNavigate(notes.length > 0);
   return (
     <section className="pcomments">
       <h2 className="pside-head">{heading}</h2>
@@ -349,13 +366,58 @@ function CommentRow({ note }: { note: NoteLike }) {
         ) : (
           <>
             <div className="cmt-line"><span className="who">{name}</span><time className="cmt-time">{relTime(note.created)}</time></div>
-            <div className="body">{note.body}</div>
+            <CommentBody text={note.body ?? ""} />
           </>
         )}
       </div>
     </>
   );
-  return a ? <IdentityLink of={a} className="cmt">{inner}</IdentityLink> : <div className="cmt">{inner}</div>;
+  const anchor = `comment-${note.id}`;
+  return a
+    ? <IdentityLink of={a} id={anchor} className="cmt">{inner}</IdentityLink>
+    : <div id={anchor} className="cmt">{inner}</div>;
+}
+
+// A comment body that clamps to a few lines with a YouTube-style "Read more"
+// toggle. Inline (not a click-through) since the row already links to the author;
+// the toggle stops that navigation. A span, not a <button>, to stay valid inside
+// the row's anchor.
+function CommentBody({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return; // measure only while clamped
+    const measure = () => setOverflowing(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [text, expanded]);
+
+  const toggle = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setExpanded((v) => !v);
+  };
+
+  return (
+    <>
+      <div ref={ref} className={expanded ? "cmt-body is-expanded" : "cmt-body"}>{text}</div>
+      {(overflowing || expanded) && (
+        <span
+          className="cmt-more"
+          role="button"
+          tabIndex={0}
+          onClick={toggle}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(e); }}
+        >
+          {expanded ? "Show less" : "Read more"}
+        </span>
+      )}
+    </>
+  );
 }
 
 /* ---- right rails --------------------------------------------------------- */
