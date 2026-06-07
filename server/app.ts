@@ -810,7 +810,7 @@ app.get("/api/feed", async (c) => {
 const NOTIFY_KINDS: Array<[db.NotifyKind, string, string]> = [
   ["follow", "New followers", "When someone follows your site"],
   ["reaction", "Reactions", "When someone reacts to your site"],
-  ["comment", "Notes", "When someone leaves a note on your site"],
+  ["comment", "Comments", "When someone leaves a comment on your site"],
   ["message", "Direct messages", "When someone sends you a message"],
   ["save", "Saves", "When someone saves your site"],
   ["followedUpdate", "Sites you follow", "When a site you follow posts an update"],

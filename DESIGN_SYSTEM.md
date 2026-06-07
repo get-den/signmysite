@@ -42,7 +42,7 @@ Accent cards use soft editorial colors: blush, mint, blue, yellow, violet, and c
 - **Cards:** white or translucent white, 1px soft border, 24–34px radius.
 - **Discovery cards:** large preview image, circular avatar, bold title, compact save/view stats.
 - **Tabs:** pill group with white active tab on a soft recessed background.
-- **Widget card:** 430px floating profile card with avatar, circular Save ribbon, Follow button, stats, notes, and composer.
+- **Widget card:** 430px floating profile card with avatar, circular Save ribbon, Follow button, stats, comments, and composer.
 
 ## Interaction
 

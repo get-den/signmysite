@@ -60,7 +60,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     ),
   },
   {
-    q: "Leaving a note or reaction opens a new tab",
+    q: "Leaving a comment or reaction opens a new tab",
     a: (
       <>
         That's expected when the widget doesn't yet know you're signed in (e.g. a first visit, or
@@ -73,7 +73,7 @@ const ITEMS: Array<{ q: string; a: ReactNode }> = [
     q: "I'm developing locally",
     a: (
       <>
-        Everything works on <code>localhost</code>: sign up straight from the widget. Notes and
+        Everything works on <code>localhost</code>: sign up straight from the widget. Comments and
         your profile URL won't be pinned to a <code>localhost</code> address; once you deploy,
         set your real site URL in <Link to="/edit">Edit profile</Link> (or just reload the widget
         on the live site).

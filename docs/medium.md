@@ -7,9 +7,9 @@ You can still be in the signmysite graph:
 
 **Link your signmysite profile (works today)**
 - Sign in at [signmysite.com](https://signmysite.com) and set up your profile — you get a public page
-  at `signmysite.com/@you` with your follower count and notes.
+  at `signmysite.com/@you` with your follower count and comments.
 - Add that link to your Medium **bio** (Settings → Profile information), and in your stories.
-- People follow you and leave notes on `signmysite.com/@you` directly.
+- People follow you and leave comments on `signmysite.com/@you` directly.
 
 **Have your own site too?** Put the widget there and link your Medium from it — see the
 [catchall guide](catchall.md).

@@ -144,7 +144,7 @@ export function Compose() {
             maxLength={1000}
           />
           <div className="postcard-foot">
-            <div className="seg" role="radiogroup" aria-label="Who can see this note">
+            <div className="seg" role="radiogroup" aria-label="Who can see this comment">
               <button
                 type="button"
                 className={"seg-opt" + (visibility === "public" ? " on" : "")}
@@ -170,9 +170,9 @@ export function Compose() {
             {error ? (
               <span className="formerr">{error}</span>
             ) : visibility === "private" ? (
-              "Only they will see this. A note just for them."
+              "Only they will see this. A comment just for them."
             ) : (
-              "Public notes appear on their profile for everyone to see."
+              "Public comments appear on their profile for everyone to see."
             )}
           </p>
         </div>

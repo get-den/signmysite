@@ -143,7 +143,7 @@ function Confirmed({
   return (
     <>
       <h1 className="confirm-title">
-        {isNote ? "Note sent" : sent ? "Reaction sent" : "Sending…"}
+        {isNote ? "Comment sent" : sent ? "Reaction sent" : "Sending…"}
       </h1>
       <p className="confirm-sub">
         {isNote ? <>It's on <b>{name}</b>'s site now.</> : <><b>{name}</b> got your {emoji}</>}
@@ -198,7 +198,7 @@ function SignInToSend({ isNote, emoji, name }: { isNote: boolean; emoji: string;
     <>
       <h1 className="confirm-title">{isNote ? "Almost there" : "One more step"}</h1>
       <p className="confirm-sub">
-        Sign in to add your {isNote ? "note" : emoji} to <b>{name}</b>. It posts as you, never anonymously.
+        Sign in to add your {isNote ? "comment" : emoji} to <b>{name}</b>. It posts as you, never anonymously.
       </p>
       <div className="confirm-signin">
         <SignIn returnTo={location.href} />

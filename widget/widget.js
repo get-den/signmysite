@@ -761,7 +761,7 @@
     // Activity-feed line: bold name, dimmer verb, then a gray timestamp. The name
     // is plain text now — the row itself is the link.
     line.append(node("b", "", n.redacted ? "Someone" : (mine ? "You" : (a.name || a.handle || "Someone"))));
-    if (n.redacted) line.append(node("span", "act", " left a private note"));
+    if (n.redacted) line.append(node("span", "act", " left a private comment"));
     else if (reaction) {
       line.append(node("span", "act", " reacted with "));
       line.append(node("span", "react-emoji", reaction)); // the emoji, rendered 1.5×
@@ -804,7 +804,7 @@
       ui.obFoot.hidden = true;
     } else {
       ui.obTitle.textContent = "Welcome to signmysite";
-      ui.obBody.textContent = "signmysite connects personal sites into one network — followers, notes, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
+      ui.obBody.textContent = "signmysite connects personal sites into one network — followers, comments, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
       ui.obCta.textContent = "Create your account";
       ui.obCta.onclick = signIn;
       ui.obCta.hidden = false;
@@ -949,9 +949,9 @@
         '<div class="notes"></div><div class="status"></div>' +
         '<div class="tray" role="group" aria-label="Send a reaction" hidden></div>' +
         '<div class="composer">' +
-          '<input class="input" aria-label="Leave a note" placeholder="Leave a note…">' +
+          '<input class="input" aria-label="Leave a comment" placeholder="Leave a comment…">' +
           '<button class="react" aria-label="React with an emoji">' + icon("smile-plus") + '</button>' +
-          '<button class="send" aria-label="Write a note">' + icon("arrow-up") + '</button>' +
+          '<button class="send" aria-label="Write a comment">' + icon("arrow-up") + '</button>' +
         '</div>' +
         '<label class="privacy">' +
           '<input type="checkbox" class="priv-check">' +

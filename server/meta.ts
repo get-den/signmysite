@@ -36,7 +36,7 @@ export function rewriteOrigin(text: string, base: string): string {
  */
 export function widgetBanner(base: string): string {
   return `/*! signmysite widget · ${PROTOCOL_VERSION} · ${base}
- * The social layer for a personal website: renders a follow / notes / reactions
+ * The social layer for a personal website: renders a follow / comments / reactions
  * card and links this site into the signmysite social graph. One <script> line, no
  * build step, and no keys for anyone to manage.
  *
@@ -73,7 +73,7 @@ export function siteManifest(base: string) {
     name: "signmysite",
     version: PROTOCOL_VERSION,
     description:
-      "Connects isolated personal websites into a traversable social graph: follow, notes, reactions, and a portable profile. One script tag to join.",
+      "Connects isolated personal websites into a traversable social graph: follow, comments, reactions, and a portable profile. One script tag to join.",
     install: {
       tag: `<script src="${base}/w.js"></script>`,
       placement: "once, just before </body>",

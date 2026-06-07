@@ -370,7 +370,7 @@ export async function notifyActivity(opts: {
     follow:   { verb: "followed your site.",        subject: `${who} followed you on signmysite`, cta: ["View their profile", actorUrl], extra: "",            text: `${who} followed your site.` },
     save:     { verb: "saved your site.",           subject: `${who} saved your site`,     cta: ["View their profile", actorUrl], extra: "",            text: `${who} saved your site.` },
     reaction: { verb: "reacted to your site:",      subject: `${who} reacted ${note}`.trim(), cta: ["See it on your profile", ownerProfile], extra: `<div style="margin:12px 0 0;font-size:40px;line-height:1">${escapeHtml(note)}</div>`, text: `${who} reacted ${note} to your site.` },
-    comment:  { verb: "left a note on your site:",  subject: `${who} left you a note`,      cta: ["See it on your profile", ownerProfile], extra: quote(note),   text: `${who} left a note on your site:\n\n${note}` },
+    comment:  { verb: "left a comment on your site:",  subject: `${who} left you a comment`,      cta: ["See it on your profile", ownerProfile], extra: quote(note),   text: `${who} left a comment on your site:\n\n${note}` },
   }[kind];
 
   await send({

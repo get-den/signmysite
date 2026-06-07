@@ -13,7 +13,7 @@ export function Landing() {
     <div className="land">
       <div className="land-hero">
         <h1>Your corner of the internet</h1>
-        <p>One link for everything you make, and everyone who follows it. Your sites, your notes, and your people, tied into a single profile that's yours.</p>
+        <p>One link for everything you make, and everyone who follows it. Your sites, your comments, and your people, tied into a single profile that's yours.</p>
         <div className="land-signup">
           <SignupHandleField />
           <SignIn returnTo="/" />

@@ -9,7 +9,7 @@ You keep your site. You add one line:
 <script src="https://signmysite.com/w.js"></script>
 ```
 
-A small badge appears in the corner. Visitors can follow you and leave notes;
+A small badge appears in the corner. Visitors can follow you and leave comments;
 you show up in everyone's graph. That's it.
 
 The generic tag is the safest bootstrap for local/preview installs. After you

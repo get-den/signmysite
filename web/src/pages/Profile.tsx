@@ -54,9 +54,9 @@ function OwnerProfile({ viewer }: { viewer: Member }) {
         {stats && <Counts following={stats.following} followers={stats.followers} />}
         <SitePreviewImg member={viewer} label="View your site" />
         <NotesSection
-          heading="Notes on your site"
+          heading="Comments on your site"
           notes={publicNotes}
-          empty="No notes yet. When someone writes on your site, it shows up here."
+          empty="No comments yet. When someone writes on your site, it shows up here."
         />
       </div>
     </FeedLayout>
@@ -145,7 +145,7 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | nu
         </ProfileHero>
         <Counts following={profileStats.following} followers={profileStats.followers} />
         <SitePreviewImg member={m} label={`View ${m.name}'s site`} />
-        <NotesSection heading={`Notes on ${firstName}'s site`} notes={publicNotes} empty="No notes here yet." />
+        <NotesSection heading={`Comments on ${firstName}'s site`} notes={publicNotes} empty="No comments here yet." />
       </div>
     </FeedLayout>
   );

@@ -177,7 +177,7 @@ function commentsSection(rows: CommentRow[]): string {
     return href ? `<a class="cmt" ${anchor} href="${href}"${ext}>${inner}</a>` : `<div class="cmt" ${anchor}>${inner}</div>`;
   }).join("");
   return `<section class="pcomments"><h2 class="pside-head">Comments</h2>
-    <div class="cmt-list">${pub.length ? rowsHtml : `<div class="empty">No notes yet.</div>`}</div>
+    <div class="cmt-list">${pub.length ? rowsHtml : `<div class="empty">No comments yet.</div>`}</div>
   </section>`;
 }
 

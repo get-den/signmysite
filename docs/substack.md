@@ -7,9 +7,9 @@ You can still be in the signmysite graph. Two options:
 
 **1. Link your signmysite profile (works today)**
 - Sign in at [signmysite.com](https://signmysite.com), set up your profile — you get a public page at
-  `signmysite.com/@you` with your follower count and notes.
+  `signmysite.com/@you` with your follower count and comments.
 - Add that link to **Settings → your profile bio**, or pin a post with it.
-- People follow and leave you notes on `signmysite.com/@you` directly.
+- People follow and leave you comments on `signmysite.com/@you` directly.
 
 **2. Embed it on your own domain instead**
 - If you also have a personal site (even a one-page site), put the widget there and
