@@ -6,7 +6,8 @@ Do these steps. This file is enough on its own.
 
 ## What you create
 
-ONE file at the site root: `me.json`. Plus ONE script tag for the widget.
+ONE file at the site root: `me.json`. Plus ONE script tag (headless by default —
+it renders nothing; add data-ui="card" to show the visible card).
 
 Minimal valid me.json:
 
@@ -48,11 +49,13 @@ Recommended me.json:
 2. POST https://signmysite.com/api/register  → get { id, handle }.
 3. Write `me.json` at the site root with that id (fill in name; add avatar/links
    if you know them).
-4. Add the widget to the HTML, once, before </body>:
+4. Add the tag to the HTML, once, before </body>. Use the id from step 2 (drop
+   the `signmysite:` prefix). It is headless by default — a presence + analytics
+   beacon, no UI; add data-ui="card" for the visible card:
 
-       <script src="https://signmysite.com/widget.js" data-site="/me.json"></script>
+       <script src="https://signmysite.com/w/<id>.js"></script>
 
-5. Deploy the site. On first load the widget registers it in the graph.
+5. Deploy the site. On first load the tag registers it in the graph.
 6. Tell the user: they can change their handle and secure the account anytime
    by signing in with their email at signmysite.com (magic link, no password).
 

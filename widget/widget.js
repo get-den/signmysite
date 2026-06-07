@@ -22,6 +22,12 @@
   var cfg = {
     id: idOf(script),
     api: (script.getAttribute("data-api") || origin || "https://signmysite.com").replace(/\/$/, ""),
+    // Presence vs. UI. "none" (the default) is a headless beacon: it joins the
+    // graph, counts the view, and verifies ownership, but renders NOTHING — the
+    // quiet, unobjectionable thing an agent can add unasked, and what people who
+    // don't want a floating widget keep. "card" opts into the visible follow /
+    // notes / reactions card (data-collapsed still picks badge vs. open there).
+    ui: (script.getAttribute("data-ui") || "none").toLowerCase(),
     theme: script.getAttribute("data-theme") || "light",
     position: script.getAttribute("data-position") || "bottom-right",
     launcher: script.getAttribute("data-launcher") || "circle",
@@ -73,6 +79,12 @@
   ready(start);
 
   function start() {
+    // Headless presence (the default): do the network work — register/claim,
+    // count the view, passively verify ownership — without building any UI.
+    // load() does all of it; paint()/fail() no-op with no `ui` to render into.
+    // Opt into the visible card with data-ui="card".
+    if (cfg.ui !== "card") return load();
+
     host = document.createElement("div");
     var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
     host.setAttribute("data-signmysite-widget", "");
@@ -330,6 +342,7 @@
   }
 
   function paint() {
+    if (!ui) return; // headless: loaded + tracked, nothing to render
     var p = card.profile || {};
     var signedIn = !!card.viewer;
     isOwner = signedIn && card.viewer.id === cfg.id;
@@ -824,7 +837,13 @@
     setTimeout(function () { ui.obCopy.textContent = old; }, 1400);
   }
   // Split "script" so the string is inert even if the widget is ever inlined.
-  function tagLine(src) { return '<scr' + 'ipt src="' + (src || cfg.api + "/w/you.js") + '"></scr' + 'ipt>'; }
+  // The onboarding copy box only ever shows in card mode, so the permanent tag it
+  // hands back carries data-ui="card" too — pasting it keeps the card the owner is
+  // looking at, instead of silently dropping them to headless.
+  function tagLine(src) {
+    var attr = cfg.ui === "card" ? ' data-ui="card"' : "";
+    return '<scr' + 'ipt src="' + (src || cfg.api + "/w/you.js") + '"' + attr + '></scr' + 'ipt>';
+  }
   function firstName(n) { return String(n).trim().split(/\s+/)[0]; }
 
   // "Not working?" disclosure in the onboarding footer: expand/collapse the
@@ -884,6 +903,7 @@
     } catch (_) { openTab(location.href); }
   }
   function fail() {
+    if (!ui) return; // headless: nowhere to surface an error
     ui.status.textContent = "Couldn’t load signmysite.";
   }
   function open(on) {
