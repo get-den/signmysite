@@ -113,12 +113,22 @@
 .feed { display: flex; flex-direction: column; }
 .feed-loading { display: grid; place-items: center; padding: 60px 0; color: var(--muted); }
 
-/* "since you've been gone" — taller, number-forward, dismissible */
-.digest {
-  position: relative; display: flex; flex-direction: column; gap: 18px;
-  padding: 24px 26px; margin-bottom: 18px; border-radius: var(--radius); background: var(--surface-2);
+/* recent-activity digest — number-forward, dismissible. Dismiss collapses the row
+   (1fr → 0fr) so the feed rises, while the card drifts up and fades: a smooth
+   slide-out, no page reload. The grid collapse is height-agnostic, so it stays
+   clean however the numbers wrap. */
+.digest-wrap {
+  display: grid; grid-template-rows: 1fr; margin-bottom: 18px;
+  transition: grid-template-rows .32s cubic-bezier(.4, 0, .2, 1), opacity .32s ease, margin-bottom .32s cubic-bezier(.4, 0, .2, 1);
 }
-.digest-label { color: var(--muted); font-size: 12px; font-weight: var(--w-semibold); text-transform: uppercase; letter-spacing: .06em; }
+.digest-wrap.is-leaving { grid-template-rows: 0fr; opacity: 0; margin-bottom: 0; pointer-events: none; }
+.digest {
+  position: relative; display: flex; flex-direction: column; gap: 18px; overflow: hidden; min-height: 0;
+  padding: 24px 26px; border-radius: var(--radius); background: var(--surface-2);
+  transition: transform .32s cubic-bezier(.4, 0, .2, 1);
+}
+.digest-wrap.is-leaving .digest { transform: translateY(-8px); }
+.digest-label { color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
 .digest-stats { display: flex; flex-wrap: wrap; gap: 18px 44px; }
 .digest-stat { display: flex; flex-direction: column; gap: 3px; }
 .digest-num { color: var(--ink); font-size: 42px; line-height: 1; letter-spacing: -0.03em; font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }

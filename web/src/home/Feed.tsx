@@ -1,12 +1,13 @@
 /*
- * The center column: a single reverse-chron feed of activity around you. A "since
- * you've been gone" digest leads (dismissible); then the stream — each row reads
+ * The center column: a single reverse-chron feed of activity around you. A "last 7
+ * days" digest leads (dismissible); then the stream — each row reads
  * "{A} {saved | commented on | reacted to} {B}'s site" and shows B's og:image, with
  * a comment's text under the image. Every site is followable inline (black button).
  * New pages load as you near the bottom; the header search narrows what's loaded.
  *
  * Built from small shared pieces: ActorAvatar, SiteLabel, SitePreview, FollowSite.
  */
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
 import { compact, isReaction, profilePath, relTime } from "../lib";
@@ -47,40 +48,52 @@ export function Feed({ store }: { store: HomeStore }) {
 const feedKey = (it: FeedItem): string =>
   it.id ? it.kind + it.id : `${it.kind}:${it.actor?.id ?? "anon"}:${it.target.id}:${it.at}`;
 
-/* ---- "since you've been gone" digest ------------------------------------- */
-// Bigger, taller, number-forward. Dismissible: the X remembers THIS digest (by its
-// counts) so it stays gone until the numbers change, then it returns.
+/* ---- recent-activity digest ---------------------------------------------- */
+// A quiet "Last 7 days" line over the numbers you care about. Dismissible: the X
+// remembers THIS digest (by its counts) so it stays gone until the numbers change,
+// then it returns. Dismissing slides it out in place — no page reload.
 const DISMISS_KEY = "signmysite:digest-dismissed";
 const digestSig = (d: NonNullable<HomeStore["digest"]>) => `${d.newViews}-${d.newComments}-${d.newFollowers}`;
 
 function Digest({ digest }: { digest: NonNullable<HomeStore["digest"]> }) {
   const sig = digestSig(digest);
-  const isGone = () => { try { return localStorage.getItem(DISMISS_KEY) === sig; } catch { return false; } };
-  // A render-bump on dismiss; isGone() is read fresh each render.
+  const [gone, setGone] = useState(() => {
+    try { return localStorage.getItem(DISMISS_KEY) === sig; } catch { return false; }
+  });
+  const [leaving, setLeaving] = useState(false);
   const stats = [
     digest.newViews && { n: digest.newViews, label: digest.newViews === 1 ? "site view" : "site views" },
     digest.newComments && { n: digest.newComments, label: digest.newComments === 1 ? "new comment" : "new comments" },
     digest.newFollowers && { n: digest.newFollowers, label: digest.newFollowers === 1 ? "new follower" : "new followers" },
   ].filter(Boolean) as Array<{ n: number; label: string }>;
-  if (!stats.length || isGone()) return null;
+  if (!stats.length || gone) return null;
+
+  // Remember this digest, then slide it out; unmount once the collapse finishes.
+  const dismiss = () => {
+    try { localStorage.setItem(DISMISS_KEY, sig); } catch { /* ignore */ }
+    setLeaving(true);
+  };
+  const label = `Last ${digest.days} days`;
   return (
-    <section className="digest" aria-label="Since you've been gone">
-      <button
-        type="button" className="digest-x" aria-label="Dismiss"
-        onClick={() => { try { localStorage.setItem(DISMISS_KEY, sig); } catch { /* ignore */ } location.reload(); }}
-      >
-        <CloseIcon size={18} />
-      </button>
-      <div className="digest-label">Since you've been gone</div>
-      <div className="digest-stats">
-        {stats.map((s) => (
-          <div className="digest-stat" key={s.label}>
-            <div className="digest-num">{compact(s.n)}</div>
-            <div className="digest-lbl">{s.label}</div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div
+      className={leaving ? "digest-wrap is-leaving" : "digest-wrap"}
+      onTransitionEnd={(e) => { if (leaving && e.propertyName === "opacity") setGone(true); }}
+    >
+      <section className="digest" aria-label={label}>
+        <button type="button" className="digest-x" aria-label="Dismiss" onClick={dismiss}>
+          <CloseIcon size={18} />
+        </button>
+        <div className="digest-label">{label}</div>
+        <div className="digest-stats">
+          {stats.map((s) => (
+            <div className="digest-stat" key={s.label}>
+              <div className="digest-num">{compact(s.n)}</div>
+              <div className="digest-lbl">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
