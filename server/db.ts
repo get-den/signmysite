@@ -5,7 +5,7 @@
  * engine stays swappable. Raw SQL, no ORM: minimal and transparent.
  */
 import pg from "pg";
-import { now, token } from "./util.ts";
+import { now, token, isReaction } from "./util.ts";
 import { CURATED } from "./curated.ts";
 
 const SCHEMA = `
@@ -899,6 +899,12 @@ export type AdminStats = {
   views: number;     // lifetime widget impressions across all sites
   follows: number;   // edges in the social graph
   perWeek: { week: string; count: number }[]; // new accounts by week (Mon), oldest->newest
+  // Recent activity — specific events, not just totals: who joined, what people are
+  // saying on sites (real notes; emoji reactions filtered out), and who connected to
+  // whom. Newest first, small fixed caps.
+  recentSignups: { name: string; handle: string | null; url: string | null; verified: boolean; created: string }[];
+  recentComments: { body: string; created: string; authorName: string | null; authorHandle: string | null; targetName: string; targetHandle: string | null }[];
+  recentFollows: { followerName: string; followerHandle: string | null; targetName: string; targetHandle: string | null; created: string }[];
 };
 
 // A real account has an email or a google_sub; placeholder rows (crawled sites, curated
@@ -907,7 +913,7 @@ export type AdminStats = {
 const ACCOUNT = "(email IS NOT NULL OR google_sub IS NOT NULL)";
 
 export async function adminStats(weeks = 12): Promise<AdminStats> {
-  const [totals, weekly] = await Promise.all([
+  const [totals, weekly, signups, comments, follows] = await Promise.all([
     pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE ${ACCOUNT})::int                                                   AS users,
@@ -928,6 +934,32 @@ export async function adminStats(weeks = 12): Promise<AdminStats> {
         GROUP BY 1 ORDER BY 1 DESC LIMIT $1`,
       [weeks]
     ),
+    pool.query(
+      `SELECT name, handle, url, verified, created
+         FROM members
+        WHERE ${ACCOUNT}
+        ORDER BY created DESC LIMIT 8`
+    ),
+    pool.query(
+      // Public notes only (private notes stay private even from the operator). Fetch a
+      // few extra so filtering out emoji reactions still leaves a full list of real notes.
+      `SELECT c.body, c.created,
+              a.name AS author_name, a.handle AS author_handle,
+              t.name AS target_name, t.handle AS target_handle
+         FROM comments c
+         LEFT JOIN members a ON a.id = c.author_id
+         JOIN members t ON t.id = c.target_id
+        WHERE c.visibility = 'public'
+        ORDER BY c.created DESC LIMIT 20`
+    ),
+    pool.query(
+      `SELECT f.name AS follower_name, f.handle AS follower_handle,
+              t.name AS target_name, t.handle AS target_handle, e.created
+         FROM edges e
+         JOIN members f ON f.id = e.follower_id
+         JOIN members t ON t.id = e.target_id
+        ORDER BY e.created DESC LIMIT 8`
+    ),
   ]);
   const t = totals.rows[0] || {};
   return {
@@ -940,6 +972,21 @@ export async function adminStats(weeks = 12): Promise<AdminStats> {
     views: Number(t.views || 0),
     follows: Number(t.follows || 0),
     perWeek: weekly.rows.reverse().map((r) => ({ week: r.week, count: Number(r.count) })),
+    recentSignups: signups.rows.map((r) => ({
+      name: r.name, handle: r.handle, url: r.url, verified: r.verified, created: r.created,
+    })),
+    recentComments: comments.rows
+      .filter((r) => !isReaction(r.body))
+      .slice(0, 8)
+      .map((r) => ({
+        body: r.body, created: r.created,
+        authorName: r.author_name, authorHandle: r.author_handle,
+        targetName: r.target_name, targetHandle: r.target_handle,
+      })),
+    recentFollows: follows.rows.map((r) => ({
+      followerName: r.follower_name, followerHandle: r.follower_handle,
+      targetName: r.target_name, targetHandle: r.target_handle, created: r.created,
+    })),
   };
 }
 

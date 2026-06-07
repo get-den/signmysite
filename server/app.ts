@@ -43,7 +43,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import * as db from "./db.ts";
-import { newId, newHandle, newCohortId, newInviteCode, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken } from "./util.ts";
+import { newId, newHandle, newCohortId, newInviteCode, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken, relTime } from "./util.ts";
 import { inspectSite, siteHasWidget } from "./preview.ts";
 import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, notifyMessage, type ActivityKind } from "./mail.ts";
 import * as auth from "./auth.ts";
@@ -702,6 +702,23 @@ function adminPage(s: db.AdminStats, email: string): string {
        <span class="abartrack"><span class="abarfill" style="width:${Math.round((w.count / maxWeek) * 100)}%"></span></span>
        <span class="abarn">${w.count}</span></div>`).join("");
 
+  // Recent-activity lists. who() prefers a @handle, falling back to the display name;
+  // clip() trims a note to one tidy line. Everything here is user content, so escape.
+  const who = (name: string, handle: string | null) =>
+    handle ? "@" + escapeHtml(handle) : escapeHtml(name || "someone");
+  const host = (url: string | null) => { try { return url ? new URL(url).host.replace(/^www\./, "") : ""; } catch { return ""; } };
+  const clip = (str: string, max = 90) => { const t = (str || "").replace(/\s+/g, " ").trim(); return escapeHtml(t.length > max ? t.slice(0, max - 1) + "…" : t); };
+  const signupRows = s.recentSignups.map((u) => {
+    const meta = [u.handle ? "@" + escapeHtml(u.handle) : null, escapeHtml(host(u.url)) || null, relTime(u.created)].filter(Boolean).join(" · ");
+    return `<div class="arow"><div class="amain">${escapeHtml(u.name || "Someone")}${u.verified ? ` <span class="achk" title="verified">✓</span>` : ""}</div><div class="ameta">${meta}</div></div>`;
+  }).join("");
+  const commentRows = s.recentComments.map((c) =>
+    `<div class="arow"><div class="amain">${clip(c.body)}</div><div class="ameta">${who(c.authorName, c.authorHandle)} on ${who(c.targetName, c.targetHandle)} · ${relTime(c.created)}</div></div>`).join("");
+  const followRows = s.recentFollows.map((f) =>
+    `<div class="arow"><div class="amain">${who(f.followerName, f.followerHandle)} <span class="aarrow">→</span> ${who(f.targetName, f.targetHandle)}</div><div class="ameta">${relTime(f.created)}</div></div>`).join("");
+  const col = (title: string, rows: string, empty: string) =>
+    `<div class="acol"><h2 class="ah2">${title}</h2><div class="alist">${rows || `<p class="aempty">${empty}</p>`}</div></div>`;
+
   const inner = `<div class="awrap">
     <h1 class="atitle">Admin</h1>
     <p class="asubtitle">signmysite at a glance · ${escapeHtml(email)}</p>
@@ -722,9 +739,15 @@ function adminPage(s: db.AdminStats, email: string): string {
 
     <h2 class="ah2">New users per week</h2>
     <div class="abars">${bars || `<p class="asubtitle">No sign-ups yet.</p>`}</div>
+
+    <div class="aacts">
+      ${col("Recent sign-ups", signupRows, "No sign-ups yet.")}
+      ${col("Recent comments", commentRows, "No comments yet.")}
+      ${col("Recent follows", followRows, "No follows yet.")}
+    </div>
   </div>
   <style>
-    .awrap{max-width:760px;margin:0 auto}
+    .awrap{max-width:820px;margin:0 auto}
     .atitle{margin:18px 0 4px;font-size:26px;font-weight:600;color:var(--ink)}
     .asubtitle{margin:0 0 24px;color:var(--muted);font-size:14px}
     .afunnel{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
@@ -743,6 +766,16 @@ function adminPage(s: db.AdminStats, email: string): string {
     .abartrack{flex:1;height:10px;background:var(--surface-3);border-radius:999px;overflow:hidden}
     .abarfill{display:block;height:100%;background:var(--accent);border-radius:999px}
     .abarn{width:40px;text-align:right;color:var(--ink);font-weight:600;flex:0 0 auto;font-variant-numeric:tabular-nums}
+    .aacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px 22px;margin-top:36px}
+    .acol{min-width:0}
+    .alist{display:flex;flex-direction:column}
+    .arow{padding:9px 0;border-top:1px solid var(--line)}
+    .arow:first-child{border-top:0}
+    .amain{color:var(--ink);font-size:13px;font-weight:500;line-height:1.4}
+    .ameta{margin-top:2px;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .achk{color:var(--accent);font-weight:700}
+    .aarrow{color:var(--muted)}
+    .aempty{color:var(--muted);font-size:13px;margin:8px 0 0}
     @media(max-width:620px){.afunnel{grid-template-columns:1fr}.aminis{grid-template-columns:repeat(2,1fr)}}
   </style>`;
   return sitePage("Admin · signmysite", "", null, inner);
