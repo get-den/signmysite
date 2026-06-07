@@ -740,8 +740,7 @@
   function paintCount() {
     if (ui.count) {
       var n = (card && card.comments && card.comments.length) || 0;
-      ui.count.textContent = compact(n);
-      ui.count.hidden = !n;
+      ui.count.hidden = !n; // a small presence dot now — no number
     }
   }
 
@@ -1023,7 +1022,7 @@
     // .launcher scales on hover, so the clickable area never shifts out from under
     // the cursor — a tap near the edge always opens the card.
     return '<button class="launch" aria-label="Toggle signmysite card" aria-expanded="false">' +
-      '<span class="launcher">' + inner + '<span class="notif" hidden>0</span></span></button>';
+      '<span class="launcher">' + inner + '<span class="notif" hidden></span></span></button>';
   }
   function stat(key, label) {
     return '<a class="' + key + '-link stat"><b class="' + key + '">–</b><span>' + label + "</span></a>";
@@ -1248,11 +1247,17 @@
       // halo) that never moves, so tapping the badge always lands. The inner
       // .launcher is the visible circle, and it GROWS on hover (scale) — never shifts.
       '.launch{position:relative;display:block;margin:0;padding:0;background:transparent;cursor:pointer}.launch::before{content:"";position:absolute;inset:-12px}' +
-      '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:rgba(255,255,255,.8);color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:var(--shadow);font:600 14px/1 var(--ff);transition:transform .16s ease}.launch:hover .launcher{transform:scale(1.06)}' +
-      '.pill-avatar{width:30px;height:30px;border-radius:50%;background:#e5e7eb center/cover no-repeat;display:grid;place-items:center;color:#111;font-weight:600;flex:0 0 auto}' +
-      '.notif{position:absolute;top:-3px;right:-3px;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#ff2d55;color:#fff;display:grid;place-items:center;font:600 12px/1 var(--ff)}.notif[hidden]{display:none}' +
+      '.launcher{position:relative;display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:rgba(255,255,255,.8);color:#050505;border-radius:999px;padding:6px 16px 6px 6px;box-shadow:0 1px 2px rgba(0,0,0,.12),0 4px 8px rgba(0,0,0,.10),0 10px 22px rgba(0,0,0,.12),0 22px 40px rgba(0,0,0,.10);font:600 14px/1 var(--ff);transition:transform .16s ease,box-shadow .16s ease}.launch:hover .launcher{transform:scale(1.05)}' +
+      // No-photo fallback: a soft neutral disc + a properly sized, tight-tracked
+      // initial (the circle variant bumps this to 18px). Cleaner than a flat-gray
+      // chip with a too-small letter.
+      '.pill-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(180deg,#eef0f3,#e1e3e9) center/cover no-repeat;display:grid;place-items:center;color:#1b1b1f;font:600 14px/1 var(--ff);letter-spacing:-.02em;flex:0 0 auto}' +
+      // A small presence dot (not a count): "there's activity here". The ring
+      // matches the badge so it reads cleanly on the avatar; dark launchers swap
+      // the ring to ink below.
+      '.notif{position:absolute;top:3px;right:3px;width:12px;height:12px;border-radius:50%;background:#ff2d55;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}.notif[hidden]{display:none}' +
       '.logo{display:grid;place-items:center;font-weight:600;letter-spacing:-.02em}' +
-      '.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:62px;height:62px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:50px;height:50px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-circle .launcher{width:64px;height:64px}.launcher-circle .pill-avatar{width:42px;height:42px}' +
+      '.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:62px;height:62px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:50px;height:50px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-circle .launcher{width:56px;height:56px}.launcher-circle .pill-avatar{width:42px;height:42px;font-size:18px}' +
       '.launcher-logo .launcher,.launcher-mark .launcher{padding:0;background:#000;color:#fff;border-color:#000}.launcher-logo .logo{font-size:17px}.launcher-mark .logo{font-size:26px}.launcher-glass .launcher{background:rgba(255,255,255,.72);backdrop-filter:blur(18px);border-color:rgba(255,255,255,.7)}.launcher-neon .launcher{border-color:#ffd1ef;box-shadow:0 0 0 1px #ffd1ef,0 12px 44px rgba(255,45,133,.28),0 0 38px rgba(117,92,255,.18)}.launcher-halo .launcher{box-shadow:0 0 0 7px rgba(255,45,85,.08),0 20px 70px rgba(0,0,0,.18)}.launcher-slab .launcher{border-radius:18px;padding:9px 16px;background:#050505;color:#fff;border-color:#050505}.launcher-slab .logo{width:26px;height:26px;border-radius:8px;background:#fff;color:#000}.launcher-slab .notif,.launcher-logo .notif,.launcher-mark .notif{border-color:#050505}' +
       '@media(max-width:520px){.signmysite{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;flex-direction:column!important}.card{width:calc(100vw - 24px);max-width:none;max-height:calc(100dvh - 110px);padding:22px 20px;border-radius:26px}.avatar{width:78px;height:78px;font-size:28px}.follow,.save{height:46px}.save{width:46px}.follow{padding:0 22px;font-size:16px}.name{font-size:34px}}' +
       "</style>";
