@@ -11,7 +11,7 @@
 import { useMemo, type ReactNode } from "react";
 import type { AnalyticsRange, FeedActor, Site } from "../api";
 import { compact, fmtDuration, host, relTime } from "../lib";
-import { Avatar, IdentityLink } from "../ui";
+import { Avatar, CloseIcon, IdentityLink } from "../ui";
 import { FollowButton, SiteCTA } from "./parts";
 import { useMediaQuery, type HomeStore as Store } from "./hooks";
 import { WIDE } from "./FeedLayout";
@@ -105,7 +105,11 @@ function WhoToFollow({ store, limit }: { store: Store; limit: number }) {
       <div className="rail-block-head"><h2>Who to follow</h2></div>
       <ul className="person-list">
         {people.map((s: Site) => (
-          <Person key={s.id} actor={s} store={store} sub={s.reason || (s.url ? host(s.url) : `@${s.handle}`)} />
+          <Person
+            key={s.id} actor={s} store={store}
+            sub={s.reason || (s.url ? host(s.url) : `@${s.handle}`)}
+            onDismiss={() => store.dismissRecommendation(s)}
+          />
         ))}
       </ul>
     </section>
@@ -114,7 +118,9 @@ function WhoToFollow({ store, limit }: { store: Store; limit: number }) {
 
 /* ---- a person row (shared by both social blocks) ------------------------ */
 
-function Person({ actor, sub, store }: { actor: FeedActor; sub: string; store: Store }) {
+function Person({
+  actor, sub, store, onDismiss,
+}: { actor: FeedActor; sub: string; store: Store; onDismiss?: () => void }) {
   const name = actor.name || (actor.handle ? `@${actor.handle}` : "Someone");
   return (
     <li className="person">
@@ -126,7 +132,17 @@ function Person({ actor, sub, store }: { actor: FeedActor; sub: string; store: S
         </span>
       </IdentityLink>
       {actor.id === store.viewer.id ? null : (
-        <FollowButton following={store.isFollowing(actor.id)} onToggle={() => store.toggleFollow(actor)} />
+        <div className="person-actions">
+          <FollowButton following={store.isFollowing(actor.id)} onToggle={() => store.toggleFollow(actor)} />
+          {onDismiss && (
+            <button
+              type="button" className="person-dismiss" aria-label={`Not interested in ${name}`}
+              title="Not interested" onClick={onDismiss}
+            >
+              <CloseIcon size={15} />
+            </button>
+          )}
+        </div>
       )}
     </li>
   );

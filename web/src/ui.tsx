@@ -1,4 +1,4 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type SyntheticEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useToast, useViewer } from "./providers";
@@ -279,6 +279,14 @@ export const BackIcon = ({ size = 18 }: { size?: number }) => (
 export const CloseIcon = ({ size = 18 }: { size?: number }) => (
   <Lucide size={size}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Lucide>
 );
+/** Copy-to-clipboard glyph — two overlapping cards. Pairs with useCopy. */
+export const CopyIcon = ({ size = 18 }: { size?: number }) => (
+  <Lucide size={size}><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></Lucide>
+);
+/** Confirmation check — what a copy/save flips to for a beat. */
+export const CheckIcon = ({ size = 18 }: { size?: number }) => (
+  <Lucide size={size}><path d="M20 6 9 17l-5-5" /></Lucide>
+);
 
 /**
  * Canonical round nav button: a back chevron or a close ✕ inside a soft circle.
@@ -396,6 +404,50 @@ export function IdentityLink({
   if (path) return <Link id={id} className={className} to={path} aria-label={ariaLabel}>{children}</Link>;
   if (of.url) return <a id={id} className={className} href={of.url} target="_blank" rel="noopener" aria-label={ariaLabel}>{children}</a>;
   return <span id={id} className={className}>{children}</span>;
+}
+
+/**
+ * A comment body that clamps to a few lines with a YouTube-style "Read more"
+ * toggle. Inline (not a click-through) since the row/bubble around it is itself a
+ * link — the toggle stops that navigation. A span, not a <button>, so it stays
+ * valid inside an anchor. Shared by the profile comment list and the home feed.
+ */
+export function CommentBody({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return; // measure only while clamped
+    const measure = () => setOverflowing(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [text, expanded]);
+
+  const toggle = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setExpanded((v) => !v);
+  };
+
+  return (
+    <>
+      <div ref={ref} className={expanded ? "cmt-body is-expanded" : "cmt-body"}>{text}</div>
+      {(overflowing || expanded) && (
+        <span
+          className="cmt-more"
+          role="button"
+          tabIndex={0}
+          onClick={toggle}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(e); }}
+        >
+          {expanded ? "Show less" : "Read more"}
+        </span>
+      )}
+    </>
+  );
 }
 
 /** A followed/saved site as a list row, linking to the member's signmysite profile. */

@@ -49,6 +49,7 @@ import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone
 import * as auth from "./auth.ts";
 import { renderProfileInner, siteHeader } from "./profile.ts";
 import { BASE } from "./config.ts";
+import { isDemo, demoCard } from "./demo.ts";
 
 const SECURE = BASE.startsWith("https://");
 const COOKIE = "signmysite_session";
@@ -58,6 +59,7 @@ const oauthStates = new Set<string>();               // CSRF state for the OAuth
 // so this ceiling is an abuse guard, not the expected size (~15KB WebP in practice).
 const AVATAR_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 const AVATAR_MAX_BYTES = 256 * 1024;
+const COMMENTS_PER_SITE_PER_DAY = 10; // basic anti-spam cap (see POST /comments)
 
 export const app = new Hono();
 
@@ -627,6 +629,9 @@ function refHost(ref: unknown): string | null {
 // just inflate your own numbers.
 app.post("/api/profile/:id/view", async (c) => {
   const id = c.req.param("id");
+  // The demo has no real member behind it (see demo.ts), so swallow its view + duration
+  // beacons: nothing to attribute them to, and demo traffic shouldn't count as analytics.
+  if (isDemo(id)) return c.json({ ok: true });
   const b = await beaconBody(c);
   const session = String(b?.session || "").slice(0, 64);
   if (!session) return c.json({ ok: false });
@@ -962,6 +967,9 @@ function maybeMilestone(metric: "views" | "followers", ownerId: string, count: n
 // (for owner mode), and notes. Fewer round-trips = faster on slow third-party
 // pages, and the widget's loader collapses to a single fetch.
 app.get("/api/profile/:id/card", async (c) => {
+  // The public demo is a fixed fixture, not DB rows, so it looks identical on prod and
+  // local with no seed (see demo.ts). Served for any visitor, signed in or not.
+  if (isDemo(c.req.param("id"))) return c.json(demoCard());
   return cardPayload(c, c.req.param("id"));
 });
 
@@ -1103,6 +1111,13 @@ app.post("/api/profile/:id/comments", async (c) => {
   if (!text) return c.json({ error: "empty comment" }, 400);
   const visibility = b?.visibility === "private" ? "private" : "public";
   const note = text.slice(0, 1000);
+  // Basic anti-spam: cap how many comments one member can leave on a single site
+  // per day. Generous enough for real back-and-forth (reactions post here too),
+  // tight enough to stop a flood.
+  const dayAgo = new Date(Date.now() - 864e5).toISOString();
+  if ((await db.countCommentsBy(viewer.id, targetId, dayAgo)) >= COMMENTS_PER_SITE_PER_DAY) {
+    return c.json({ error: "You've commented on this site a lot today. Try again tomorrow." }, 429);
+  }
   await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: note, visibility });
   // Tell the owner. An emoji-only body is a reaction; anything else is a note.
   notifyOwner(isReaction(note) ? "reaction" : "comment", targetId, viewer, note);
@@ -1619,7 +1634,7 @@ app.get("/:at{@.+}", async (c) => {
 function profileChrome(signedIn: boolean, handle: string): string {
   const cta = signedIn
     ? `<a class="btn sm" href="/#/u/${escapeHtml(handle)}">Open in app</a>`
-    : `<a class="btn sm primary" href="/">Get your own</a>`;
+    : `<a class="btn sm primary" href="/">Add my site</a>`;
   return `<header class="pbar"><a class="brand" href="/">signmysite</a>${cta}</header>`;
 }
 
@@ -1627,7 +1642,7 @@ function notFoundPage(handle: string): string {
   return sitePage("Not on signmysite", "", null, `
     <div class="hero"><h1>@${escapeHtml(handle)} isn't on signmysite yet.</h1>
     <p>signmysite links personal websites into one social graph.</p>
-    <a class="btn primary" href="/">Get your own</a></div>`);
+    <a class="btn primary" href="/">Add my site</a></div>`);
 }
 
 // A page that wears the main site's chrome + stylesheet (so profiles match the

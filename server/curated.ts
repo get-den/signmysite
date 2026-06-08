@@ -7,6 +7,8 @@
  * now; a real per-member engine later just writes rows with for_id set.
  */
 
+import { BASE } from "./config.ts";
+
 const svgData = (svg: string) => "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 
 // Soft card palettes: [background, accent, ink].
@@ -60,8 +62,18 @@ const SHOT = (url: string): string =>
   `https://image.thum.io/get/width/1200/crop/630/noanimate/${url}`;
 
 // A real, stable, cacheable profile photo via GitHub — better than a site favicon for an
-// individual. (Publications keep their brand favicon; folks with no GitHub use initials.)
+// individual. Everyone in the set below has a real photo of their face: GitHub for the
+// builders, Wikimedia for the public figures, and a couple we self-host.
 const gh = (user: string): string => `https://github.com/${user}.png?size=200`;
+
+// A face photo from Wikimedia Commons — CDN-backed and hotlink-stable, the best source
+// for public figures who aren't on GitHub. Each path was resolved once via the Wikipedia
+// page-summary API, then pinned to its exact file so it never drifts.
+const wiki = (path: string): string => `https://upload.wikimedia.org/wikipedia/commons/${path}`;
+
+// A face we host ourselves (served from /site/seed) — for folks with no GitHub or
+// Wikimedia photo, so we don't depend on a third party that might rotate or block it.
+const seedPhoto = (file: string): string => `${BASE}/site/seed/${file}`;
 
 // The blanket recommendation set (for_id NULL — everyone sees these). Each carries a real
 // site preview (SHOT) + a favicon avatar. Stable ids so the boot baseline upserts (never
@@ -71,24 +83,24 @@ const gh = (user: string): string => `https://github.com/${user}.png?size=200`;
 export const CURATED: Curated[] = [
   {
     id: "signmysite:0a1b2c3d4e5f0b77", handle: "pg", name: "Paul Graham", url: "https://paulgraham.com",
-    avatar: initialsAvatar("Paul Graham", 0), thumbnail: SHOT("https://paulgraham.com"),
+    avatar: wiki("e/e3/Paulgraham_240x320.jpg"), thumbnail: SHOT("https://paulgraham.com"),
     reason: "Essays on startups, work, and how to think clearly.",
   },
   {
     id: "signmysite:3d4e5f6071820eaa", handle: "patrick", name: "Patrick Collison", url: "https://patrickcollison.com",
-    avatar: initialsAvatar("Patrick Collison", 4), thumbnail: SHOT("https://patrickcollison.com"),
+    avatar: wiki("7/74/Patrick_Collison_%28cropped%29.jpg"), thumbnail: SHOT("https://patrickcollison.com"),
     reason: "Reading lists and big open questions, from Stripe's cofounder.",
   },
   {
     id: "signmysite:4e5f60718293afbb", handle: "notboring", name: "Not Boring", url: "https://www.notboring.co",
-    avatar: favicon("notboring.co"),
+    avatar: seedPhoto("packy.jpg"), // Packy McCormick, who writes it
     // Substack blocks headless capture (the screenshot comes back black), so use its real og:image.
     thumbnail: "https://substackcdn.com/image/fetch/$s_!Boeq!,f_auto,q_auto:best,fl_progressive:steep/https%3A%2F%2Fnotboring.substack.com%2Ftwitter%2Fsubscribe-card.jpg%3Fv%3D808001550%26version%3D9",
     reason: "Business strategy, made genuinely fun, by Packy McCormick.",
   },
   {
     id: "signmysite:5f6071829304b0cc", handle: "waitbutwhy", name: "Wait But Why", url: "https://waitbutwhy.com",
-    avatar: favicon("waitbutwhy.com"), thumbnail: SHOT("https://waitbutwhy.com"),
+    avatar: wiki("6/6b/Tim_Urban.jpg"), thumbnail: SHOT("https://waitbutwhy.com"), // Tim Urban, who writes it
     reason: "Long, illustrated deep-dives by Tim Urban.",
   },
   {
@@ -145,10 +157,10 @@ export const CURATED: Curated[] = [
   },
   {
     id: "signmysite:1a2b3c4d5e6f7a8b", handle: "christinacacioppo", name: "Christina Cacioppo", url: "https://www.christinacacioppo.com",
-    // Minimal site: no og:image, screenshots blank, no favicon, no reliable photo — so a
-    // clean generated card + initials. (When she signs up + verifies the site,
-    // claimPlaceholderByUrl folds this placeholder into her real account — see db.ts.)
-    avatar: initialsAvatar("Christina Cacioppo", 1), thumbnail: siteCard("Christina Cacioppo", 6),
+    // Minimal site: no og:image, screenshots blank, no favicon — so a self-hosted photo
+    // for the face + a clean generated card for the preview. (When she signs up + verifies
+    // the site, claimPlaceholderByUrl folds this placeholder into her real account.)
+    avatar: seedPhoto("christina.jpg"), thumbnail: siteCard("Christina Cacioppo", 6),
     reason: "First-principles essays on building companies and hiring, from Vanta's founder.",
   },
   {
@@ -168,20 +180,29 @@ export const CURATED: Curated[] = [
   },
   {
     id: "signmysite:6f7a8b9cadbecfd0", handle: "daviddeutsch", name: "David Deutsch", url: "https://www.daviddeutsch.org.uk",
-    avatar: initialsAvatar("David Deutsch", 2), thumbnail: SHOT("https://www.daviddeutsch.org.uk"),
+    avatar: wiki("a/af/David_Deutsch_%28cropped%29.jpg"), thumbnail: SHOT("https://www.daviddeutsch.org.uk"),
     reason: "Quantum-computing pioneer on knowledge, explanation, and infinite progress.",
   },
   {
     id: "signmysite:7a8b9cadbecfd0e1", handle: "richardsutton", name: "Richard Sutton", url: "http://incompleteideas.net",
-    // Old http site that screenshots as a thum.io error, no og:image/favicon — generated card + initials.
-    avatar: initialsAvatar("Richard Sutton", 5), thumbnail: siteCard("Richard Sutton", 5),
+    // Old http site that screenshots as a thum.io error, no og:image/favicon — real face
+    // photo from Wikimedia + a clean generated card for the preview.
+    avatar: wiki("4/4b/SD_2025_-_Richard_Sutton_01_%28cropped%29.jpg"), thumbnail: siteCard("Richard Sutton", 5),
     reason: "The father of reinforcement learning, and home of 'The Bitter Lesson'.",
   },
   {
     id: "signmysite:8b9cadbecfd0e1f2", handle: "naval", name: "Naval Ravikant", url: "https://nav.al",
-    // His site exposes its own avatar ("Navatar") as the og:image — use it directly.
-    avatar: "https://i0.wp.com/nav.al/wp-content/uploads/2019/12/Navatar.png?fit=1080%2C1080&ssl=1",
+    // A real photo of his face (the "Navatar" his site uses is a stylized cartoon).
+    avatar: wiki("5/55/Naval_Ravikant_%28cropped%29.jpg"),
     thumbnail: SHOT("https://nav.al"),
     reason: "Aphorisms and essays on wealth, happiness, and clear thinking.",
+  },
+  {
+    id: "signmysite:9cadbecfd0e1f203", handle: "marginalrev", name: "Marginal Revolution", url: "https://marginalrevolution.com",
+    avatar: wiki("9/97/Tyler_Cowen_1.jpg"), // Tyler Cowen, who writes it with Alex Tabarrok
+    // thum.io returns its "not authorized" error card for MR, so use a clean generated
+    // card for the preview (same fallback as Richard Sutton above).
+    thumbnail: siteCard("Marginal Revolution", 3),
+    reason: "A daily stream of writing on economics, books, and culture, by Tyler Cowen.",
   },
 ];

@@ -7,7 +7,7 @@
  * pieces below. The public, server-rendered /@<handle> page stays for logged-out
  * visitors + crawlers.
  */
-import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   ApiError, follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
@@ -16,7 +16,7 @@ import {
 } from "../api";
 import { useToast, useViewer } from "../providers";
 import { host, isReaction, profilePath, relTime, socialLabel } from "../lib";
-import { Avatar, EmptyState, IdentityLink, PageHead, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, CommentBody, EmptyState, IdentityLink, PageHead, PinIcon, SiteThumbnail, Spinner } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
 import { FollowButton, SiteCTA } from "../home/parts";
 
@@ -378,48 +378,6 @@ function CommentRow({ note }: { note: NoteLike }) {
     : <div id={anchor} className="cmt">{inner}</div>;
 }
 
-// A comment body that clamps to a few lines with a YouTube-style "Read more"
-// toggle. Inline (not a click-through) since the row already links to the author;
-// the toggle stops that navigation. A span, not a <button>, to stay valid inside
-// the row's anchor.
-function CommentBody({ text }: { text: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || expanded) return; // measure only while clamped
-    const measure = () => setOverflowing(el.scrollHeight - el.clientHeight > 1);
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [text, expanded]);
-
-  const toggle = (e: SyntheticEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setExpanded((v) => !v);
-  };
-
-  return (
-    <>
-      <div ref={ref} className={expanded ? "cmt-body is-expanded" : "cmt-body"}>{text}</div>
-      {(overflowing || expanded) && (
-        <span
-          className="cmt-more"
-          role="button"
-          tabIndex={0}
-          onClick={toggle}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggle(e); }}
-        >
-          {expanded ? "Show less" : "Read more"}
-        </span>
-      )}
-    </>
-  );
-}
-
 /* ---- right rails --------------------------------------------------------- */
 
 // Your rail: add/verify-your-site CTA, then your pinned showcase.
@@ -474,7 +432,10 @@ function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string })
           })}
         </div>
       ) : (
-        <p className="rail-empty">{empty}</p>
+        <div className="pins-empty">
+          <span className="pins-empty-icon"><PinIcon /></span>
+          <p className="pins-empty-text">{empty}</p>
+        </div>
       )}
     </section>
   );

@@ -1051,6 +1051,21 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .agent-cta-head h2 { margin: 0; color: var(--ink); font-size: 19px; line-height: 1.15; font-weight: var(--w-semibold); }
 .agent-cta-head p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 48ch; }
 .agent-cta .btn { flex: 0 0 auto; }
+
+/* "Copy prompt" is the fastest path, so it gently pulses a soft accent ring to invite
+   the click. The icon nudges in on hover. Both rest the moment you hover or copy, and
+   anyone who prefers reduced motion sees none of it. */
+.copy-prompt { animation: copy-pulse 2.2s ease-in-out infinite; }
+.copy-prompt:hover, .copy-prompt:active, .copy-prompt.is-copied { animation: none; }
+.copy-prompt .btn-lbl svg { transition: transform .15s ease; }
+.copy-prompt:hover .btn-lbl svg { transform: translateY(-1px) scale(1.06); }
+@keyframes copy-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(229, 36, 79, .45); }
+  70%  { box-shadow: 0 0 0 12px rgba(229, 36, 79, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(229, 36, 79, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .copy-prompt { animation: none; } }
+
 .vstep { display: flex; flex-direction: column; gap: 16px; }
 .vstep-head { display: flex; align-items: center; gap: 12px; }
 .vstep-num {

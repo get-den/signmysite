@@ -176,6 +176,10 @@
 /* a comment quote that links to its source reads as tappable */
 a.feed-quote { display: block; text-decoration: none; cursor: pointer; transition: filter .12s ease; }
 a.feed-quote:hover { filter: brightness(0.96); }
+/* Inside a feed bubble, the comment body reuses the profile's "Read more" clamp
+   (CommentBody) but adopts the bubble's own type — the bubble is the surface, not
+   the text — so only the line-clamp carries over, not the profile row's styling. */
+.feed-quote .cmt-body { margin-top: 0; font: inherit; color: inherit; opacity: 1; }
 .feed-more { display: grid; place-items: center; min-height: 56px; color: var(--muted); }
 
 /* ---- right rail ---------------------------------------------------------- */
@@ -217,6 +221,18 @@ a.feed-quote:hover { filter: brightness(0.96); }
 .person-id:hover .person-meta b { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .person-sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .person-following { flex: 0 0 auto; color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
+.person-actions { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+
+/* The quiet "Not interested" X next to a recommendation — in the rail and the feed.
+   Faint by default, it firms up on hover so it never competes with Follow. */
+.person-dismiss, .feed-dismiss {
+  display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--faint);
+  cursor: pointer; opacity: .55; transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.person:hover .person-dismiss, .feed-item:hover .feed-dismiss { opacity: 1; }
+.person-dismiss:hover, .feed-dismiss:hover { background: var(--surface-2, #f2f2f2); color: var(--ink); opacity: 1; }
+.person-dismiss:focus-visible, .feed-dismiss:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* state-aware CTA (add / verify), shown as a tinted rail block */
 .cta-add { background: #fff5f7; border-color: #fde3ea; }
@@ -320,6 +336,21 @@ a.feed-quote:hover { filter: brightness(0.96); }
 /* a quiet empty line inside a rail block */
 .rail-empty { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
 
+/* The "no pins yet" state: a soft dashed card with a pin glyph above the line —
+   warmer than a bare sentence, and it hints at what a pin is. */
+.pins-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 10px; padding: 22px 16px;
+  border: 1px dashed var(--line); border-radius: 14px; background: var(--surface-2, #fafafa);
+}
+.pins-empty-icon {
+  display: grid; place-items: center; width: 38px; height: 38px;
+  border-radius: 50%; background: var(--bg); color: var(--faint);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.pins-empty-icon svg { width: 17px; height: 17px; }
+.pins-empty-text { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; max-width: 220px; }
+
 /* Chat fills the height left under the header + page-head; its panes scroll inside. */
 .messages-page { flex: 1; }
 .messages-page .dm { height: calc(100dvh - var(--topbar-h) - 152px); min-height: 420px; }
@@ -379,9 +410,11 @@ a.feed-quote:hover { filter: brightness(0.96); }
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   overflow: hidden;
 }
+/* The profile comment list clamps tighter (2 lines); the feed and elsewhere use 3. */
+.pcomments .cmt-body { -webkit-line-clamp: 2; }
 .cmt-body.is-expanded {
   display: block;
   overflow: visible;

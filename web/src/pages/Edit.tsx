@@ -114,10 +114,9 @@ export function Edit() {
         <div className="field">
           <label>Account</label>
           <div className="acct">
-            <span className="acct-email">{viewer.email ?? "No email linked"}</span>
-            <span className="tag">{viewer.authMethod === "google" ? "Google" : "Email link"}</span>
+            <span className="tag">{viewer.authMethod === "google" ? "Signed in with Google" : "Signed in with an email link"}</span>
           </div>
-          <span className="hint">This is how you sign in.</span>
+          <span className="hint">This is how you sign in. Your email stays private.</span>
         </div>
         <div className="row">
           <Button className="primary" type="submit" loading={saving}>Save</Button>

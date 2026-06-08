@@ -1282,6 +1282,17 @@ type db_CommentRow = {
 };
 type db_InboxRow = db_CommentRow & { target_handle: string | null; target_name: string };
 
+// How many comments an author has left on one target since the given ISO instant.
+// Backs the basic anti-spam cap in the POST /comments route (created is TEXT ISO,
+// so a string compare is a chronological compare).
+export async function countCommentsBy(authorId: string, targetId: string, sinceIso: string): Promise<number> {
+  const r = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM comments WHERE author_id = $1 AND target_id = $2 AND created > $3",
+    [authorId, targetId, sinceIso]
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
 export async function addComment(c: {
   id: string; target_id: string; author_id: string | null; body: string; visibility?: Visibility; created?: string;
 }): Promise<void> {

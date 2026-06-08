@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { verifySite } from "../api";
 import type { Member } from "../api";
 import { useViewer } from "../providers";
-import { Button, VerifyButton, WidgetInstall, useCopy } from "../ui";
+import { Button, CheckIcon, CopyIcon, VerifyButton, WidgetInstall, useCopy } from "../ui";
 import { PLACEHOLDER_THUMB } from "../lib";
 
 /** Site builders we have paste-here instructions for. "Custom / HTML" leads and is
@@ -91,7 +91,10 @@ export function WidgetSetup({ viewer, onVerified, onSkip }: { viewer: Member; on
           <h2>The fastest way</h2>
           <p>Paste this into Claude, Cursor, or any coding agent and it adds signmysite for you.</p>
         </div>
-        <Button className="pink lg" onClick={copyPrompt}>{promptCopied ? "Copied" : "Copy prompt for my agent"}</Button>
+        <Button className={"pink lg copy-prompt" + (promptCopied ? " is-copied" : "")} onClick={copyPrompt}>
+          {promptCopied ? <CheckIcon /> : <CopyIcon />}
+          {promptCopied ? "Copied" : "Copy prompt for my agent"}
+        </Button>
       </div>
 
       <div className="signin-or"><span>or add it yourself</span></div>

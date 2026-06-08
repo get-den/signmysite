@@ -11,7 +11,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
 import { compact, isReaction, profilePath, relTime } from "../lib";
-import { Avatar, CloseIcon, EmptyState, IdentityLink, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, CloseIcon, CommentBody, EmptyState, IdentityLink, SiteThumbnail, Spinner } from "../ui";
 import { useSearch } from "../providers";
 import { FollowButton } from "./parts";
 import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
@@ -19,7 +19,10 @@ import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
 export function Feed({ store }: { store: HomeStore }) {
   const { items, digest, feedLoading, loadMore, loadingMore, done } = store;
   const { q } = useSearch();
-  const shown = filterFeed(items, q);
+  // Drop any recommendation the viewer has hidden via "Not interested".
+  const shown = filterFeed(items, q).filter(
+    (it) => !(it.kind === "recommendation" && store.isRecommendationHidden(it.target.id)),
+  );
   const sentinel = useInfiniteScroll(loadMore, !done && !feedLoading && !q);
 
   return (
@@ -121,16 +124,28 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
             {" "}{verb()}
           </p>
           <div className="feed-aside">
-            {/* A recommendation isn't an event, so it has no meaningful "when". */}
-            {it.kind !== "recommendation" && <time className="feed-time">{relTime(it.at)}</time>}
+            {/* A recommendation isn't an event, so it has no meaningful "when" —
+                instead it gets a "Not interested" X to hide it. */}
+            {it.kind === "recommendation" ? (
+              <button
+                type="button" className="feed-dismiss"
+                aria-label={`Not interested in ${it.target.name || "this site"}`}
+                title="Not interested"
+                onClick={() => store.dismissRecommendation(it.target)}
+              >
+                <CloseIcon size={16} />
+              </button>
+            ) : (
+              <time className="feed-time">{relTime(it.at)}</time>
+            )}
             {!yours && <FollowSite site={it.target} store={store} />}
           </div>
         </div>
         {/* Your own site's preview is redundant — you know what it looks like. */}
         {!yours && <SitePreview site={it.target} />}
         {showQuote && (quotePath
-          ? <Link className="feed-quote" to={`${quotePath}#comment-${it.id}`}>{it.body}</Link>
-          : <p className="feed-quote">{it.body}</p>)}
+          ? <Link className="feed-quote" to={`${quotePath}#comment-${it.id}`}><CommentBody text={it.body!} /></Link>
+          : <div className="feed-quote"><CommentBody text={it.body!} /></div>)}
       </div>
     </article>
   );

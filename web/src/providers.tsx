@@ -68,7 +68,22 @@ export function useSearch(): SearchCtx {
 
 /* ---- toast (react-hot-toast) -------------------------------------------- */
 // The <Toaster/> lives in main.tsx; call sites stay `useToast()("Saved")`.
+// We give every toast a leading emoji, chosen from the message itself, so a
+// "Saved" reads ✅ and a failure reads ⚠️ — no call site has to pass an icon.
+
+const TOAST_EMOJI: [RegExp, string][] = [
+  [/couldn'?t|error|fail|try again|wrong|taken|too|can'?t/i, "⚠️"],
+  [/photo|image/i, "📸"],
+  [/follow/i, "👋"],
+  [/hidden|not interested|won'?t show/i, "🙈"],
+  [/sav|updat|verif|done|linked|pinned/i, "✅"],
+];
+
+function toastEmoji(msg: string): string {
+  for (const [re, emoji] of TOAST_EMOJI) if (re.test(msg)) return emoji;
+  return "✨";
+}
 
 export function useToast(): (msg: string) => void {
-  return toast;
+  return useCallback((msg: string) => { toast(msg, { icon: toastEmoji(msg) }); }, []);
 }

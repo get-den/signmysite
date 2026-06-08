@@ -43,7 +43,7 @@ export type HomeStore = {
   analytics: Analytics | null;
   range: AnalyticsRange;
   setRange: (r: AnalyticsRange) => void;
-  // who to follow
+  // who to follow (already minus anyone you've said you're not interested in)
   recommended: Site[];
   // people who followed you that you don't follow back yet
   followBack: Follower[];
@@ -51,6 +51,9 @@ export type HomeStore = {
   followedIds: Set<string>;
   isFollowing: (id: string) => boolean;
   toggleFollow: (m: { id: string; name?: string | null; handle?: string | null }) => void;
+  // "Not interested" — hide a recommendation locally (remembered across reloads)
+  dismissRecommendation: (m: { id: string; name?: string | null }) => void;
+  isRecommendationHidden: (id: string) => boolean;
 };
 
 export function useHome(viewer: Member): HomeStore {
@@ -68,6 +71,9 @@ export function useHome(viewer: Member): HomeStore {
   const [recommended, setRecommended] = useState<Site[]>([]);
   const [followBack, setFollowBack] = useState<Follower[]>([]);
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+  // Recommendations the viewer has hidden via "Not interested" — kept in localStorage
+  // so they stay gone across reloads (a purely local preference, no server round-trip).
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(loadDismissed);
 
   // First page of the feed + the people you already follow (so read rows know
   // whether to offer "Follow back").
@@ -140,13 +146,35 @@ export function useHome(viewer: Member): HomeStore {
 
   const isFollowing = useCallback((id: string) => followedIds.has(id), [followedIds]);
 
+  const dismissRecommendation = useCallback((m: { id: string; name?: string | null }) => {
+    setDismissedIds((cur) => {
+      const next = new Set(cur).add(m.id);
+      saveDismissed(next);
+      return next;
+    });
+    toast(`Not interested in ${m.name || "that site"}`);
+  }, [toast]);
+
   return {
     viewer,
     items, digest, feedLoading, loadMore, loadingMore, done,
     analytics, range, setRange,
-    recommended, followBack,
+    recommended: recommended.filter((s) => !dismissedIds.has(s.id)),
+    followBack,
     followedIds, isFollowing, toggleFollow,
+    dismissRecommendation,
+    isRecommendationHidden: (id: string) => dismissedIds.has(id),
   };
+}
+
+// A hidden-recommendations set, persisted locally. Bad/missing storage just means
+// nothing is hidden — never a crash.
+const DISMISSED_KEY = "signmysite:recs-dismissed";
+function loadDismissed(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]")); } catch { return new Set(); }
+}
+function saveDismissed(ids: Set<string>): void {
+  try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids])); } catch { /* ignore */ }
 }
 
 /** While a linked site is unverified, re-check the viewer whenever the tab regains

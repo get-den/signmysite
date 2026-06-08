@@ -53,6 +53,10 @@
   try { previewGuest = new URL(location.href).searchParams.get("signmysite_preview") === "1"; } catch (_) {}
 
   var host, card, ui, busy = false, viewed = false, isOwner = false;
+  // The server-served public demo (demo.ts) sets card.demo. There's no real record
+  // behind it, so in demo mode every internal link/action returns the visitor to the
+  // page instead of opening a dead signmysite route — see demoBounce(). Set in load().
+  var inDemo = false;
   // Engaged-time tracking for this page: engagedMs accumulates visible time, and
   // visibleSince marks the start of the current visible span (0 while hidden).
   var engagedMs = 0, visibleSince = 0;
@@ -109,6 +113,16 @@
     document.addEventListener("click", function (e) {
       if (ui.wrap.classList.contains("open") && e.composedPath && e.composedPath().indexOf(host) === -1) open(false);
     });
+    // Demo mode: comments, the name/avatar and the social rows all link to a signmysite
+    // profile that, for the demo, has no real record behind it. Intercept those clicks
+    // and return to the page instead of opening a dead route. Real pins (other people's
+    // sites, on their own origin) aren't internal links, so they fall through and open.
+    root.addEventListener("click", function (e) {
+      if (!inDemo || !e.composedPath) return;
+      var p = e.composedPath(), a = null;
+      for (var i = 0; i < p.length && p[i] !== host; i++) { if (p[i].tagName === "A") { a = p[i]; break; } }
+      if (a && a.href && a.href.lastIndexOf(cfg.api, 0) === 0) { e.preventDefault(); demoBounce(); }
+    }, true);
     window.addEventListener("message", function (e) {
       if (e.data && e.data.signmysite === "signed-in") {
         store(tokenKey, e.data.token || "");
@@ -145,6 +159,7 @@
       } catch (_) { return fail(); }
     }
     cfg.id = (card.profile && card.profile.id) || cfg.id;
+    inDemo = !!card.demo;
     // Preview mode: render exactly what a signed-out guest sees, without touching
     // the real session/token (so closing the preview tab leaves you signed in).
     if (previewGuest) card.viewer = null;
@@ -204,6 +219,7 @@
   // always gives instant feedback, then reconcile with the server — reverting if
   // the request fails.
   async function act(path, flag) {
+    if (inDemo) return demoBounce();
     if (busy || !cfg.id || !card) return;
     // Signed out → remember the intent and authenticate first (no optimistic
     // flip we'd just have to revert). resumePending() replays it after sign-in.
@@ -251,6 +267,7 @@
   //    tab), where they pick public/private and sign in to send.
   // With no text yet, the same key just opens the emoji tray.
   function submit() {
+    if (inDemo) return demoBounce();
     var text = ui.input.value.trim();
     if (!text) return toggleTray();
     if (authed()) return postNote(text, isPrivate);
@@ -264,6 +281,7 @@
   //    so a popup blocker can't eat it). That page posts the reaction as them
   //    once they have a session — so it shows their name, never "Someone".
   function react(emoji) {
+    if (inDemo) return demoBounce();
     if (busy || !cfg.id) return;
     toggleTray(false);
     if (authed()) return postReaction(emoji);
@@ -863,6 +881,7 @@
   }
 
   function signIn() {
+    if (inDemo) return demoBounce();
     // "_blank", never a persistent window name: on mobile the auth tab often can't
     // close itself, and a named target would just re-aim that stale background tab —
     // so a second tap looked like it did nothing. A fresh tab each time always shows.
@@ -887,6 +906,11 @@
   function openTab(url) {
     window.open(url, "_blank", "noopener");
   }
+  // The demo's "navigate back to the site": the card's links and actions point at
+  // signmysite profiles/routes that have no real record behind them in the demo, so
+  // rather than open a broken page we simply dismiss the card — returning the visitor to
+  // the page they're on. Used by every action guard + the internal-link interceptor.
+  function demoBounce() { toggleTray(false); open(false); }
   // Owner preview: reopen THIS page with ?signmysite_preview=1 so the widget renders the
   // signed-out, guest version (see previewGuest). New tab, current session intact.
   function openPreview() {

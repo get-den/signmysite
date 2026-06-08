@@ -7,7 +7,7 @@ export function Footer() {
     <footer className="foot">
       <span className="foot-brand">signmysite</span>
       <nav className="foot-links">
-        <Link to="/verify">Add my site</Link>
+        <Link to="/verify">Add to my site</Link>
         <a href="/widget/demo.html">Demo</a>
         <a href="/skill.md">For agents</a>
       </nav>
