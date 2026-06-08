@@ -490,30 +490,51 @@
     ui.pins.append(facepile(items, owner ? n + " site" + s + " " + owner + " loves" : n + " pinned site" + s, profileUrl(p)));
   }
 
-  // Social proof, built from the same facepile: who notable follows this site
-  // ("Followed by …"), and — for a signed-in visitor — which of those people the
-  // viewer already follows ("… you follow"). Only on someone else's card (the
-  // owner gets analytics). The server ranks fame (manual prominence flag, then
-  // page views), so the recognizable faces lead.
+  // Social proof: who notable follows this site ("Followed by …"), leading with the
+  // signed-in viewer's mutuals when there are any. Only on someone else's card (the
+  // owner gets analytics). The server ranks fame (manual prominence flag, then page
+  // views), so the recognizable faces lead. Unlike the pins stack, this row is NOT a
+  // single link — each avatar and name links to that person (see socialProof).
   function paintSocial() {
     if (!ui.social) return;
     ui.social.textContent = "";
     if (!card || isOwner) { ui.social.hidden = true; return; }
-    var href = profileUrl(card.profile || {});
     var fb = card.followedBy || { faces: [], total: 0 };
     var mu = card.mutuals || { faces: [], total: 0 };
-    // Only ONE row — the highest-priority signal: a signed-in viewer's mutuals
-    // ("people you follow") when there are any, otherwise the notable "Followed by"
-    // pile. Mutuals lead with ONE name so "you follow" survives truncation.
-    if (mu.faces && mu.faces.length) ui.social.append(facepile(mu.faces, nameList(mu.faces, mu.total, 1) + " you follow", href));
-    else if (fb.faces && fb.faces.length) ui.social.append(facepile(fb.faces, "Followed by " + nameList(fb.faces, fb.total, 2), href));
-    ui.social.hidden = !ui.social.children.length;
+    // Lead with the viewer's mutuals ("people you follow") when there are any,
+    // otherwise the notable "Followed by" pile. The count is the full follower
+    // total, so it reads "Followed by <names> and N more".
+    var faces = (mu.faces && mu.faces.length) ? mu.faces : (fb.faces || []);
+    if (!faces.length) { ui.social.hidden = true; return; }
+    ui.social.append(socialProof(faces, fb.total || faces.length));
+    ui.social.hidden = false;
   }
-  // "Maggie Appleton, Dan Abramov +5" — up to `max` names, then a "+N" remainder.
-  function nameList(faces, total, max) {
-    var named = faces.slice(0, max).map(function (p) { return p.name || p.handle || "Someone"; });
+
+  // "Followed by <name>, <name> and N more". No whole-row link or hover background:
+  // each avatar and each name is its OWN link to that person, so the row reads as a
+  // sentence and spans the full card width. Names underline on hover. In demo mode
+  // the global click handler bounces these like any other signmysite link.
+  function socialProof(faces, total) {
+    var row = node("div", "social-proof");
+    var pile = node("span", "sp-faces");
+    faces.slice(0, 3).forEach(function (p) { var a = personLink("sp-face", p); avatar(a, p); pile.append(a); });
+    var label = node("span", "sp-label");
+    label.append(document.createTextNode("Followed by "));
+    var named = faces.slice(0, 2);
+    named.forEach(function (p, i) {
+      if (i) label.append(document.createTextNode(", "));
+      label.append(personLink("sp-name", p, p.name || p.handle || "Someone"));
+    });
     var rest = Math.max(0, (total || named.length) - named.length);
-    return named.join(", ") + (rest ? " +" + rest : "");
+    if (rest) label.append(document.createTextNode(" and " + compact(rest) + " more"));
+    row.append(pile, label);
+    return row;
+  }
+  // A new-tab link to one person's signmysite profile (each face + each name).
+  function personLink(cls, p, text) {
+    var a = pinAnchor(cls, profileUrl(p));
+    if (text != null) a.textContent = text;
+    return a;
   }
 
   // thumbs: a vertical stack of site previews, each a labeled doorway straight to
@@ -1163,6 +1184,13 @@
       '.pin-faces{display:flex;align-items:center;flex:0 0 auto}' +
       '.pin-face{width:30px;height:30px;border-radius:50%;margin-right:-10px;border:2px solid var(--bg);background:#fff center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 12px/1 var(--ff)}.pin-face:last-child{margin-right:0}' +
       '.facepile-label{flex:1;min-width:0;font:600 14px/1.25 var(--ff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      // Social proof row: full-width (no padding), no whole-row hover/link. Each
+      // avatar (.sp-face) and name (.sp-name) is its own link to that person.
+      '.social-proof{display:flex;align-items:center;gap:12px}' +
+      '.sp-faces{display:flex;align-items:center;flex:0 0 auto}' +
+      '.sp-face{width:30px;height:30px;border-radius:50%;margin-right:-10px;border:2px solid var(--bg);background:#fff center/cover no-repeat;display:grid;place-items:center;color:#111;font:600 12px/1 var(--ff);text-decoration:none}.sp-face:last-child{margin-right:0}' +
+      '.sp-label{flex:1;min-width:0;font:600 14px/1.25 var(--ff);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.sp-name{color:inherit;text-decoration:none}.sp-name:hover{text-decoration:underline}' +
       // thumbs: a vertical list of site previews, each a doorway.
       '.pins.thumbs{display:grid;gap:12px}' +
       '.pin-thumb{display:block;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--bg);transition:box-shadow .15s ease,transform .15s ease}.pin-thumb:hover{box-shadow:0 12px 30px rgba(0,0,0,.10);transform:translateY(-2px)}' +
@@ -1218,7 +1246,7 @@
       '.act{color:var(--muted)}.react-emoji{font-size:1.25em;line-height:1;vertical-align:-.12em}.note-time{margin-left:6px;color:var(--muted);font-size:14px;white-space:nowrap}' +
       // Clamp a long comment to a few lines so one note can't dominate the card —
       // the row links through to the full comment on the profile.
-      '.note p{margin:3px 0 0;font-size:15px;color:var(--ink);opacity:.8;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}' +
+      '.note p{margin:3px 0 0;font-size:15px;color:var(--ink);opacity:.8;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}' +
       '.badge{margin-left:7px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;color:var(--muted)}.empty{color:var(--muted);font-size:14px}.see-all{justify-self:start;display:inline-flex;align-items:center;gap:5px;min-height:38px;margin-top:2px;padding:0 8px;color:var(--muted);text-decoration:none;font:600 14px/1 var(--ff)}.see-all::after{content:"→"}.see-all:hover{color:var(--ink);text-decoration:none}' +
       '.status{color:var(--muted);font-size:13px;margin-top:10px;overflow-wrap:anywhere}.status:empty{display:none}' +
       '.composer{display:flex;align-items:center;gap:4px;margin-top:24px;padding:6px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:0 10px 36px rgba(0,0,0,.07);transition:box-shadow .15s ease}.composer:focus-within{box-shadow:0 0 0 3px rgba(0,0,0,.05),0 10px 36px rgba(0,0,0,.07)}.composer[hidden]{display:none}' +
