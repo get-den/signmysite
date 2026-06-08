@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Maya's site — signmysite widget demo</title>
+  <title>Molly</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
            max-width: 620px; margin: 80px auto; padding: 0 20px; line-height: 1.6; color: #111; }
@@ -11,13 +11,22 @@
     .muted { color: #777; }
     .art { width: 100%; height: 260px; border-radius: 12px; margin: 24px 0;
            background: linear-gradient(135deg,#e9f0ff,#fce9f3); }
-    .note { margin-top: 60px; padding: 14px 16px; background: #f7f7f8; border-radius: 12px;
-            font-size: 14px; color: #555; }
-    code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+    /* A one-time nudge toward the widget badge in the bottom-right. Dismissed on click. */
+    #sms-hint { position: fixed; right: 26px; bottom: 98px; z-index: 2147482000;
+      max-width: 234px; background: #111; color: #fff; padding: 12px 15px; border-radius: 14px;
+      font: 500 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      box-shadow: 0 14px 44px rgba(0,0,0,.24); cursor: pointer;
+      opacity: 0; transform: translateY(8px); transition: opacity .3s ease, transform .3s ease; }
+    #sms-hint.in { opacity: 1; transform: translateY(0); animation: sms-bob 1.9s ease-in-out .4s infinite; }
+    #sms-hint.out { opacity: 0; transform: translateY(8px); pointer-events: none; animation: none; }
+    #sms-hint::after { content: ""; position: absolute; right: 22px; bottom: -6px; width: 14px; height: 14px;
+      background: #111; transform: rotate(45deg); border-radius: 0 0 3px 0; }
+    @keyframes sms-bob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
+    @media (prefers-reduced-motion: reduce) { #sms-hint.in { animation: none } }
   </style>
 </head>
 <body>
-  <h1>maya 🦕</h1>
+  <h1>molly 🦕</h1>
   <p class="muted">13. i draw dinosaurs and build little games.</p>
 
   <p>this is my corner of the internet. lately i've been drawing the stegosaurus
@@ -25,15 +34,9 @@
 
   <div class="art"></div>
 
-  <p>more soon. — m</p>
+  <p>more soon, m</p>
 
-  <div class="note">
-    👉 The floating badge in the bottom-right is the signmysite widget — and the line
-    below is <em>everything</em> a site adds, on any platform. The member id
-    rides in the URL (<code>/w/&lt;id&gt;.js</code>); identity and live counts
-    come from the signmysite API. No hosted file required, so it works even where you
-    can't upload one (Squarespace, Wix).
-  </div>
+  <div id="sms-hint">👋 This is the signmysite widget. Give it a try.</div>
 
   <script>
     const params = new URLSearchParams(location.search);
@@ -44,6 +47,24 @@
     // ?pins=stack|thumbs|ring — preview each pinned-sites presentation.
     if (params.has("pins")) tag.dataset.pins = params.get("pins");
     document.body.append(tag);
+
+    // Point first-time visitors at the widget badge, then get out of the way: the hint
+    // disappears as soon as you click it (or tap the widget itself).
+    let hint = document.getElementById("sms-hint");
+    const dismissHint = () => {
+      if (!hint) return;
+      const el = hint; hint = null;
+      el.classList.replace("in", "out");
+      setTimeout(() => el.remove(), 320);
+    };
+    setTimeout(() => hint && hint.classList.add("in"), 900); // reveal once the badge has rendered
+    hint.addEventListener("click", dismissHint);
+    // Tapping the widget itself (it lives in a shadow root) also counts as "found it".
+    document.addEventListener("click", (e) => {
+      if (!hint) return;
+      const path = e.composedPath ? e.composedPath() : [];
+      if (path.some((n) => n.nodeType === 1 && n.hasAttribute && n.hasAttribute("data-signmysite-widget"))) dismissHint();
+    }, true);
   </script>
 </body>
 </html>

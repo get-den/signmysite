@@ -1,14 +1,14 @@
 /*
- * The public demo — "Maya's site", the page the widget tag on /widget/demo.html loads
+ * The public demo — "Molly's site", the page the widget tag on /widget/demo.html loads
  * (/w/7f3a9c2e8b1d4f6a.js).
  *
  * It's a fixed, hand-built fixture rather than database rows, for two reasons: the demo
  * then looks IDENTICAL everywhere — local and prod, with no seed step — and it can never
- * depend on data production doesn't have. The card mirrors what the dev seed
- * (server/seed.ts) builds for Maya — the same roster, pins, followers and notes — so the
- * seeded local graph and this fixture never drift in feel.
+ * depend on data production doesn't have. The card mirrors the shape of the dev seed's
+ * graph (server/seed.ts) — a real roster, pins, followers and notes — so the demo always
+ * reads like the genuine web, not mockups.
  *
- * Because there's no real Maya record behind it, the card is flagged `demo: true`, which
+ * Because there's no real Molly record behind it, the card is flagged `demo: true`, which
  * tells the widget to render in click-safe demo mode: every internal link or action just
  * returns the visitor to the page, instead of opening a signmysite profile/route that has
  * nothing behind it. See widget.js (demoBounce). Real pins (other people's sites) still
@@ -17,7 +17,7 @@
 import { BASE } from "./config.ts";
 import { favicon, siteCard, initialsAvatar } from "./curated.ts";
 
-// Maya's well-known id — the one /widget/demo.html embeds.
+// The demo site's well-known id — the one /widget/demo.html embeds.
 export const DEMO_ID = "signmysite:7f3a9c2e8b1d4f6a";
 export const isDemo = (id: string): boolean => id === DEMO_ID;
 
@@ -25,7 +25,7 @@ const hoursAgo = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
 
 type Person = { id: string; handle: string; name: string; url: string; avatar: string; thumbnail?: string };
 
-// The (real) personal sites Maya's card references — her pins, her commenters, and the
+// The (real) personal sites Molly's card references — her pins and the
 // notable people who follow her. Avatars are the sites' favicons (a real photo for PG),
 // thumbnails are their real og:images — exactly the sources the seed uses, so the demo
 // is the genuine web, not mockups.
@@ -43,26 +43,33 @@ const P: Record<string, Person> = {
 // The compact identity shape the widget's facepiles + comment authors expect.
 const face = (p: Person) => ({ id: p.id, name: p.name, handle: p.handle, avatar: p.avatar, url: p.url });
 
+// A fictional visitor who left a note on the demo — no real site, just an initials avatar
+// (palette index varies the color). Same shape as face().
+const commenter = (id: string, name: string, handle: string, palette: number) =>
+  ({ id, name, handle, avatar: initialsAvatar(name, palette), url: null as string | null });
+
 // The exact payload GET /api/profile/:id/card returns for a guest — so the demo widget's
 // single fetch behaves identically on prod and local. Timestamps are computed per request
 // so the activity always reads as recent ("2h", "5h"), never going stale.
 export function demoCard() {
   return {
     profile: {
-      id: DEMO_ID, handle: "maya", name: "Maya Chen", url: "https://maya.example",
-      avatar: initialsAvatar("Maya Chen", 1), links: [] as string[],
-      views: 2650, thumbnail: siteCard("Maya Chen", 1), lastEdited: hoursAgo(30),
+      id: DEMO_ID, handle: "molly", name: "Molly", url: "https://molly.example",
+      avatar: initialsAvatar("Molly", 1), links: [] as string[],
+      views: 2650, thumbnail: siteCard("Molly", 1), lastEdited: hoursAgo(30),
     },
     stats: { views: 2650, followers: 8, following: 6, saved: 2, pinned: 3, viewerFollows: false, viewerSaved: false, viewerPinned: false },
     viewer: null,
     auth: null,
     demo: true, // render in click-safe demo mode (see widget.js)
-    // Notes left ON Maya's site (newest is shown first by the widget).
+    // Notes left ON Molly's site (newest is shown first by the widget). The bare-emoji
+    // one renders as a reaction ("Linus T reacted with 🔥"), never a text line.
     comments: [
-      { id: "c_demo_0", body: "your dinosaurs are wonderful. keep going!", visibility: "public", created: hoursAgo(5), redacted: false, author: face(P.maggie) },
-      { id: "c_demo_1", body: "the lava-jump game is genuinely hard, i love it.", visibility: "public", created: hoursAgo(2), redacted: false, author: face(P.lynn) },
+      { id: "c_demo_0", body: "the stegosaurus came out so good.", visibility: "public", created: hoursAgo(6), redacted: false, author: commenter("signmysite:3a1f0c9d8e7b6005", "Tao M", "tao", 3) },
+      { id: "c_demo_1", body: "🔥", visibility: "public", created: hoursAgo(3), redacted: false, author: commenter("signmysite:4b2e1d8c7f6a5106", "Linus T", "linus", 5) },
+      { id: "c_demo_2", body: "the lava-jump game is way too addictive.", visibility: "public", created: hoursAgo(1), redacted: false, author: commenter("signmysite:5c3f2e9d8a7b6207", "Lily C", "lily", 2) },
     ],
-    // Maya's pinned webring (maggie · josh · lynn), each with her own note bubble.
+    // Molly's pinned webring (maggie · josh · lynn), each with her own note bubble.
     pinned: [
       { ...face(P.maggie), thumbnail: P.maggie.thumbnail, notes: [{ id: "n_demo_0", body: "her illustrated essays made me start sketching my own ideas.", created: hoursAgo(31) }] },
       { ...face(P.josh), thumbnail: P.josh.thumbnail, notes: [{ id: "n_demo_1", body: "the little animations taught me so much.", created: hoursAgo(1) }] },
