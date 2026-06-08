@@ -120,7 +120,7 @@ export function WidgetInstall({
   onCopied?: () => void;
   className?: string;
 }) {
-  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^signmysite:/, "")}.js" data-ui="card"></script>`;
+  const tag = `<script src="${location.origin}/w/${viewer.id.replace(/^signmysite:/, "")}.js"></script>`;
   const { copied, copy } = useCopy(tag);
   return (
     <div className={("widget-install " + className).trim()}>

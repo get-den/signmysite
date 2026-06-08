@@ -9,13 +9,12 @@ You keep your site. You add one line:
 <script src="https://signmysite.com/w.js"></script>
 ```
 
-By default it renders nothing — a quiet presence and analytics layer: you show up
-in everyone's graph, people can follow you from signmysite, and you see who's
-reading. Want a visible badge people can open to follow and leave comments? Add
-`data-ui="card"`:
+A small widget appears in the corner: visitors can follow you and leave comments,
+and you show up in everyone's graph and see who's reading. Want no visible widget —
+just network presence and analytics? Add `data-ui="none"`:
 
 ```html
-<script src="https://signmysite.com/w/YOUR_ID.js" data-ui="card"></script>
+<script src="https://signmysite.com/w/YOUR_ID.js" data-ui="none"></script>
 ```
 
 The generic tag is the safest bootstrap for local/preview installs. After you

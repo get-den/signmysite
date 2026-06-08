@@ -39,7 +39,6 @@
     const params = new URLSearchParams(location.search);
     const tag = document.createElement("script");
     tag.src = "/w/7f3a9c2e8b1d4f6a.js";
-    tag.dataset.ui = "card"; // this is the widget demo — show the visible card (headless is the default elsewhere)
     if (params.has("launcher")) tag.dataset.launcher = params.get("launcher");
     if (params.has("collapsed")) tag.dataset.collapsed = params.get("collapsed");
     // ?pins=stack|thumbs|ring — preview each pinned-sites presentation.

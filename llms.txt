@@ -6,8 +6,8 @@ Do these steps. This file is enough on its own.
 
 ## What you create
 
-ONE file at the site root: `me.json`. Plus ONE script tag (headless by default —
-it renders nothing; add data-ui="card" to show the visible card).
+ONE file at the site root: `me.json`. Plus ONE script tag. It shows a small widget
+by default; add data-ui="none" to render nothing (presence + analytics only).
 
 Minimal valid me.json:
 
@@ -50,8 +50,8 @@ Recommended me.json:
 3. Write `me.json` at the site root with that id (fill in name; add avatar/links
    if you know them).
 4. Add the tag to the HTML, once, before </body>. Use the id from step 2 (drop
-   the `signmysite:` prefix). It is headless by default — a presence + analytics
-   beacon, no UI; add data-ui="card" for the visible card:
+   the `signmysite:` prefix). It shows the widget by default; add data-ui="none"
+   to render nothing (presence + analytics only):
 
        <script src="https://signmysite.com/w/<id>.js"></script>
 

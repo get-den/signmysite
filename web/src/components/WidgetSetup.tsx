@@ -57,7 +57,7 @@ export function WidgetSetup({ viewer, onVerified, onSkip }: { viewer: Member; on
   const idShort = viewer.id.replace(/^signmysite:/, "");
   const agentPrompt =
     `Add the signmysite widget to my website. Paste this exact line just before the closing </body> tag, then deploy:\n\n` +
-    `<script src="${location.origin}/w/${idShort}.js" data-ui="card"></script>\n\n` +
+    `<script src="${location.origin}/w/${idShort}.js"></script>\n\n` +
     `It's a single lightweight line that shows who's reading my site. Nothing else needs to change.`;
   const { copied: promptCopied, copy: copyPrompt } = useCopy(agentPrompt);
 
