@@ -61,6 +61,13 @@ export type Curated = {
 const SHOT = (url: string): string =>
   `https://image.thum.io/get/width/1200/crop/630/noanimate/${url}`;
 
+// A live screenshot via WordPress's mShots — the fallback for sites that expose no
+// og:image and that thum.io can't capture (old http pages, JS-rendered sites). It's
+// browser-loaded, so it gets a real user-agent and renders where thum.io 403s/blanks,
+// then caches server-side. A truer preview than a generated card.
+const MSHOT = (url: string): string =>
+  `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?w=1200&h=630`;
+
 // A real, stable, cacheable profile photo via GitHub — better than a site favicon for an
 // individual. Everyone in the set below has a real photo of their face: GitHub for the
 // builders, Wikimedia for the public figures, and a couple we self-host.
@@ -157,10 +164,11 @@ export const CURATED: Curated[] = [
   },
   {
     id: "signmysite:1a2b3c4d5e6f7a8b", handle: "christinacacioppo", name: "Christina Cacioppo", url: "https://www.christinacacioppo.com",
-    // Minimal site: no og:image, screenshots blank, no favicon — so a self-hosted photo
-    // for the face + a clean generated card for the preview. (When she signs up + verifies
-    // the site, claimPlaceholderByUrl folds this placeholder into her real account.)
-    avatar: seedPhoto("christina.jpg"), thumbnail: siteCard("Christina Cacioppo", 6),
+    // Minimal site: no og:image, no favicon — so a self-hosted photo for the face and an
+    // mShots screenshot for the preview (thum.io blanks it; mShots renders her page).
+    // (When she signs up + verifies the site, claimPlaceholderByUrl folds this placeholder
+    // into her real account.)
+    avatar: seedPhoto("christina.jpg"), thumbnail: MSHOT("https://www.christinacacioppo.com"),
     reason: "First-principles essays on building companies and hiring, from Vanta's founder.",
   },
   {
@@ -185,9 +193,9 @@ export const CURATED: Curated[] = [
   },
   {
     id: "signmysite:7a8b9cadbecfd0e1", handle: "richardsutton", name: "Richard Sutton", url: "http://incompleteideas.net",
-    // Old http site that screenshots as a thum.io error, no og:image/favicon — real face
-    // photo from Wikimedia + a clean generated card for the preview.
-    avatar: wiki("4/4b/SD_2025_-_Richard_Sutton_01_%28cropped%29.jpg"), thumbnail: siteCard("Richard Sutton", 5),
+    // Old http site with no og:image that thum.io errors on — real face photo from
+    // Wikimedia + an mShots screenshot of the page for the preview.
+    avatar: wiki("4/4b/SD_2025_-_Richard_Sutton_01_%28cropped%29.jpg"), thumbnail: MSHOT("http://incompleteideas.net"),
     reason: "The father of reinforcement learning, and home of 'The Bitter Lesson'.",
   },
   {
@@ -200,9 +208,8 @@ export const CURATED: Curated[] = [
   {
     id: "signmysite:9cadbecfd0e1f203", handle: "marginalrev", name: "Marginal Revolution", url: "https://marginalrevolution.com",
     avatar: wiki("9/97/Tyler_Cowen_1.jpg"), // Tyler Cowen, who writes it with Alex Tabarrok
-    // thum.io returns its "not authorized" error card for MR, so use a clean generated
-    // card for the preview (same fallback as Richard Sutton above).
-    thumbnail: siteCard("Marginal Revolution", 3),
+    // thum.io returns its "not authorized" card for MR, so use the site's own og:image.
+    thumbnail: "https://marginalrevolution.com/wp-content/uploads/2016/10/MR-logo-thumbnail.png",
     reason: "A daily stream of writing on economics, books, and culture, by Tyler Cowen.",
   },
 ];
