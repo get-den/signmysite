@@ -311,28 +311,6 @@ b, strong { font-weight: var(--w-semibold); }
   background: linear-gradient(150deg, #ffd6e0, #fff3f6);
 }
 
-.land-signup { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 460px; }
-
-.signup-handle-wrap { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-.signup-handle {
-  flex: 1; min-width: 0; display: flex; align-items: center;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface); padding: 0 8px 0 14px;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
-.signup-handle:focus-within { box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
-.signup-handle.bad { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(234,76,137,.11); }
-.signup-prefix { color: var(--faint); font-size: 16px; white-space: nowrap; }
-.signup-handle input {
-  flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink);
-  font: var(--w-semibold) 16px/1 'Sohne', system-ui, sans-serif; padding: 14px 6px;
-}
-.signup-handle input::placeholder { color: var(--faint); }
-.signup-tick { flex: 0 0 auto; width: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: var(--faint); }
-.signup-handle.ok .signup-tick, .signup-msg.ok { color: #1ca672; }
-.signup-handle.bad .signup-tick, .signup-msg.bad { color: var(--accent); }
-.signup-msg { min-height: 18px; color: var(--muted); font-size: 14px; }
-
 /* The dedicated /auth sign-in page: focused form left, brand panel right. */
 .auth {
   display: grid;

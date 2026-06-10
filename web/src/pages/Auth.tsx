@@ -2,7 +2,6 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewer } from "../providers";
 import { IconButton, Loading } from "../ui";
 import { SignIn } from "../components/SignIn";
-import { SignupHandleField } from "../components/SignupHandleField";
 import { ProfileMock } from "../components/ProfileMock";
 
 /**
@@ -27,10 +26,8 @@ export function Auth() {
       <div className="auth-form">
         <IconButton icon="back" className="auth-back" onClick={() => navigate(backPath(ret))} />
         <h1 className="auth-title">Join signmysite</h1>
-        <p className="auth-sub">Pick a username, then continue with Google or email.</p>
-        <SignupHandleField />
+        <p className="auth-sub">Continue with Google or email.</p>
         <SignIn returnTo={ret} />
-        <p className="auth-fine">We'll email you a link, no password needed.</p>
       </div>
       <aside className="auth-art" aria-hidden="true">
         <ProfileMock />
