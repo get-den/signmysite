@@ -413,8 +413,9 @@ a.feed-quote:hover { filter: brightness(0.96); }
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
-/* The profile comment list clamps tighter (2 lines); the feed and elsewhere use 3. */
-.pcomments .cmt-body { -webkit-line-clamp: 2; }
+/* The profile comment list and the main feed both clamp to 2 lines; 3 is the default
+   anywhere else. */
+.pcomments .cmt-body, .feed-quote .cmt-body { -webkit-line-clamp: 2; }
 .cmt-body.is-expanded {
   display: block;
   overflow: visible;
