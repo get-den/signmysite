@@ -1,4 +1,4 @@
-import { DemoLink, Faces, JoinLink, PEOPLE } from "./shared";
+import { CopyCta, Faces, PEOPLE } from "./shared";
 
 /**
  * Variant 4 — three steps. The hero is the mechanism: paste, get signed, get
@@ -36,10 +36,7 @@ export function V4() {
           <p>Yours joins a web of personal sites you can wander.</p>
         </li>
       </ol>
-      <div className="lv-cta-row">
-        <JoinLink>Start free</JoinLink>
-        <DemoLink />
-      </div>
+      <CopyCta />
     </div>
   );
 }

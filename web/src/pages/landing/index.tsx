@@ -1,12 +1,15 @@
 /*
- * The signed-out landing, currently running a pick-one experiment: ten alternate
- * takes living beside today's page. Plain visitors always get the classic landing.
- * Opening signmysite.com/#/?v=3 shows variant 3 plus a small switcher (click a
- * number, or use the arrow keys) for flipping through all of them. Once a winner
- * is picked: promote it to the default here, delete the losers and the switcher.
+ * The signed-out landing, currently an A/B test: a plain visitor is randomly,
+ * stickily assigned one of the ARMS (see ab.ts) and their view time + CTA clicks
+ * are recorded anonymously — results on /admin. Opening signmysite.com/?v=3 (or
+ * the hash form #/?v=3) instead forces variant 3 and shows a small switcher
+ * (click a number, or use the arrow keys) for flipping through all eleven takes;
+ * forced views record nothing. Once a winner is picked: promote it to the
+ * default here, delete the losers, the switcher, and ab.ts.
  */
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useSearchParams } from "react-router-dom";
+import { assignedArm, beginView } from "./ab";
 import { Classic } from "./Classic";
 import { V1 } from "./V1";
 import { V2 } from "./V2";
@@ -39,8 +42,16 @@ export function Landing() {
   // type) or the hash-router form signmysite.com/#/?v=3 the switcher writes.
   const raw = params.get("v") ?? new URLSearchParams(location.search).get("v");
   const n = raw === null ? NaN : Math.floor(Number(raw));
-  const active = Number.isFinite(n) && n >= 0 && n < VARIANTS.length ? n : 0;
+  const forced = Number.isFinite(n) && n >= 0 && n < VARIANTS.length ? n : null;
   const browsing = raw !== null; // the switcher exists only for whoever typed ?v=
+  const [arm] = useState(assignedArm); // the sticky random assignment
+  const active = forced ?? arm;
+
+  // The experiment: record exposure, visible time, and (via trackClick) the CTA
+  // clicks — but only for genuine assigned views, never while browsing with ?v=.
+  useEffect(() => {
+    if (!browsing) return beginView(active);
+  }, [browsing, active]);
 
   const pick = (i: number) => setParams({ v: String(i) }, { replace: true });
 

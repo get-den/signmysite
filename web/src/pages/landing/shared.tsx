@@ -4,8 +4,10 @@
  * the genuine web), and the small CTA atoms every variant composes. When a winning
  * variant is chosen, fold what it uses into Landing and delete the rest.
  */
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { authUrl } from "../../lib";
+import { Button, CheckIcon, CopyIcon, useCopy } from "../../ui";
+import { trackClick } from "./ab";
 
 /** The one-line install, with a literal "you" until there's an account behind it. */
 export const SCRIPT_TAG = `<script src="${location.origin}/w/you.js"></script>`;
@@ -63,6 +65,36 @@ export function JoinLink({ children, onClick }: { children: string; onClick?: ()
     <a className="btn pink lg" href={authUrl("/")} onClick={onClick}>
       {children}
     </a>
+  );
+}
+
+/**
+ * The experiment CTA (variants 2 / 4 / 7): the pulsing Copy of the install line,
+ * a quiet Sign in beside it. Copying reveals a one-line "what you just got" hint.
+ * Both report to the experiment (see ab.ts) — no-ops while browsing via ?v=.
+ */
+export function CopyCta() {
+  const { copied, copy } = useCopy(SCRIPT_TAG);
+  const [hinted, setHinted] = useState(false);
+  return (
+    <div className="lv-cta-col">
+      <div className="lv-cta-row">
+        <Button
+          className={"pink lg copy-prompt" + (copied ? " is-copied" : "")}
+          title={SCRIPT_TAG}
+          onClick={() => { copy(); setHinted(true); trackClick("copy"); }}
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+        <a className="btn lg" href={authUrl("/")} onClick={() => trackClick("signin")}>Sign in</a>
+      </div>
+      {hinted && (
+        <p className="lv-fine slide-down">
+          That's your install line. Paste it before &lt;/body&gt;, and sign in to make it yours.
+        </p>
+      )}
+    </div>
   );
 }
 

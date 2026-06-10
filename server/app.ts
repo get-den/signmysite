@@ -658,6 +658,28 @@ app.post("/api/profile/:id/view", async (c) => {
   return c.json({ views });
 });
 
+// The landing experiment's event sink (see web/src/pages/landing/ab.ts). Rides
+// sendBeacon like the view ping above, so: header-free POST, body parsed as text.
+// Anonymous by design — a random per-browser id, no cookies, no viewer lookup.
+const LANDING_EVENTS = new Set(["view", "dwell", "copy", "signin"]);
+app.post("/api/landing-event", async (c) => {
+  const b = await beaconBody(c);
+  const vid = String(b?.vid || "").slice(0, 64);
+  const view = String(b?.view || "").slice(0, 64);
+  const variant = Number(b?.variant);
+  const event = String(b?.event || "");
+  if (!vid || !view || !LANDING_EVENTS.has(event) || !Number.isInteger(variant) || variant < 0 || variant > 99)
+    return c.json({ ok: false });
+  // Dwell is cumulative per pageview and capped like page-view durations, so a
+  // backgrounded tab can't report an absurd figure.
+  const ms = event === "dwell" && typeof b?.ms === "number" && b.ms > 0
+    ? Math.min(Math.round(b.ms), 6 * 3600 * 1000)
+    : null;
+  if (event === "dwell" && ms === null) return c.json({ ok: false });
+  await db.recordLandingEvent({ vid, view, variant, event, ms });
+  return c.json({ ok: true });
+});
+
 // Relational analytics — owner-only, your own site. Headline counts, the real
 // average engaged time, and the named signmysite members who've read you, each tagged
 // with whether you already follow them: the "people with signmysite sites visited you —
@@ -677,7 +699,8 @@ app.get("/admin", async (c) => {
   const viewer = await viewerOf(c);
   if (!viewer) return c.html(adminSignIn());
   if (!isAdmin(viewer)) return c.notFound();
-  return c.html(adminPage(await db.adminStats(), viewer.email!));
+  const [stats, landing] = await Promise.all([db.adminStats(), db.landingSummary()]);
+  return c.html(adminPage(stats, landing, viewer.email!));
 });
 
 function adminSignIn(): string {
@@ -689,10 +712,18 @@ function adminSignIn(): string {
     </div>`);
 }
 
+// Names for the landing experiment table — mirrors VARIANTS in
+// web/src/pages/landing/index.tsx (numbers, not an enum, so a drifted id still renders).
+const LANDING_NAMES: Record<number, string> = {
+  0: "Classic", 1: "The line", 2: "Live demo", 3: "The letter", 4: "Three steps",
+  5: "Guestbook", 6: "Before and after", 7: "The map", 8: "Plain answers",
+  9: "On your site", 10: "Fact sheet",
+};
+
 // The dashboard itself. All inputs are server-computed numbers and ISO date strings,
 // so the only untrusted value to escape is the signed-in admin's own email. Styling
 // reuses the shared theme tokens (theme.css), like the notify page.
-function adminPage(s: db.AdminStats, email: string): string {
+function adminPage(s: db.AdminStats, landing: db.LandingArm[], email: string): string {
   const n = (x: number) => x.toLocaleString("en-US");
   const pct = (x: number) => (s.users ? Math.round((x / s.users) * 100) : 0);
   const maxWeek = Math.max(1, ...s.perWeek.map((w) => w.count));
@@ -724,6 +755,29 @@ function adminPage(s: db.AdminStats, email: string): string {
   const col = (title: string, rows: string, empty: string) =>
     `<div class="acol"><h2 class="ah2">${title}</h2><div class="alist">${rows || `<p class="aempty">${empty}</p>`}</div></div>`;
 
+  // The landing experiment: one row per arm — exposure, mean visible time, the two
+  // CTA clicks, and click-through (either CTA / views). The current leader on CTR
+  // (ties broken by dwell) gets the accent dot.
+  const dur = (ms: number) => {
+    const sec = Math.round(ms / 1000);
+    return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  };
+  const ctr = (a: db.LandingArm) => (a.views ? a.clicked / a.views : 0);
+  const leader = landing.filter((a) => a.views > 0)
+    .sort((a, b) => ctr(b) - ctr(a) || b.avgDwellMs - a.avgDwellMs)[0];
+  const abRows = landing.map((a) => `<tr${a === leader ? ` class="ablead"` : ""}>
+      <td class="abname">${a === leader ? `<span class="abdot"></span>` : ""}v${a.variant} · ${LANDING_NAMES[a.variant] ?? "unknown"}</td>
+      <td>${n(a.views)}</td><td>${n(a.visitors)}</td><td>${dur(a.avgDwellMs)}</td>
+      <td>${n(a.copies)}</td><td>${n(a.signins)}</td>
+      <td class="abctr">${Math.round(ctr(a) * 100)}%</td>
+    </tr>`).join("");
+  const abTable = landing.length
+    ? `<table class="abtable">
+         <thead><tr><th>Variant</th><th>Views</th><th>Visitors</th><th>Avg time</th><th>Copy</th><th>Sign in</th><th>CTR</th></tr></thead>
+         <tbody>${abRows}</tbody>
+       </table>`
+    : `<p class="aempty">No landing traffic yet. Plain signed-out visits are split randomly between the arms; ?v= browsing doesn't count.</p>`;
+
   const inner = `<div class="awrap">
     <h1 class="atitle">Admin</h1>
     <p class="asubtitle">signmysite at a glance · ${escapeHtml(email)}</p>
@@ -742,7 +796,10 @@ function adminPage(s: db.AdminStats, email: string): string {
       ${mini("Sites indexed", s.indexed)}
     </div>
 
-    <h2 class="ah2">New users per week</h2>
+    <h2 class="ah2">Landing experiment</h2>
+    ${abTable}
+
+    <h2 class="ah2" style="margin-top:36px">New users per week</h2>
     <div class="abars">${bars || `<p class="asubtitle">No sign-ups yet.</p>`}</div>
 
     <div class="aacts">
@@ -771,6 +828,13 @@ function adminPage(s: db.AdminStats, email: string): string {
     .abartrack{flex:1;height:10px;background:var(--surface-3);border-radius:999px;overflow:hidden}
     .abarfill{display:block;height:100%;background:var(--accent);border-radius:999px}
     .abarn{width:40px;text-align:right;color:var(--ink);font-weight:600;flex:0 0 auto;font-variant-numeric:tabular-nums}
+    .abtable{width:100%;border-collapse:collapse;margin-bottom:36px;font-size:13px}
+    .abtable th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:0 10px 8px 0}
+    .abtable td{padding:9px 10px 9px 0;border-top:1px solid var(--line);color:var(--ink);font-variant-numeric:tabular-nums}
+    .abtable .abname{font-weight:600;white-space:nowrap}
+    .abtable .abctr{font-weight:600}
+    .ablead .abctr{color:var(--accent)}
+    .abdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:1px}
     .aacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px 22px;margin-top:36px}
     .acol{min-width:0}
     .alist{display:flex;flex-direction:column}

@@ -1,4 +1,4 @@
-import { DemoLink, JoinLink, PEOPLE } from "./shared";
+import { CopyCta, PEOPLE } from "./shared";
 
 /**
  * Variant 7 — the map. The network itself is the hero: real personal sites as
@@ -52,10 +52,7 @@ export function V7() {
           your site
         </span>
       </div>
-      <div className="lv-cta-row">
-        <JoinLink>Claim your spot</JoinLink>
-        <DemoLink />
-      </div>
+      <CopyCta />
     </div>
   );
 }

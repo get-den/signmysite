@@ -1,4 +1,4 @@
-import { JoinLink } from "./shared";
+import { CopyCta } from "./shared";
 
 /**
  * Variant 2 — show, don't tell. The page IS the product: a live, clickable demo of
@@ -21,10 +21,7 @@ export function V2() {
         </div>
         <iframe className="lv-browser-frame" src="/widget/demo.html" title="Live demo of the signmysite widget" />
       </div>
-      <div className="lv-cta-row">
-        <JoinLink>Add it to my site</JoinLink>
-        <span className="lv-fine">Free. One line of HTML.</span>
-      </div>
+      <CopyCta />
     </div>
   );
 }
