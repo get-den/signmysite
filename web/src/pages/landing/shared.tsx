@@ -69,9 +69,12 @@ export function JoinLink({ children, onClick }: { children: string; onClick?: ()
 }
 
 /**
- * The experiment CTA (variants 2 / 4 / 7): the pulsing Copy of the install line,
- * a quiet Sign in beside it. Copying reveals a one-line "what you just got" hint.
- * Both report to the experiment (see ab.ts) — no-ops while browsing via ?v=.
+ * The experiment CTA (variants 2 / 4 / 7): the pulsing copy of the install line,
+ * a quiet Sign in beside it. Copying flips the label to Copied and reveals a
+ * one-line "what you just got" hint. Nothing moves on click: both labels are
+ * stacked in one grid cell (the .btn.following trick) so the wider one sizes the
+ * button, and the hint always occupies its line, hidden until needed. Both
+ * buttons report to the experiment (see ab.ts) — no-ops while browsing via ?v=.
  */
 export function CopyCta() {
   const { copied, copy } = useCopy(SCRIPT_TAG);
@@ -84,16 +87,14 @@ export function CopyCta() {
           title={SCRIPT_TAG}
           onClick={() => { copy(); setHinted(true); trackClick("copy"); }}
         >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-          {copied ? "Copied" : "Copy"}
+          <span className="lv-swap" data-hidden={copied || undefined}><CopyIcon /> Add to my site</span>
+          <span className="lv-swap" data-hidden={copied ? undefined : true}><CheckIcon /> Copied</span>
         </Button>
         <a className="btn lg" href={authUrl("/")} onClick={() => trackClick("signin")}>Sign in</a>
       </div>
-      {hinted && (
-        <p className="lv-fine slide-down">
-          That's your install line. Paste it before &lt;/body&gt;, and sign in to make it yours.
-        </p>
-      )}
+      <p className={"lv-cta-hint lv-fine" + (hinted ? " on" : "")}>
+        That's your install line. Paste it before &lt;/body&gt;, and sign in to make it yours.
+      </p>
     </div>
   );
 }
