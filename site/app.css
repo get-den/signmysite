@@ -1312,3 +1312,269 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   .dm-convos { max-height: 40vh; }
   .dm-main { min-height: 60vh; }
 }
+
+/* ---- landing variants (the ?v= experiment; web/src/pages/landing) --------- */
+/* Everything below is scoped under .lv and disposable: when a winning variant is
+   promoted, keep its block and delete the rest along with the switcher. */
+.lv {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; text-align: center;
+  padding: 12px 0 48px;
+  min-height: calc(100dvh - var(--topbar-h) - 84px);
+}
+.lv h1 {
+  margin: 0; color: var(--ink);
+  font-size: clamp(36px, 4.8vw, 58px); line-height: 1.04;
+  letter-spacing: -0.035em; font-weight: var(--w-bold);
+}
+.lv dl, .lv dd, .lv figure { margin: 0; }
+.lv-sub { margin: 0; color: var(--muted); font-size: 18px; line-height: 1.55; max-width: 54ch; }
+.lv-fine { margin: 0; color: var(--faint); font-size: 13.5px; line-height: 1.5; }
+.lv-cta-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+.lv-demolink { color: var(--muted); font-size: 14px; font-weight: var(--w-semibold); text-decoration: underline; text-underline-offset: 3px; }
+.lv-demolink:hover { color: var(--ink); text-decoration: underline; }
+.lv-signin { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+/* Left-aligned text variants (the letter, plain answers) keep a centered column. */
+.lv-left { text-align: left; }
+.lv-left > * { width: 100%; max-width: 620px; }
+.lv-left .lv-cta-row { justify-content: flex-start; }
+
+/* facepile */
+.lv-faces { display: inline-flex; flex-direction: row-reverse; }
+.lv-face {
+  width: var(--lv-face, 26px); height: var(--lv-face, 26px); border-radius: 50%;
+  border: 2px solid var(--surface); background: var(--surface-2); object-fit: cover;
+  margin-left: calc(var(--lv-face, 26px) / -3.2); flex: 0 0 auto;
+}
+.lv-face:last-child { margin-left: 0; }
+
+/* a reader's note as a small speech bubble */
+.lv-bubble {
+  display: inline-block; padding: 7px 12px; border-radius: 14px 14px 14px 4px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-card);
+  color: var(--text); font-size: 13px; line-height: 1.35; text-align: left;
+}
+
+/* the widget badge as readers meet it: faces + "Sign my site" in a floating pill */
+.lv-wpill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px 6px 7px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
+  color: var(--ink); font-size: 13px; font-weight: var(--w-semibold); white-space: nowrap;
+}
+
+/* V1 — the line */
+.lv-line-block { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; margin-top: 8px; }
+.lv-tag {
+  max-width: 100%; padding: 18px 26px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--surface-3);
+  color: var(--ink); overflow-wrap: anywhere; text-align: left;
+  font: var(--w-normal) clamp(13px, 1.8vw, 18px)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.lv-tag b { color: var(--accent); font-weight: var(--w-semibold); }
+.lv-line-block .btn { min-width: 170px; }
+
+/* V2 / V9 — the framed browser */
+.lv-wide { gap: 26px; }
+.lv-browser {
+  width: 100%; max-width: 980px;
+  border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.lv-browser-bar {
+  display: flex; align-items: center; gap: 7px; padding: 10px 14px;
+  background: var(--surface-3); border-bottom: 1px solid var(--line);
+}
+.lv-browser-bar i { width: 10px; height: 10px; border-radius: 50%; background: #e4e4e8; }
+.lv-browser-url {
+  margin-inline: auto; display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 16px; border-radius: 999px; background: var(--surface-2);
+  color: var(--muted); font-size: 13px;
+}
+.lv-browser-url img { width: 14px; height: 14px; border-radius: 4px; }
+.lv-live {
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(254, 40, 88, .09); color: var(--accent);
+  font-size: 12px; font-weight: var(--w-semibold); white-space: nowrap;
+}
+.lv-browser-frame { display: block; width: 100%; height: clamp(380px, 56vh, 620px); border: 0; }
+
+/* V3 — the letter */
+.lv-letter { gap: 20px; }
+.lv-letter p { margin: 0; color: var(--text); font-size: 19px; line-height: 1.65; }
+.lv-letter .lv-letter-open { color: var(--ink); font-size: 22px; font-weight: var(--w-semibold); }
+.lv-letter .lv-signin { margin-top: 4px; }
+
+/* V4 — three steps */
+.lv-steps {
+  list-style: none; margin: 14px 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 34px;
+  width: 100%; max-width: 940px;
+}
+.lv-steps li { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; }
+.lv-steps h2 { margin: 0; color: var(--ink); font-size: 19px; line-height: 1.2; font-weight: var(--w-semibold); }
+.lv-steps p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 30ch; }
+.lv-step-n {
+  display: inline-grid; place-items: center; width: 26px; height: 26px;
+  border-radius: 50%; background: var(--ink); color: var(--white);
+  font: var(--w-semibold) 14px/1 'Sohne', system-ui, sans-serif;
+}
+.lv-step-code {
+  padding: 9px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-3);
+  color: var(--ink); font: var(--w-normal) 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.lv-step-code b { color: var(--accent); font-weight: var(--w-semibold); }
+.lv-step-art { display: inline-flex; align-items: center; gap: 10px; min-height: 36px; }
+.lv-chain { display: inline-flex; align-items: center; }
+.lv-chain img {
+  width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
+  border: 2px solid var(--surface); background: var(--surface-2); margin-left: -8px;
+}
+.lv-chain img:first-child { margin-left: 0; }
+.lv-chain-you {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; margin-left: -8px;
+  border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+  border: 2px solid var(--surface); font-size: 11px; font-weight: var(--w-semibold);
+}
+
+/* V5 — the guestbook */
+.lv-gbook {
+  width: 100%; max-width: 480px; margin-top: 8px;
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface);
+  box-shadow: 0 20px 60px rgba(20, 20, 20, .12);
+  padding: 18px 22px 10px; display: flex; flex-direction: column;
+}
+.lv-gbook-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line);
+}
+.lv-gbook-head b { color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
+.lv-gbook-head span {
+  padding: 3px 10px; border-radius: 999px; background: var(--surface-2);
+  color: var(--muted); font-size: 12px; font-weight: var(--w-semibold);
+}
+.lv-gbook-row {
+  display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 2px 12px;
+  align-items: center; text-align: left; padding: 11px 0;
+}
+.lv-gbook-row + .lv-gbook-row { border-top: 1px solid var(--line); }
+.lv-gbook-row img {
+  grid-row: span 2; width: 38px; height: 38px; border-radius: 50%;
+  object-fit: cover; background: var(--surface-2);
+}
+.lv-gbook-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-gbook-meta b { color: var(--ink); font-size: 14.5px; font-weight: var(--w-semibold); }
+.lv-gbook-meta i { font-style: normal; color: var(--faint); font-size: 13px; margin-left: 7px; }
+.lv-gbook-note { grid-column: 2; color: var(--text); font-size: 14.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.lv-gbook-time { grid-row: span 2; color: var(--faint); font-size: 13px; }
+
+/* V6 — before and after */
+.lv-ba { display: flex; align-items: center; justify-content: center; gap: 18px; width: 100%; margin-top: 8px; }
+.lv-ba-card { flex: 0 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.lv-ba-shot {
+  position: relative; display: block; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2);
+}
+.lv-ba-shot > img { display: block; width: 100%; }
+.is-before .lv-ba-shot { opacity: .55; filter: grayscale(1); }
+.lv-ba-card figcaption { color: var(--muted); font-size: 14px; }
+.lv-ba-arrow { color: var(--faint); font-size: 24px; flex: 0 0 auto; }
+.lv-ba-note { position: absolute; left: 12px; bottom: 54px; }
+.lv-ba-shot .lv-wpill { position: absolute; right: 12px; bottom: 12px; }
+
+/* V7 — the map */
+.lv-map { position: relative; width: 100%; max-width: 880px; height: min(46vh, 400px); margin-top: 4px; }
+.lv-map svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lv-map line { stroke: #e4e4e8; stroke-width: 1.25; }
+.lv-map-node {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
+  background: var(--surface); border: 2px solid var(--surface); box-shadow: var(--shadow-card);
+}
+.lv-map-you {
+  position: absolute; transform: translate(-50%, -50%);
+  padding: 8px 15px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 13px; font-weight: var(--w-semibold); white-space: nowrap;
+  animation: copy-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .lv-map-you { animation: none; } }
+
+/* V8 — plain answers */
+.lv-qa { gap: 30px; }
+.lv-qa h1 { font-size: clamp(32px, 4vw, 46px); }
+.lv-qa dl { display: flex; flex-direction: column; gap: 24px; }
+.lv-qa dt { color: var(--muted); font-size: 15px; font-weight: var(--w-semibold); margin-bottom: 6px; }
+.lv-qa dd { color: var(--ink); font-size: 19px; line-height: 1.55; }
+
+/* V9 — on your site */
+.lv-site-input {
+  width: 100%; max-width: 420px; text-align: center;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--ink);
+  font: var(--w-semibold) 17px/1.4 'Sohne', system-ui, sans-serif;
+  padding: 14px 18px; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.lv-site-input:focus { box-shadow: 0 0 0 3px rgba(0, 0, 0, .05); }
+.lv-site-input::placeholder { color: var(--faint); font-weight: var(--w-normal); }
+.lv-preview { max-width: 660px; transition: opacity .25s ease, filter .25s ease; }
+.lv-preview.is-idle { opacity: .55; filter: grayscale(.5); }
+.lv-preview-page {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 13px;
+  padding: 28px 30px; min-height: 230px; background: var(--surface); text-align: left;
+}
+.lv-preview-bone { display: block; height: 13px; width: 72%; border-radius: 8px; background: var(--surface-2); }
+.lv-preview-bone.is-title { height: 26px; width: 46%; background: #ececef; margin-bottom: 6px; }
+.lv-preview-bone.is-short { width: 38%; }
+.lv-preview-page .lv-wpill { position: absolute; right: 16px; bottom: 16px; }
+
+/* V10 — the fact sheet */
+.lv-spec {
+  width: 100%; max-width: 440px;
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface);
+  box-shadow: 0 20px 60px rgba(20, 20, 20, .1);
+  padding: 26px 28px 24px; display: flex; flex-direction: column; gap: 16px; text-align: left;
+}
+.lv-spec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.lv-spec-head b { color: var(--ink); font-size: 21px; font-weight: var(--w-bold); letter-spacing: -0.035em; }
+.lv-spec-head span { color: var(--faint); font-size: 13px; }
+.lv-spec dl { display: flex; flex-direction: column; }
+.lv-spec-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; padding: 11px 0; }
+.lv-spec-row + .lv-spec-row { border-top: 1px solid var(--line); }
+.lv-spec dt { color: var(--muted); font-size: 14px; font-weight: var(--w-semibold); }
+.lv-spec dd { color: var(--ink); font-size: 15px; line-height: 1.45; }
+.lv-spec .btn { width: 100%; }
+.lv-spec .lv-demolink { align-self: center; }
+
+/* the floating variant switcher (only for whoever opened ?v=) */
+/* Doubled selector so it outranks the .shell-page child rule that would stretch it. */
+.lv-switch, .shell-page > .lv-switch {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 1300;
+  width: max-content; max-width: calc(100vw - 24px);
+  display: flex; align-items: center; gap: 3px; padding: 5px;
+  border-radius: 999px; background: var(--ink); box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+}
+.lv-switch button {
+  appearance: none; border: 0; cursor: pointer;
+  width: 30px; height: 30px; border-radius: 50%; background: transparent;
+  color: rgba(255, 255, 255, .6);
+  font: var(--w-semibold) 13px/1 'Sohne', system-ui, sans-serif;
+}
+.lv-switch button:hover { color: #fff; background: rgba(255, 255, 255, .14); }
+.lv-switch button.on { background: #fff; color: var(--ink); }
+.lv-switch-name { color: rgba(255, 255, 255, .75); font-size: 12px; padding: 0 10px 0 6px; white-space: nowrap; }
+
+@media (max-width: 860px) {
+  .lv { min-height: 0; padding-top: 6px; }
+  .lv-steps { grid-template-columns: 1fr; gap: 26px; }
+  .lv-ba { flex-direction: column; }
+  .lv-ba-arrow { transform: rotate(90deg); }
+  .lv-ba-card { flex-basis: auto; width: 100%; max-width: 420px; }
+  .lv-map { height: 320px; }
+  .lv-map-node { width: 32px; height: 32px; }
+  .lv-browser-frame { height: 420px; }
+  .lv-switch-name { display: none; }
+}

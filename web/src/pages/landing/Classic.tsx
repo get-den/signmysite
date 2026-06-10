@@ -1,13 +1,13 @@
-import { SignIn } from "../components/SignIn";
-import { SignupHandleField } from "../components/SignupHandleField";
-import { ProfileMock } from "../components/ProfileMock";
-import { Footer } from "../components/Footer";
+import { SignIn } from "../../components/SignIn";
+import { SignupHandleField } from "../../components/SignupHandleField";
+import { ProfileMock } from "../../components/ProfileMock";
+import { Footer } from "../../components/Footer";
 
 /**
- * The signed-out home: account first, website later. A username draft is persisted
- * before auth, then onboarding claims it and asks for the site as the next step.
+ * Variant 0 — today's landing, unchanged: account first, website later. A username
+ * draft is persisted before auth, then onboarding claims it and asks for the site.
  */
-export function Landing() {
+export function Classic() {
   return (
     <>
     <div className="land">
