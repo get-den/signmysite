@@ -210,21 +210,6 @@ CREATE TABLE IF NOT EXISTS cohort_members (
 );
 CREATE INDEX IF NOT EXISTS cohort_members_member ON cohort_members (member_id);
 CREATE INDEX IF NOT EXISTS cohort_members_cohort ON cohort_members (cohort_id, created);
--- The signed-out landing experiment (web/src/pages/landing/ab.ts): an append-only,
--- anonymous event log. vid is a random per-browser id, view a per-pageview id.
--- Events: 'view' (the exposure), 'dwell' (cumulative visible ms, re-sent on every
--- tab-hide — aggregate with MAX per view), 'copy' and 'signin' (the CTA clicks).
--- Read only by landingSummary() for the /admin dashboard.
-CREATE TABLE IF NOT EXISTS landing_events (
-  id      TEXT PRIMARY KEY,
-  vid     TEXT NOT NULL,
-  view    TEXT NOT NULL,
-  variant INTEGER NOT NULL,
-  event   TEXT NOT NULL,
-  ms      INTEGER,
-  created TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS landing_events_view ON landing_events (view, event);
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
@@ -1003,63 +988,6 @@ export async function adminStats(weeks = 12): Promise<AdminStats> {
       targetName: r.target_name, targetHandle: r.target_handle, created: r.created,
     })),
   };
-}
-
-// ---- the landing experiment ------------------------------------------------
-// Sink + summary for landing_events (see the schema note above). Append-only writes
-// from the public beacon endpoint; the summary feeds the /admin dashboard.
-export async function recordLandingEvent(e: {
-  vid: string; view: string; variant: number; event: string; ms: number | null;
-}): Promise<void> {
-  await pool.query(
-    `INSERT INTO landing_events (id, vid, view, variant, event, ms, created)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [token(), e.vid, e.view, e.variant, e.event, e.ms, now()],
-  );
-}
-
-export type LandingArm = {
-  variant: number;
-  views: number;       // pageviews ('view' events)
-  visitors: number;    // distinct browsers
-  avgDwellMs: number;  // mean visible time per pageview (MAX of its dwell pings)
-  copies: number;      // pageviews that clicked Copy
-  signins: number;     // pageviews that clicked Sign in
-  clicked: number;     // pageviews that clicked either (the click-through count)
-};
-export async function landingSummary(): Promise<LandingArm[]> {
-  const { rows } = await pool.query(
-    `WITH dwell AS (
-       SELECT view, MAX(ms) AS ms FROM landing_events WHERE event = 'dwell' GROUP BY view
-     ), clicks AS (
-       SELECT view,
-              BOOL_OR(event = 'copy')   AS copied,
-              BOOL_OR(event = 'signin') AS signed
-         FROM landing_events WHERE event IN ('copy', 'signin') GROUP BY view
-     )
-     SELECT v.variant,
-            COUNT(*)::int                                      AS views,
-            COUNT(DISTINCT v.vid)::int                         AS visitors,
-            COALESCE(AVG(d.ms), 0)::int                        AS avg_dwell_ms,
-            COUNT(*) FILTER (WHERE c.copied)::int              AS copies,
-            COUNT(*) FILTER (WHERE c.signed)::int              AS signins,
-            COUNT(*) FILTER (WHERE c.copied OR c.signed)::int  AS clicked
-       FROM landing_events v
-       LEFT JOIN dwell  d ON d.view = v.view
-       LEFT JOIN clicks c ON c.view = v.view
-      WHERE v.event = 'view'
-      GROUP BY v.variant
-      ORDER BY v.variant`,
-  );
-  return rows.map((r) => ({
-    variant: Number(r.variant),
-    views: Number(r.views),
-    visitors: Number(r.visitors),
-    avgDwellMs: Number(r.avg_dwell_ms),
-    copies: Number(r.copies),
-    signins: Number(r.signins),
-    clicked: Number(r.clicked),
-  }));
 }
 
 // ---- the home feed -------------------------------------------------------

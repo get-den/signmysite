@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useViewer } from "../providers";
 import { Loading } from "../ui";
 import { loadPending, clearPending, resumePath } from "../pending";
-import { Landing } from "./landing";
+import { Landing } from "./Landing";
 import { HomeFeed } from "../home";
 import { Onboarding } from "./Onboarding";
 
