@@ -35,7 +35,9 @@ const VARIANTS: Array<{ name: string; El: () => ReactElement }> = [
 
 export function Landing() {
   const [params, setParams] = useSearchParams();
-  const raw = params.get("v");
+  // Accept ?v= in either position — signmysite.com/?v=3 (the natural thing to
+  // type) or the hash-router form signmysite.com/#/?v=3 the switcher writes.
+  const raw = params.get("v") ?? new URLSearchParams(location.search).get("v");
   const n = raw === null ? NaN : Math.floor(Number(raw));
   const active = Number.isFinite(n) && n >= 0 && n < VARIANTS.length ? n : 0;
   const browsing = raw !== null; // the switcher exists only for whoever typed ?v=
