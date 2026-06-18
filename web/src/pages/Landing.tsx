@@ -23,11 +23,6 @@ export function Landing() {
   return (
     <div className="lv lv-wide">
       <h1>A tiny widget that shows who's reading</h1>
-      <p className="lv-sub">
-        Below is a real site with signmysite on it — the floating badge is the whole
-        widget. Open it to see who's been reading, leave a note, or follow along. One
-        line of HTML puts it on yours.
-      </p>
       <div className="lv-browser">
         <div className="lv-browser-bar">
           <i /><i /><i />
