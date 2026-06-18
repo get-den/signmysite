@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { app } from "./app.ts";
+import * as db from "./db.ts";
+import { escapeHtml } from "./util.ts";
 import { PORT, BASE } from "./config.ts";
 import { startCrawler } from "./crawler.ts";
 import { startSweeps } from "./sweeps.ts";
@@ -77,6 +79,30 @@ const INDEX = (() => {
 })();
 app.get("/", (c) => c.html(INDEX));
 
+// Profile pages — signmysite.com/@handle, THE profile URL (emails, the widget, and
+// every identity chip point here). The SPA renders the one profile layout; the
+// server's only job is link previews: swap the shell's <title>/description for the
+// member's own and add Open Graph tags, so a shared /@handle unfurls properly.
+app.get("/:at{@.+}", async (c) => {
+  const handle = c.req.param("at").slice(1).toLowerCase();
+  const m = await db.getMemberByHandle(handle).catch(() => undefined);
+  if (!m) return c.html(INDEX, 404); // SPA shows "We couldn't find @handle"
+  const title = escapeHtml(`${m.name} (@${m.handle}) · signmysite`);
+  const desc = escapeHtml(`${m.name} on signmysite`);
+  const og =
+    `<meta property="og:title" content="${title}">` +
+    `<meta property="og:description" content="${desc}">` +
+    `<meta property="og:type" content="profile">` +
+    `<meta property="og:url" content="${escapeHtml(`${BASE}/@${m.handle}`)}">` +
+    (m.avatar ? `<meta property="og:image" content="${escapeHtml(m.avatar)}">` : "") +
+    `<meta name="twitter:card" content="summary">`;
+  const html = INDEX
+    .replace(/<title>.*?<\/title>/s, `<title>${title}</title>`)
+    .replace(/<meta\s+name="description"[^>]*>/s, `<meta name="description" content="${desc}" />`)
+    .replace("</head>", `${og}</head>`);
+  return c.html(html);
+});
+
 // "What is this?" at a stable, conventional, machine-readable location — so an
 // agent that meets only the script tag can resolve the whole protocol (docs,
 // spec, schema, register endpoint, install line) from a single fetch.
@@ -116,10 +142,16 @@ app.get("/*", async (c, next) => {
   return c.body(rewriteOrigin(text, BASE));
 });
 
-// Serve the repo's other static files (widget/, examples/, schema/,
-// skill.md, and site/app.css — still linked by the server-rendered @handle
-// pages) from the same origin, so everything is one origin with no config.
+// Serve the repo's other static files (widget/, examples/, schema/, skill.md,
+// and site/app.css — linked by the server-rendered /join + /auth/popup pages)
+// from the same origin, so everything is one origin with no config.
 app.use("/*", serveStatic({ root: "./" }));
+
+// Everything else is a client-side route (/edit, /messages, /auth, …) — the SPA
+// routes by path now, so a hard load or refresh of any in-app URL must get the
+// shell. Unknown /api paths stay JSON 404s rather than leaking HTML to clients.
+app.get("*", (c) =>
+  c.req.path.startsWith("/api/") ? c.json({ error: "not found" }, 404) : c.html(INDEX));
 
 serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`\n  signmysite  → ${BASE}`);

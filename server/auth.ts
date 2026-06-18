@@ -12,6 +12,7 @@
 import type { Context } from "hono";
 import { setCookie } from "hono/cookie";
 import * as db from "./db.ts";
+import * as live from "./live.ts";
 import { newId, newHandle, token } from "./util.ts";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
@@ -44,6 +45,14 @@ export async function signInWithGoogle(c: Context, p: GoogleProfile, opts: {
       email: p.email ? p.email.toLowerCase() : null,
       google_sub: p.sub,
       avatar: p.picture || null,
+    });
+    // Tell everyone's live stream — first-name-and-initial only (see live.ts).
+    live.emit({
+      kind: "signup", to: "all",
+      actor: {
+        id: m.id, name: live.shortName(m.name), handle: m.handle, avatar: m.avatar,
+        country: live.country(c.req.header("cf-ipcountry") || c.req.header("x-vercel-ip-country")),
+      },
     });
   }
 

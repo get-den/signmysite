@@ -3,10 +3,12 @@ import react from "@vitejs/plugin-react";
 
 // The React main site lives in web/ and builds to web/dist, which the Hono
 // server serves at /. In dev, `npm run dev:web` runs Vite with HMR and proxies
-// the server's routes (API, widget, auth, static docs) to the Hono server on
-// :8787 — so the whole app works from one origin in dev too.
+// the server's routes (API, widget, auth popup, invites, static docs) to the Hono
+// server on :8787 — so the whole app works from one origin in dev too. /auth
+// itself is NOT proxied: it's the SPA's sign-in page; only the widget's popup
+// (/auth/popup) is server-rendered.
 const PROXY_TO_SERVER = [
-  "/api", "/w", "/auth", "/site", "/widget", "/examples", "/schema", "/skill.md", "/llms.txt",
+  "/api", "/w", "/auth/popup", "/join", "/site", "/widget", "/examples", "/schema", "/skill.md", "/llms.txt",
 ];
 
 export default defineConfig({

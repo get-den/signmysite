@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { logout, type Member } from "../api";
+import { ownProfilePath } from "../lib";
 import { useViewer } from "../providers";
 import { Avatar } from "../ui";
 
@@ -55,7 +56,7 @@ export function AvatarMenu({ viewer, compact = false }: { viewer: Member; compac
 
       {open && (
         <div className="who-pop" role="menu">
-          <Link className="who-pop-id" to="/profile">
+          <Link className="who-pop-id" to={ownProfilePath(viewer)}>
             <Avatar of={viewer} />
             <span className="who-id">
               <span className="who-name">{viewer.name || "You"}</span>
@@ -63,7 +64,7 @@ export function AvatarMenu({ viewer, compact = false }: { viewer: Member; compac
             </span>
           </Link>
           <div className="who-pop-sep" />
-          <Link className="who-pop-item" to="/profile" role="menuitem">View profile</Link>
+          <Link className="who-pop-item" to={ownProfilePath(viewer)} role="menuitem">View profile</Link>
           <Link className="who-pop-item" to="/edit" role="menuitem">Settings</Link>
           <div className="who-pop-sep" />
           <button className="who-pop-item danger" type="button" role="menuitem" onClick={signOut}>

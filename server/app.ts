@@ -5,7 +5,7 @@
  *   GET  /api/auth/google/callback   finish Google sign-in, set session
  *   POST /api/auth/magic-link    email a sign-in / recovery link (fallback)
  *   GET  /api/auth/verify        consume a magic link, start a session
- *   GET  /auth                   the sign-in popup page (Google + email)
+ *   GET  /auth/popup             the widget's sign-in popup page (Google + email)
  *   POST /api/logout             end the session
  *   GET  /api/viewer             the signed-in member, or null
  *   PATCH /api/profile           edit your own profile
@@ -35,19 +35,23 @@
  *   POST /api/cohorts/join       join a crew by code (mutually follows the crew)
  *   POST /api/cohorts/:id/leave  leave a crew (your follows stay)
  *   GET  /join/:code             the shareable invite page (server-rendered)
- *   GET  /@:handle               public profile page (server-rendered, shareable)
+ *
+ * Profile pages (/@handle) are the SPA — index.ts serves the app shell there with
+ * per-profile Open Graph tags injected, so one layout serves visitors and owners.
+ * The widget's sign-in popup is GET /auth/popup; /auth belongs to the SPA.
  */
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { streamSSE } from "hono/streaming";
 import * as db from "./db.ts";
+import * as live from "./live.ts";
 import { newId, newHandle, newCohortId, newInviteCode, token, escapeHtml, normHandle, handleProblem, isReaction, checkNotifyToken, relTime } from "./util.ts";
 import { inspectSite, siteHasWidget } from "./preview.ts";
 import { sendMagicLink, MAIL_LIVE, notifyUpdate, notifyActivity, notifyMilestone, notifyMessage, type ActivityKind } from "./mail.ts";
 import * as auth from "./auth.ts";
-import { renderProfileInner, siteHeader } from "./profile.ts";
 import { BASE } from "./config.ts";
 import { isDemo, demoCard } from "./demo.ts";
 
@@ -141,6 +145,39 @@ function notifyOwner(kind: ActivityKind, ownerId: string, actor: db.Member, body
     });
   })().catch(() => {});
 }
+
+// The actor on a live event — the same compact identity a feed row carries.
+const liveActor = (m: db.Member, country: string | null = null) =>
+  ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, country });
+
+// ---- realtime activity (SSE) ----------------------------------------------
+// One long-lived stream per open tab. Backfill first (so the UI never starts
+// empty), then push events as routes emit them; a comment ping every 25s keeps
+// proxies from reaping the idle connection. See server/live.ts for scoping.
+app.get("/api/live", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  return streamSSE(c, async (stream) => {
+    const send = (e: live.LiveEvent) =>
+      stream.writeSSE({ event: "activity", id: String(e.id), data: JSON.stringify(e) }).catch(() => {});
+    for (const e of live.backlog(viewer.id)) await send(e);
+    const unsubscribe = live.subscribe(viewer.id, send);
+    stream.onAbort(unsubscribe);
+    while (!stream.aborted && !stream.closed) {
+      await stream.writeSSE({ event: "ping", data: "" });
+      await stream.sleep(25_000);
+    }
+  });
+});
+
+// A scripted minute of fake activity, visible only to the caller — lets anyone
+// preview the live UI variants without waiting for real traffic.
+app.post("/api/live/demo", async (c) => {
+  const viewer = await viewerOf(c);
+  if (!viewer) return c.json({ error: "sign in" }, 401);
+  live.demo(viewer.id);
+  return c.json({ ok: true });
+});
 
 async function uniqueHandle(): Promise<string> {
   for (let i = 0; i < 6; i++) {
@@ -376,7 +413,7 @@ app.post("/api/follow", async (c) => {
   if (id === viewer.id) return c.json({ error: "cannot follow yourself" }, 400);
   let followed = false;
   if (await db.hasEdge(viewer.id, id)) await db.removeEdge(viewer.id, id); // unfollow drops the edge; the save stays in their library
-  else { await db.follow(viewer.id, id); notifyOwner("follow", id, viewer); followed = true; } // a follow also saves the site; email only on a new follow (the save is implicit, no separate "save" email)
+  else { await db.follow(viewer.id, id); notifyOwner("follow", id, viewer); live.emit({ kind: "follow", to: id, actor: liveActor(viewer) }); followed = true; } // a follow also saves the site; email only on a new follow (the save is implicit, no separate "save" email)
   const s = await db.stats(id, viewer.id);
   if (followed) maybeMilestone("followers", id, s.followers); // celebrate on the way up only
   return c.json(s);
@@ -388,7 +425,7 @@ app.post("/api/save", async (c) => {
   const id = String((await body(c))?.id || "");
   if (!id) return c.json({ error: "id required" }, 400);
   if (await db.hasSave(viewer.id, id)) await db.removeSave(viewer.id, id);
-  else { await db.setSave(viewer.id, id); notifyOwner("save", id, viewer); } // email only on a new save, not unsave
+  else { await db.setSave(viewer.id, id); notifyOwner("save", id, viewer); live.emit({ kind: "save", to: id, actor: liveActor(viewer) }); } // email only on a new save, not unsave
   return c.json(await db.stats(id, viewer.id));
 });
 
@@ -600,6 +637,7 @@ app.post("/api/verify", async (c) => {
   // site (e.g. the curated @pg), so the owner inherits its handle, followers, and
   // recommendation. The real account is the survivor, so their installed widget keeps working.
   const me = (await db.claimPlaceholderByUrl(viewer.id)) || (await db.getMember(viewer.id))!;
+  if (!viewer.verified) live.emit({ kind: "widget", to: "all", actor: liveActor(me) }); // celebrate first proof only, not re-checks
   return c.json({ verified: !!me.verified, reason: null, handle: me.handle });
 });
 
@@ -619,6 +657,22 @@ function refHost(ref: unknown): string | null {
     const h = new URL(ref).hostname.replace(/^www\./, "");
     return !h || ref.startsWith(BASE) ? null : h.slice(0, 120);
   } catch { return null; }
+}
+// Visit dimensions read straight off the request headers the browser already sends —
+// the widget transmits nothing extra and asks the visitor nothing. Country comes only
+// from a CDN edge header (Cloudflare / Vercel); when none is present we record null
+// rather than guess (cf-ipcountry's XX/T1 sentinels count as absent too). Device is
+// the coarse phone-vs-desktop split: "Mobi" covers Android phones and iPhone; iPadOS
+// presents itself as desktop, which matches how it's used. Language is the first
+// Accept-Language tag's primary subtag ("en-US;q=0.9…" → "en").
+function viewDimensions(c: Context): { country: string | null; device: string; lang: string | null } {
+  const country = (c.req.header("cf-ipcountry") || c.req.header("x-vercel-ip-country") || "").toUpperCase();
+  const lang = (c.req.header("accept-language") || "").split(",")[0]?.split(/[-_;]/)[0]?.trim().toLowerCase() || "";
+  return {
+    country: /^[A-Z]{2}$/.test(country) && country !== "XX" && country !== "T1" ? country : null,
+    device: /Mobi|Android|iPhone/i.test(c.req.header("user-agent") || "") ? "phone" : "desktop",
+    lang: /^[a-z]{2,3}$/.test(lang) ? lang : null,
+  };
 }
 
 // One URL, two jobs — because the duration ping rides navigator.sendBeacon, which
@@ -647,12 +701,20 @@ app.post("/api/profile/:id/view", async (c) => {
   // attributed by id (anonymous visitors stay anonymous, viewer NULL).
   const viewer = await viewerOf(c);
   if (viewer?.id === id) return c.json({ self: true }); // don't count self-views
+  const dims = viewDimensions(c);
   const views = await db.recordView({
     target: id,
     viewer: viewer?.id ?? null,
     session,
     path: typeof b?.path === "string" ? b.path.slice(0, 512) : null,
     referrer: refHost(b?.ref),
+    ...dims,
+  });
+  live.emit({
+    kind: "view", to: id,
+    actor: viewer
+      ? liveActor(viewer, dims.country)
+      : { id: null, name: "Someone", handle: null, avatar: null, country: dims.country },
   });
   maybeMilestone("views", id, views);
   return c.json({ views });
@@ -821,6 +883,7 @@ const NOTIFY_KINDS: Array<[db.NotifyKind, string, string]> = [
   ["followedUpdate", "Sites you follow", "When a site you follow posts an update"],
   ["siteUpdated", "Your site updates", "When signmysite detects your own site changed"],
   ["milestone", "Milestones", "When you pass 100 views, 10 followers, and so on"],
+  ["viewsDigest", "Weekly views", "A weekly recap when people viewed your site"],
 ];
 
 // Manage notifications — reached from any email's footer link. Token-gated, so it
@@ -1121,6 +1184,7 @@ app.post("/api/profile/:id/comments", async (c) => {
   await db.addComment({ id: "c_" + token(8), target_id: targetId, author_id: viewer.id, body: note, visibility });
   // Tell the owner. An emoji-only body is a reaction; anything else is a note.
   notifyOwner(isReaction(note) ? "reaction" : "comment", targetId, viewer, note);
+  live.emit({ kind: isReaction(note) ? "reaction" : "comment", to: targetId, actor: liveActor(viewer), body: note.slice(0, 140) });
   const rows = await db.listComments(targetId);
   return c.json(shapeComments(rows, targetId, viewer.id));
 });
@@ -1434,7 +1498,13 @@ app.get("/api/auth/verify", async (c) => {
   if (!email) return c.html(page("Link expired", "<p>This sign-in link is invalid or expired. Close this window and try again.</p>"), 400);
 
   let m = await db.getMemberByEmail(email);
-  if (!m) m = await db.createMember({ id: newId(), handle: await uniqueHandle(), name: email.split("@")[0], email });
+  if (!m) {
+    m = await db.createMember({ id: newId(), handle: await uniqueHandle(), name: email.split("@")[0], email });
+    live.emit({
+      kind: "signup", to: "all",
+      actor: { ...liveActor(m, live.country(c.req.header("cf-ipcountry") || c.req.header("x-vercel-ip-country"))), name: live.shortName(m.name) },
+    });
+  }
   const tok = await db.createSession(m.id);
   setSession(c, tok);
 
@@ -1443,10 +1513,10 @@ app.get("/api/auth/verify", async (c) => {
 });
 
 // The widget opens this in a popup over someone else's site, so it's server
-// rendered (not the SPA). It links the same stylesheets as the app and reuses the
-// /#/auth markup (.auth-form + .signin) verbatim, so the popup is the focused
-// sign-in card with no second look to maintain.
-app.get("/auth", (c) => {
+// rendered (not the SPA — which owns /auth itself). It links the same stylesheets
+// as the app and reuses the /auth markup (.auth-form + .signin) verbatim, so the
+// popup is the focused sign-in card with no second look to maintain.
+app.get("/auth/popup", (c) => {
   const ret = c.req.query("return") || "/";
   const popup = c.req.query("popup") === "1";
   const gHref = `/api/auth/google?return=${encodeURIComponent(ret)}${popup ? "&popup=1" : ""}`;
@@ -1604,45 +1674,36 @@ function joinScript(code: string): string {
 })();`;
 }
 
-// ---- public profile page (signmysite.com/@handle) ------------------------------
-// Server-rendered so it's shareable + crawlable (link previews, instant load).
-// Reuses site/app.css — no new styles. The owner (signed in, on their own
-// profile) gets Edit profile + their widget; everyone else gets Follow/Save +
-// pinned blogs. See server/profile.ts for the components.
-app.get("/:at{@.+}", async (c) => {
-  const handle = c.req.param("at").slice(1).toLowerCase();
-  const m = await db.getMemberByHandle(handle);
-  if (!m) return c.html(notFoundPage(handle), 404);
+// (Profile pages — /@handle — are the SPA; see index.ts. The server-rendered
+// variant is gone, so there is exactly one profile layout.)
 
-  const viewer = await viewerOf(c);
-  const isOwner = viewer?.id === m.id;
+const signOutBtn = `<button class="btn sm naked" data-signout>Sign out</button>`;
+// /api/logout returns JSON (no redirect), so end the session via fetch, then go home.
+const signOutScript = `<script>document.addEventListener("click",function(e){if(e.target.closest("[data-signout]")){e.preventDefault();fetch("/api/logout",{method:"POST"}).then(function(){location.href="/"});}});</script>`;
 
-  const [s, comments, pinned] = await Promise.all([
-    db.stats(m.id, viewer?.id),
-    db.listComments(m.id),
-    db.listPinned(m.id),
-  ]);
-
-  const inner = renderProfileInner({ m, s, pinned, comments, isOwner });
-  const desc = `${m.name} on signmysite`;
-  return c.html(sitePage(`${m.name} (@${m.handle}) · signmysite`, escapeHtml(desc), m.avatar, inner, profileChrome(!!viewer, m.handle ?? "")));
-});
-
-// Clean, minimal chrome for the public profile: just the wordmark + a single CTA — no
-// app nav bar. A logged-out visitor lands on the profile itself with one way to get
-// their own; a signed-in visitor gets a jump into the in-app shell (/u/<handle>).
-function profileChrome(signedIn: boolean, handle: string): string {
-  const cta = signedIn
-    ? `<a class="btn sm" href="/#/u/${escapeHtml(handle)}">Open in app</a>`
-    : `<a class="btn sm primary" href="/">Add my site</a>`;
-  return `<header class="pbar"><a class="brand" href="/">signmysite</a>${cta}</header>`;
-}
-
-function notFoundPage(handle: string): string {
-  return sitePage("Not on signmysite", "", null, `
-    <div class="hero"><h1>@${escapeHtml(handle)} isn't on signmysite yet.</h1>
-    <p>signmysite links personal websites into one social graph.</p>
-    <a class="btn primary" href="/">Add my site</a></div>`);
+/*
+ * The standard site header for server-rendered pages (the /join invite), mirroring
+ * the React app's <Header> so they wear the same chrome. It's viewer-aware (the
+ * server already knows the session): signed-out visitors get "Sign in"; a
+ * half-finished signup gets just "Sign out"; everyone else gets the full nav.
+ * `here` is the current URL (the post-sign-in return target).
+ */
+function siteHeader(
+  viewer: { handle: string | null; onboarded: boolean } | null | undefined,
+  here: string,
+): string {
+  const nav = !viewer
+    ? `<a class="btn sm primary" href="/auth?return=${encodeURIComponent(here)}">Sign in</a>`
+    : !viewer.onboarded
+      ? signOutBtn
+      : `<a class="navlink" href="/">Home</a>` +
+        `<a class="navlink" href="/@${escapeHtml(viewer.handle || "")}">Your site</a>` +
+        `<a class="navlink" href="/messages">Messages</a>` +
+        signOutBtn;
+  return (
+    `<header class="top"><a class="brand" href="/">signmysite</a><nav>${nav}</nav></header>` +
+    (viewer ? signOutScript : "")
+  );
 }
 
 // A page that wears the main site's chrome + stylesheet (so profiles match the

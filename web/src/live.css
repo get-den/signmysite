@@ -1,0 +1,152 @@
+/* ========================================================================== *
+ * LIVE ACTIVITY (web/src/live.tsx) — five interchangeable looks over one      *
+ * stream, plus the floating experiment switcher. Brand tokens come from       *
+ * /theme.css; only the toast carries its own dark palette (it's a dark card   *
+ * over any page, like the reference design — not a themed surface).           *
+ * ========================================================================== */
+
+/* the shared "it's live" dot — a soft green pulse */
+.live-dot {
+  flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%;
+  background: #1fc16b; animation: live-pulse 2.2s ease-out infinite;
+}
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(31, 193, 107, .4); }
+  70% { box-shadow: 0 0 0 7px rgba(31, 193, 107, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(31, 193, 107, 0); }
+}
+
+/* the muted "from Canada" clause, anywhere it appears on a light surface */
+.live-from { color: var(--muted); font-weight: var(--w-normal); }
+
+/* ---- 1 · toast: dark cards, bottom-left ----------------------------------- */
+.live-toasts {
+  position: fixed; left: 18px; bottom: 18px; z-index: 70;
+  display: flex; flex-direction: column; gap: 10px; width: max-content;
+}
+.live-toast {
+  display: flex; align-items: center; gap: 12px;
+  width: 330px; max-width: calc(100vw - 36px);
+  padding: 13px 15px; border-radius: 18px;
+  background: #19191d; color: #fff;
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 14px 40px rgba(10, 10, 12, .38);
+  animation: live-in .34s cubic-bezier(.21, 1.02, .55, 1) both;
+}
+@keyframes live-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }
+.live-toast .avatar { width: 40px; height: 40px; font-size: 15px; border-radius: 12px; flex: 0 0 auto; }
+.live-toast-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.live-toast-title {
+  font-size: 14.5px; font-weight: var(--w-semibold); color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.live-toast-title .live-from { color: rgba(255, 255, 255, .62); font-weight: var(--w-semibold); }
+.live-toast-sub {
+  font-size: 13px; color: rgba(255, 255, 255, .55);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.live-toast-x {
+  flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px;
+  border: 0; border-radius: 50%; background: transparent;
+  color: rgba(255, 255, 255, .5); cursor: pointer;
+  transition: background 117ms ease, color 117ms ease;
+}
+.live-toast-x:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+
+/* ---- 2 · rail: "Happening now" block -------------------------------------- */
+.live-rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.live-rail-row { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; animation: feed-rise .4s ease both; }
+.live-rail-row .avatar { width: 30px; height: 30px; font-size: 12px; flex: 0 0 auto; }
+.live-rail-meta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.live-rail-line { color: var(--ink); font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.live-rail-line b { font-weight: var(--w-semibold); }
+.live-rail-time { color: var(--muted); font-size: 12px; }
+
+/* ---- 3 · ticker: one rotating line, bottom-center ------------------------- */
+.live-ticker {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 55;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(560px, calc(100vw - 36px));
+  padding: 9px 18px 9px 14px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 8px 30px rgba(20, 20, 20, .12);
+  color: var(--text); font-size: 13.5px;
+}
+.live-ticker-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: live-msg .35s ease both; }
+@keyframes live-msg { from { opacity: 0; transform: translateY(7px); } }
+.live-ticker-msg b { color: var(--ink); font-weight: var(--w-semibold); }
+
+/* ---- 4 · bell: header icon + badge + dropdown ------------------------------ */
+.live-bell-wrap { position: relative; }
+.live-bell {
+  position: relative; display: grid; place-items: center; width: 38px; height: 38px;
+  border: 0; border-radius: 50%; background: transparent; color: var(--ink);
+  cursor: pointer; transition: background 117ms ease;
+}
+.live-bell:hover, .live-bell.on { background: var(--surface-2); }
+.live-bell-badge {
+  position: absolute; top: 1px; right: -1px; min-width: 17px; height: 17px; padding: 0 4px;
+  display: grid; place-items: center; border-radius: 999px; border: 2px solid var(--surface);
+  background: linear-gradient(135deg, #ff6a8d, var(--accent)); color: #fff;
+  font: var(--w-semibold) 10px/1 'Sohne', system-ui, sans-serif;
+}
+.live-pop {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 60;
+  width: 330px; max-height: 420px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); padding: 6px; animation: who-pop-in 120ms ease;
+}
+.live-pop-head { padding: 8px 12px 6px; color: var(--muted); font-size: 12.5px; font-weight: var(--w-semibold); }
+.live-pop-row { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 10px; }
+.live-pop-row:hover { background: var(--surface-2); }
+.live-pop-row .avatar { width: 36px; height: 36px; font-size: 14px; flex: 0 0 auto; }
+.live-pop-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.live-pop-line { color: var(--ink); font-size: 13.5px; line-height: 1.35; }
+.live-pop-line b { font-weight: var(--w-semibold); }
+.live-pop-time { color: var(--muted); font-size: 12px; }
+.live-pop-empty { padding: 18px 12px; color: var(--muted); font-size: 13.5px; text-align: center; }
+
+/* ---- 5 · inline: live rows atop the feed ----------------------------------- */
+/* arrival = the same soft flash a deep-linked comment gets (see home.css) */
+.live-inline .feed-body { animation: flash-highlight 4s ease forwards; border-radius: 4px; }
+.live-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+  background: rgba(31, 193, 107, .1); color: #149954;
+  font-size: 11px; font-weight: var(--w-semibold); letter-spacing: .04em;
+}
+
+/* ---- the experiment switcher ------------------------------------------------ */
+.live-switcher { position: fixed; right: 18px; bottom: 18px; z-index: 70; width: max-content; }
+.live-switcher-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: var(--w-semibold) 12.5px/1 'Sohne', system-ui, sans-serif;
+  cursor: pointer; box-shadow: 0 6px 24px rgba(20, 20, 20, .1);
+  transition: color 117ms ease, background 117ms ease;
+}
+.live-switcher-chip:hover { color: var(--ink); background: var(--surface-2); }
+.live-switcher-pop {
+  position: absolute; right: 0; bottom: calc(100% + 10px); width: 210px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); padding: 6px; animation: who-pop-in 120ms ease;
+}
+.live-opt {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 9px 12px; border: 0; border-radius: 10px; background: transparent;
+  text-align: left; color: var(--ink);
+  font: var(--w-semibold) 13.5px/1.2 'Sohne', system-ui, sans-serif; cursor: pointer;
+}
+.live-opt:hover { background: var(--surface-2); }
+.live-opt.on { color: var(--accent); }
+.live-switcher-sep { height: 1px; background: var(--line); margin: 6px 0; }
+
+/* ---- responsive + motion ----------------------------------------------------- */
+/* Clear the mobile tab bar (see home.css .tabbar). */
+@media (max-width: 1079px) {
+  .live-toasts, .live-switcher, .live-ticker { bottom: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-toast, .live-ticker-msg, .live-rail-row, .live-pop, .live-switcher-pop { animation: none; }
+  .live-dot { animation: none; }
+  .live-inline .feed-body { animation: none; }
+}

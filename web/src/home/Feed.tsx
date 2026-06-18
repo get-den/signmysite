@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import type { FeedItem, FeedSite } from "../api";
 import { compact, isReaction, profilePath, relTime } from "../lib";
 import { Avatar, CloseIcon, CommentBody, EmptyState, IdentityLink, SiteThumbnail, Spinner } from "../ui";
+import { LiveFeedRows } from "../live";
 import { useSearch } from "../providers";
 import { FollowButton } from "./parts";
 import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
@@ -35,6 +36,8 @@ export function Feed({ store }: { store: HomeStore }) {
         <EmptyState>{q ? "No matches in your feed." : "Your feed is empty."}</EmptyState>
       ) : (
         <ol className="feed-list">
+          {/* Realtime rows ride atop the stream when the "inline" live variant is on. */}
+          {!q && <LiveFeedRows />}
           {shown.map((it) => (
             <li key={feedKey(it)}><FeedRow it={it} store={store} /></li>
           ))}

@@ -16,6 +16,7 @@ import { Avatar, SearchIcon } from "../ui";
 import { AvatarMenu } from "../home/AvatarMenu";
 import { useMediaQuery } from "../home/hooks";
 import { WIDE } from "../home/FeedLayout";
+import { LiveBell } from "../live";
 
 export function TopBar() {
   const { viewer, loading, setViewer } = useViewer();
@@ -38,6 +39,7 @@ export function TopBar() {
         {onboarded ? <SearchBar /> : <div className="topbar-spacer" />}
 
         <div className="topbar-right">
+          <LiveBell />
           {loading ? null : !viewer ? (
             pathname === "/auth" ? null : (
               <a className="btn sm pink" href={authUrl()}>Sign up</a>
@@ -126,7 +128,7 @@ function SearchBar() {
   );
 }
 
-// One person in the search dropdown. Routes in-app to /u/<handle> (Link, so the dropdown
+// One person in the search dropdown. Routes in-app to /@<handle> (Link, so the dropdown
 // closes via onPick), else out to their site.
 function SearchResult({ m, onPick }: { m: Member; onPick: () => void }) {
   const path = profilePath(m);

@@ -1,11 +1,13 @@
+import { useEffect } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { legacyHashPath } from "../lib";
 import { useViewer } from "../providers";
 import { IconButton, Loading } from "../ui";
 import { SignIn } from "../components/SignIn";
 import { ProfileMock } from "../components/ProfileMock";
 
 /**
- * The focused sign-in page (in-app /#/auth). Anywhere that needs a signed-in
+ * The focused sign-in page (in-app /auth). Anywhere that needs a signed-in
  * member (the landing "Join now", Compose's signed-out Send, the header) sends
  * them here with ?return=, then back once they're in — so the original action
  * resumes. Continue with Google leads, magic-link email underneath; the link
@@ -16,17 +18,23 @@ export function Auth() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const ret = params.get("return") || "/";
+  const dest = inAppPath(ret);
+  // /join/<code> is server-rendered — a client-side Navigate would hit the SPA's
+  // catch-all instead of the invite page, so resume it with a full load.
+  const serverPage = dest.startsWith("/join/");
+  useEffect(() => {
+    if (!loading && viewer && serverPage) location.replace(dest);
+  }, [loading, viewer, serverPage, dest]);
 
   if (loading) return <Loading />;
   // Already signed in: skip the page and resume wherever we were headed.
-  if (viewer) return <Navigate to={inAppPath(ret)} replace />;
+  if (viewer) return serverPage ? <Loading /> : <Navigate to={dest} replace />;
 
   return (
     <div className="auth">
       <div className="auth-form">
         <IconButton icon="back" className="auth-back" onClick={() => navigate(backPath(ret))} />
         <h1 className="auth-title">Join signmysite</h1>
-        <p className="auth-sub">Continue with Google or email.</p>
         <SignIn returnTo={ret} />
       </div>
       <aside className="auth-art" aria-hidden="true">
@@ -36,13 +44,16 @@ export function Auth() {
   );
 }
 
-/** A same-origin return URL (maybe absolute, with our #hash) → an in-app router path. */
+/** A same-origin return URL (maybe absolute, maybe a HashRouter-era #/ link) → a router path. */
 function inAppPath(ret: string): string {
   try {
     const u = new URL(ret, location.origin);
-    if (u.origin === location.origin && u.hash.startsWith("#/")) return u.hash.slice(1);
-  } catch {}
-  return ret.startsWith("/") ? ret : "/";
+    if (u.origin !== location.origin) return "/";
+    if (u.hash.startsWith("#/")) return legacyHashPath(u.hash);
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/";
+  }
 }
 
 /**

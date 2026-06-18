@@ -99,7 +99,7 @@
     ui.open.onclick = function () { open(!ui.wrap.classList.contains("open")); };
     // Owner sees Edit profile (→ dashboard) and a Preview eye where guests see
     // Follow + Save.
-    ui.follow.onclick = function () { if (isOwner) return openTab(cfg.api + "/#/edit"); armFollowGuard(); act("/api/follow", "viewerFollows"); };
+    ui.follow.onclick = function () { if (isOwner) return openTab(cfg.api + "/edit"); armFollowGuard(); act("/api/follow", "viewerFollows"); };
     ui.save.onclick = function () { if (isOwner) return openPreview(); act("/api/save", "viewerSaved"); };
     ui.react.onclick = function () { toggleTray(); };
     ui.send.onclick = submit;
@@ -837,7 +837,7 @@
   function paintOnboard(signedIn, p) {
     toggleTray(false);
     toggleHelp(false); // collapse the troubleshooting panel on every (re)paint
-    ui.obHelpLink.href = cfg.api + "/#/troubleshoot";
+    ui.obHelpLink.href = cfg.api + "/troubleshoot";
     // A big confetti mark heads both onboarding states (welcome + success).
     ui.obMark.classList.add("emoji");
     ui.obMark.textContent = "🎉";
@@ -906,7 +906,7 @@
     // "_blank", never a persistent window name: on mobile the auth tab often can't
     // close itself, and a named target would just re-aim that stale background tab —
     // so a second tap looked like it did nothing. A fresh tab each time always shows.
-    window.open(cfg.api + "/auth?popup=1&return=" + encodeURIComponent(location.href), "_blank", "width=420,height=560");
+    window.open(cfg.api + "/auth/popup?popup=1&return=" + encodeURIComponent(location.href), "_blank", "width=420,height=560");
   }
 
   // The display name we hand the compose / confirmation pages, so they can greet
@@ -1308,7 +1308,11 @@
       '.logo{display:grid;place-items:center;font-weight:600;letter-spacing:-.02em}' +
       '.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:62px;height:62px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:50px;height:50px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-circle .launcher{width:56px;height:56px}.launcher-circle .pill-avatar{width:42px;height:42px;font-size:18px}' +
       '.launcher-logo .launcher,.launcher-mark .launcher{padding:0;background:#000;color:#fff;border-color:#000}.launcher-logo .logo{font-size:17px}.launcher-mark .logo{font-size:26px}.launcher-glass .launcher{background:rgba(255,255,255,.72);backdrop-filter:blur(18px);border-color:rgba(255,255,255,.7)}.launcher-neon .launcher{border-color:#ffd1ef;box-shadow:0 0 0 1px #ffd1ef,0 12px 44px rgba(255,45,133,.28),0 0 38px rgba(117,92,255,.18)}.launcher-halo .launcher{box-shadow:0 0 0 7px rgba(255,45,85,.08),0 20px 70px rgba(0,0,0,.18)}.launcher-slab .launcher{border-radius:18px;padding:9px 16px;background:#050505;color:#fff;border-color:#050505}.launcher-slab .logo{width:26px;height:26px;border-radius:8px;background:#fff;color:#000}.launcher-slab .notif,.launcher-logo .notif,.launcher-mark .notif{border-color:#050505}' +
-      '@media(max-width:520px){.signmysite{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;flex-direction:column!important}.card{width:calc(100vw - 24px);max-width:none;max-height:calc(100dvh - 110px);padding:22px 20px;border-radius:26px}.avatar{width:78px;height:78px;font-size:28px}.follow,.save{height:46px}.save{width:46px}.follow{padding:0 22px;font-size:16px}.name{font-size:34px}}' +
+      // Phones: full-bleed card that uses nearly the whole height (the launcher +
+      // safe area is ~96px), with tighter rhythm so the profile — pins ("recs") and
+      // notes ("comments") included — fits without feeling cramped. The name is sized
+      // for a phone, not blown up past the desktop size.
+      '@media(max-width:520px){.signmysite{left:max(12px,env(safe-area-inset-left))!important;right:max(12px,env(safe-area-inset-right))!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;flex-direction:column!important}.card{width:calc(100vw - 24px);max-width:none;max-height:calc(100dvh - 96px);padding:22px 20px;border-radius:26px;--vgap:18px}.avatar{width:74px;height:74px;font-size:27px}.follow,.save{height:46px}.save{width:46px}.follow{padding:0 22px;font-size:16px}.name{font-size:26px;margin:12px 0 var(--vgap)}.stats{margin:14px 0 18px}.composer{margin-top:18px}}' +
       "</style>";
   }
 

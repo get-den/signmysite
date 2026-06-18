@@ -41,12 +41,31 @@ export const profileHref = (of: { handle?: string | null; url?: string | null })
   of.handle ? `/@${of.handle}` : of.url || "#";
 
 /**
- * The in-app route to a member's profile — opens inside the feed shell (the Twitter
- * layout), not the server-rendered /@handle page. Null when we have no handle to route
- * to (the caller then falls back to their external site). See <IdentityLink>.
+ * The router path to a member's profile — /@<handle>, the one profile URL (shareable
+ * AND in-app; the feed shell renders it). Null when we have no handle to route to
+ * (the caller then falls back to their external site). See <IdentityLink>.
  */
 export const profilePath = (of: { handle?: string | null }): string | null =>
-  of.handle ? `/u/${of.handle}` : null;
+  of.handle ? `/@${of.handle}` : null;
+
+/**
+ * Where your OWN "Profile" links point: your shareable /@<handle>, falling back to
+ * /profile only until you've claimed a handle. So every in-app route to your own
+ * profile is a URL you can copy and send — never the un-shareable /profile.
+ */
+export const ownProfilePath = (viewer: { handle?: string | null } | null | undefined): string =>
+  profilePath(viewer ?? {}) ?? "/profile";
+
+/**
+ * A HashRouter-era route (the part after #) → today's path: "#/u/justin" → "/@justin",
+ * "#/edit" → "/edit". Old emails and bookmarks keep these alive; main.tsx translates
+ * them at boot, Auth.tsx when they ride in as ?return= targets.
+ */
+export function legacyHashPath(hash: string): string {
+  const p = hash.slice(1); // drop "#"
+  const u = p.match(/^\/u\/([^/?#]+)(.*)$/);
+  return u ? `/@${u[1]}${u[2]}` : p;
+}
 
 /** Compact relative time for note feeds: now, 5m, 15h, 2d, 3w, 4mo, 1y. */
 export function relTime(s: string | null | undefined): string {
@@ -102,7 +121,7 @@ export function signinUrl(to: string = location.href): string {
 
 /** The in-app sign-in page (Google + email magic link), returning to `to` after. */
 export function authUrl(to: string = location.href): string {
-  return "#/auth?return=" + encodeURIComponent(to);
+  return "/auth?return=" + encodeURIComponent(to);
 }
 
 /* ---- usernames + websites (the onboarding funnel) ----------------------- */

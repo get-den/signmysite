@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   follow as apiFollow, getAnalytics, getDiscovery, getFeed, getFollowers, getFollowing, getThreads, orEmpty,
-  type Analytics, type AnalyticsRange, type FeedItem, type FeedPage, type Follower, type Member, type Site,
+  type Analytics, type FeedItem, type FeedPage, type Follower, type Member, type Site,
 } from "../api";
 import { mockDiscovery } from "../mockData";
 import { useToast, useViewer } from "../providers";
@@ -39,10 +39,8 @@ export type HomeStore = {
   loadMore: () => void;
   loadingMore: boolean;
   done: boolean;
-  // own-site analytics (right rail), windowed by range
+  // own-site analytics (right rail), last 30 days
   analytics: Analytics | null;
-  range: AnalyticsRange;
-  setRange: (r: AnalyticsRange) => void;
   // who to follow (already minus anyone you've said you're not interested in)
   recommended: Site[];
   // people who followed you that you don't follow back yet
@@ -66,7 +64,6 @@ export function useHome(viewer: Member): HomeStore {
   const [done, setDone] = useState(false);
 
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const [range, setRange] = useState<AnalyticsRange>("all");
 
   const [recommended, setRecommended] = useState<Site[]>([]);
   const [followBack, setFollowBack] = useState<Follower[]>([]);
@@ -99,14 +96,14 @@ export function useHome(viewer: Member): HomeStore {
     return () => { alive = false; };
   }, [viewer.id]);
 
-  // Analytics, refetched whenever the range toggle changes. Only your own verified
-  // site has anything to show; before that the rail shows a setup CTA instead.
+  // Analytics for the last 30 days. Only your own verified site has anything to
+  // show; before that the rail shows a setup CTA instead.
   useEffect(() => {
     if (!viewer.verified) return;
     let alive = true;
-    getAnalytics(range).then((a) => alive && setAnalytics(a)).catch(() => {});
+    getAnalytics("month").then((a) => alive && setAnalytics(a)).catch(() => {});
     return () => { alive = false; };
-  }, [viewer.verified, range]);
+  }, [viewer.verified]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || done || !cursor) return;
@@ -158,7 +155,7 @@ export function useHome(viewer: Member): HomeStore {
   return {
     viewer,
     items, digest, feedLoading, loadMore, loadingMore, done,
-    analytics, range, setRange,
+    analytics,
     recommended: recommended.filter((s) => !dismissedIds.has(s.id)),
     followBack,
     followedIds, isFollowing, toggleFollow,

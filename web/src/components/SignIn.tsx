@@ -38,7 +38,6 @@ export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
         <GoogleIcon />
         Continue with Google
       </a>
-      <div className="signin-or"><span>or</span></div>
       {sent ? (
         <div className="signin-sent">
           <b>Check your email.</b> We sent a sign-in link to {email.trim()}.

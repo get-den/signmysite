@@ -101,7 +101,7 @@ export function Compose() {
     if (!viewer) {
       const draft = new URLSearchParams({ to, site: siteName, body: text, v: visibility, send: "1" });
       if (from) draft.set("from", from);
-      const ret = `${location.origin}/#/compose?${draft}`;
+      const ret = `/compose?${draft}`;
       navigate(`/auth?return=${encodeURIComponent(ret)}`);
       return;
     }

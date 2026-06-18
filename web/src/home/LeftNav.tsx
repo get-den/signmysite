@@ -11,18 +11,21 @@ import type { ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import type { Member } from "../api";
 import { useViewer } from "../providers";
+import { ownProfilePath } from "../lib";
 import { AvatarMenu } from "./AvatarMenu";
 import { useUnreadCount } from "./hooks";
 
 type IconFn = (filled: boolean) => ReactNode;
 type NavItem = { to: string; label: string; icon: IconFn; end?: boolean; badge?: number };
 
-function navItems(unread: number): NavItem[] {
+// `profileTo` is the viewer's own profile — their shareable /@<handle> when they have
+// one — so clicking Profile lands on (and shows in the URL bar) a link they can copy.
+function navItems(unread: number, profileTo: string): NavItem[] {
   return [
     { to: "/", label: "Home", icon: (f) => <HomeIcon filled={f} />, end: true },
     { to: "/saved", label: "Saved", icon: (f) => <BookmarkIcon filled={f} /> },
     { to: "/messages", label: "Chat", icon: (f) => <ChatIcon filled={f} />, badge: unread },
-    { to: "/profile", label: "Profile", icon: (f) => <UserIcon filled={f} /> },
+    { to: profileTo, label: "Profile", icon: (f) => <UserIcon filled={f} /> },
     { to: "/edit", label: "Settings", icon: (f) => <GearIcon filled={f} /> },
   ];
 }
@@ -48,7 +51,7 @@ function NavRow({ item, kind }: { item: NavItem; kind: "rail" | "tab" }) {
 /** The desktop left rail: nav at the top, the account chip pinned to the bottom. */
 export function NavRail({ viewer }: { viewer: Member | null }) {
   const unread = useUnreadCount(!!viewer);
-  const items = navItems(unread);
+  const items = navItems(unread, ownProfilePath(viewer));
   return (
     <div className="rail">
       <nav className="rail-nav" aria-label="Primary">
@@ -65,7 +68,7 @@ export function NavRail({ viewer }: { viewer: Member | null }) {
 export function MobileTabs() {
   const { viewer } = useViewer();
   const unread = useUnreadCount(!!viewer);
-  const items = navItems(unread);
+  const items = navItems(unread, ownProfilePath(viewer));
   return (
     <nav className="tabbar" aria-label="Primary">
       {items.map((it) => <NavRow key={it.label} item={it} kind="tab" />)}

@@ -386,8 +386,8 @@ export function GoogleIcon() {
 }
 
 /**
- * Links an identity (an avatar/name chip) to its profile: in-app to /u/<handle> inside
- * the feed shell when we know the handle, else out to their external site, else inert.
+ * Links an identity (an avatar/name chip) to its profile: /@<handle> inside the
+ * feed shell when we know the handle, else out to their external site, else inert.
  * One source of truth so every name + avatar across the app opens the same in-shell
  * profile — the "Twitter layout" for anyone, not just you.
  */

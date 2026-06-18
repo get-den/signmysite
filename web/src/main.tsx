@@ -1,16 +1,24 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { HashRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { App } from "./App";
+import { legacyHashPath } from "./lib";
 import { ViewerProvider } from "./providers";
 import { TooltipProvider } from "./ui";
 import "../../site/app.css";
 import "./home/home.css";
 
+// The app routed by hash (/#/u/justin, /#/edit) until mid-2026; those links live
+// on in sent emails and bookmarks. Translate them to real paths before the router
+// mounts. (#comment-<id> deep links don't start with "#/" and pass through.)
+if (location.hash.startsWith("#/")) {
+  history.replaceState(null, "", legacyHashPath(location.hash));
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <HashRouter>
+    <BrowserRouter>
       <TooltipProvider delayDuration={150}>
         <ViewerProvider>
           <App />
@@ -33,6 +41,6 @@ createRoot(document.getElementById("root")!).render(
           },
         }}
       />
-    </HashRouter>
+    </BrowserRouter>
   </StrictMode>
 );

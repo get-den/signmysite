@@ -551,7 +551,6 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .pactions .btn { min-height: 46px; padding: 0 18px; font-size: 15px; }
 .psite-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .psite-view svg { width: 16px; height: 16px; }
-.psite-host { color: var(--muted); font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The view count sits opposite the site action, pushed to the right edge of the row. */
 .pcounts { margin-left: auto; color: var(--muted); font-size: 14px; font-weight: var(--w-normal); }
 
@@ -1346,6 +1345,22 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 
 @media (max-width: 860px) {
   .lv { min-height: 0; padding-top: 6px; }
-  .lv-browser-frame { height: 420px; }
+  .lv-browser-frame { height: 460px; }
+}
+
+/* Phones: the demo IS the page, so give the framed site most of the screen — the
+   widget overlays at 100dvh of the FRAME, so a taller frame is the difference
+   between a roomy card and a cramped one. The headline and CTA stay reachable
+   with a short scroll; the rest compacts into one comfortable column, and the
+   CTA pair goes full-width so it's easy to hit. */
+@media (max-width: 560px) {
+  .lv, .lv-wide { gap: 16px; }
+  .lv h1 { font-size: clamp(26px, 7.6vw, 34px); letter-spacing: -0.03em; }
+  .lv-sub { font-size: 15px; line-height: 1.5; }
+  .lv-browser { border-radius: 14px; }
+  .lv-browser-bar { padding: 8px 12px; }
+  .lv-browser-frame { height: clamp(380px, calc(100dvh - 300px), 560px); }
+  .lv-cta-row { width: 100%; }
+  .lv-cta-row > .btn { flex: 1; }
 }
 

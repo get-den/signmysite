@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, updateProfile, uploadAvatar } from "../api";
-import { squareImage } from "../lib";
+import { ownProfilePath, squareImage } from "../lib";
 import { Avatar, Button, PageHead } from "../ui";
 import { LinksEditor } from "../components/LinksEditor";
 import { FeedLayout } from "../home/FeedLayout";
@@ -58,7 +58,7 @@ export function Edit() {
       const updated = await updateProfile(form);
       setViewer(updated);
       toast("Saved");
-      navigate("/profile");
+      navigate(ownProfilePath(updated));
     } catch (err) {
       setStatus(err instanceof ApiError && err.status === 409 ? "That username is taken." : "Couldn't save.");
       setSaving(false);
@@ -120,7 +120,7 @@ export function Edit() {
         </div>
         <div className="row">
           <Button className="primary" type="submit" loading={saving}>Save</Button>
-          <Link className="btn" to="/profile">Cancel</Link>
+          <Link className="btn" to={ownProfilePath(viewer)}>Cancel</Link>
           <span className="formerr">{status}</span>
         </div>
       </form>

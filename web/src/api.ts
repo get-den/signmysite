@@ -74,6 +74,10 @@ export type ViewerVisit = {
   followsYou: boolean;
 };
 
+/** One row of a dimension breakdown. Counts are distinct visitors, not raw views.
+ *  key null = signal absent (for referrers that means a direct visit). */
+export type Slice = { key: string | null; count: number };
+
 /** Relational analytics for your own site (owner-only). */
 export type Analytics = {
   views: number;
@@ -82,6 +86,14 @@ export type Analytics = {
   visitorsWeek: number;
   knownVisitors: number;
   avgDurationMs: number | null;
+  /** Visitors in the window whose browser had been here before. */
+  returning: number;
+  devices: { phone: number; desktop: number };
+  referrers: Slice[];
+  countries: Slice[];
+  languages: Slice[];
+  /** People YOU follow who read your site in the last 7 days, most recent first. */
+  followedReaders: FeedActor[];
   recent: ViewerVisit[];
 };
 

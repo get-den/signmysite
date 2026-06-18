@@ -14,7 +14,7 @@
  * sending domain is named in exactly one place and can't drift from the live origin.
  * (That host must be a verified Resend sending domain.)
  */
-import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind } from "./db.ts";
+import { wantsNotify, listFollowersWithEmail, type Member, type NotifyKind, type Analytics } from "./db.ts";
 import { escapeHtml, notifyToken } from "./util.ts";
 import { theme } from "./theme.ts";
 import { BASE } from "./config.ts";
@@ -196,10 +196,12 @@ function unsubHeaders(id: string, kind?: NotifyKind): Record<string, string> {
   if (!BASE) return {};
   return { "List-Unsubscribe": `<${unsubUrl(id, kind)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
 }
-// The standard footer: why you got this, plus how to tune it OR leave entirely.
+// The standard footer: why you got this (optional — "" keeps just the links),
+// plus how to tune it OR leave entirely.
 function manageFootnote(id: string, reason: string, kind?: NotifyKind): string {
   if (!BASE) return footnote(escapeHtml(reason));
-  return footnote(`${escapeHtml(reason)} <a href="${manageUrl(id)}" style="${mailCss.footnoteLink}">Manage notifications</a> · <a href="${unsubUrl(id, kind)}" style="${mailCss.footnoteLink}">Unsubscribe</a>.`);
+  const lead = reason ? `${escapeHtml(reason)} ` : "";
+  return footnote(`${lead}<a href="${manageUrl(id)}" style="${mailCss.footnoteLink}">Manage notifications</a> · <a href="${unsubUrl(id, kind)}" style="${mailCss.footnoteLink}">Unsubscribe</a>.`);
 }
 
 // The actor line: avatar (external image, else an initial tile) + "<b>Name</b> verb".
@@ -296,7 +298,7 @@ export async function notifyActivation(member: Recipient & Pick<Member, "url">):
   if (!member.email) return;
   const tag = `<script src="${BASE}/w/${member.id.replace(/^signmysite:/, "")}.js"></script>`;
   const host = member.url ? hostOf(member.url) : "";
-  const editUrl = BASE ? `${BASE}/#/edit` : "#";
+  const editUrl = BASE ? `${BASE}/edit` : "#";
   const intro = host
     ? `You linked ${host}, but signmysite can't see the widget on it yet. Add this one line and your profile, followers, reactions, and analytics all switch on.`
     : "Your signmysite profile is ready, but it isn't live yet. Add this one line to your personal site to connect it — followers, reactions, and analytics switch on.";
@@ -337,10 +339,45 @@ export async function notifyMilestone(
       heading(headline) +
       paragraph(note) +
       button("See your profile", profile) +
-      manageFootnote(member.id, "You're getting this because you hit a milestone on signmysite.", "milestone"),
+      manageFootnote(member.id, "", "milestone"),
     ),
     text: `${headline} on signmysite.\n\n${profile}`,
     headers: unsubHeaders(member.id, "milestone"),
+  });
+}
+
+// ---- weekly views digest ---------------------------------------------------
+// "N people viewed your site last week" — the readership recap, batched so it can
+// never become per-view noise. Anti-spam lives in the SWEEP, not here: at most one
+// send per member per calendar week (a per-week markNotified key, claimed before
+// sending) and only for weeks with at least one real view — a zero week sends
+// nothing. Named signmysite readers ride along as the relational hook.
+export async function notifyViewsDigest(
+  member: Recipient & Pick<Member, "url">,
+  digest: Pick<Analytics, "views" | "visitors" | "knownVisitors" | "recent">,
+): Promise<void> {
+  if (!member.email || !wantsNotify(member, "viewsDigest")) return;
+  const who = digest.visitors === 1 ? "Someone" : `${digest.visitors.toLocaleString()} people`;
+  const subject = `${who} viewed your site last week`;
+  const label = member.url ? hostOf(member.url) : "Your site";
+  const times = digest.views === 1 ? "once" : `${digest.views.toLocaleString()} times`;
+  const names = digest.recent.slice(0, 2).map((r) => r.name).filter(Boolean);
+  const others = Math.max(0, digest.knownVisitors - names.length);
+  const readers = names.length
+    ? ` Readers include ${names.join(" and ")}${others ? ` and ${others} other signed-in ${others === 1 ? "member" : "members"}` : ""}.`
+    : "";
+  const summary = `${label} was viewed ${times} over the past week.${readers}`;
+  await send({
+    to: member.email,
+    subject,
+    html: layout(
+      heading(subject) +
+      paragraph(summary) +
+      (BASE ? button("See your analytics", BASE) : "") +
+      manageFootnote(member.id, "Your weekly readership recap from signmysite.", "viewsDigest"),
+    ),
+    text: `${summary}${BASE ? `\n\nSee your analytics: ${BASE}` : ""}`,
+    headers: unsubHeaders(member.id, "viewsDigest"),
   });
 }
 
@@ -396,7 +433,7 @@ export async function notifyActivity(opts: {
 export async function notifyMessage(recipient: Recipient, sender: Actor, body: string): Promise<void> {
   if (!recipient.email || !wantsNotify(recipient, "message")) return;
   const who = sender.name || "Someone";
-  const reply = BASE ? `${BASE}/#/messages/${sender.id}` : "#";
+  const reply = BASE ? `${BASE}/messages/${sender.id}` : "#";
   await send({
     to: recipient.email,
     subject: `${who} messaged you on signmysite`,

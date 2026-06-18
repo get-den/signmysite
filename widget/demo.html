@@ -23,6 +23,16 @@
       background: #111; transform: rotate(45deg); border-radius: 0 0 3px 0; }
     @keyframes sms-bob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
     @media (prefers-reduced-motion: reduce) { #sms-hint.in { animation: none } }
+    /* On phones the demo lives inside a short framed viewport on the landing page.
+       Keep molly's page short enough to fit without its own scrollbar, so a touch
+       drag scrolls the landing page (not the frame) — and the widget badge stays
+       in view. */
+    @media (max-width: 560px) {
+      body { margin: 26px auto; }
+      h1 { font-size: 32px; }
+      .art { height: 130px; margin: 16px 0; }
+      #sms-hint { right: 16px; bottom: 92px; max-width: 210px; }
+    }
   </style>
 </head>
 <body>

@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS page_views (
 CREATE INDEX IF NOT EXISTS page_views_target ON page_views (target_id, started DESC);
 CREATE INDEX IF NOT EXISTS page_views_known ON page_views (target_id, viewer_id) WHERE viewer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS page_views_session ON page_views (target_id, session, started DESC);
+-- Visit dimensions, all derived server-side from request headers at insert time (the
+-- widget sends nothing new): country from the CDN edge header, device + language from
+-- User-Agent / Accept-Language, and revisit = this browser (its persistent session id)
+-- had viewed this site before. ADD COLUMN IF NOT EXISTS upgrades an existing table in
+-- place, so this needs no reset. Each is nullable: absent signal stays absent, not guessed.
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS country TEXT;     -- ISO 3166-1 alpha-2 ("US")
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS device  TEXT;     -- 'phone' | 'desktop'
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS lang    TEXT;     -- primary language subtag ("en")
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS revisit BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Follows. One row per (follower → target); the whole social graph is this table.
 CREATE TABLE IF NOT EXISTS edges (
@@ -297,7 +306,7 @@ export type Member = {
 // The email kinds a member can mute (the /notify page renders one toggle each).
 export type NotifyKind =
   | "follow" | "save" | "comment" | "reaction" | "message"
-  | "followedUpdate" | "siteUpdated" | "milestone";
+  | "followedUpdate" | "siteUpdated" | "milestone" | "viewsDigest";
 // Does this member want `kind` emails? Default on — only an explicit false mutes.
 export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: NotifyKind): boolean =>
   m.notify?.[kind] !== false;
@@ -305,7 +314,7 @@ export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: Notif
 // one-click unsubscribe turn every stream off in one merge.
 export const ALL_NOTIFY_KINDS: NotifyKind[] = [
   "follow", "save", "comment", "reaction", "message",
-  "followedUpdate", "siteUpdated", "milestone",
+  "followedUpdate", "siteUpdated", "milestone", "viewsDigest",
 ];
 export type Stats = {
   views: number; followers: number; following: number; saved: number; pinned: number;
@@ -318,6 +327,11 @@ export type ViewerVisit = {
   id: string; handle: string | null; name: string; avatar: string | null; url: string | null;
   views: number; lastSeen: string; viewerFollows: boolean; followsYou: boolean;
 };
+// One row of a dimension breakdown ("where from", country, language…). Counts are
+// distinct sessions — people, roughly — not raw views, so one enthusiastic reader
+// can't dominate a chart. key is the dimension's value; NULL means the signal was
+// absent (for referrers that's meaningful: a direct visit).
+export type Slice = { key: string | null; count: number };
 // The owner's analytics: headline counts, the real average engaged time (finally
 // not a placeholder), and the named signmysite members behind the anonymous view total.
 export type Analytics = {
@@ -326,6 +340,12 @@ export type Analytics = {
   visitorsWeek: number;   // distinct sessions in the last 7 days
   knownVisitors: number;  // distinct signed-in signmysite members in the window
   avgDurationMs: number | null;
+  returning: number;      // distinct sessions in the window that had visited before
+  devices: { phone: number; desktop: number };  // distinct sessions by device
+  referrers: Slice[];     // top referring hosts (key NULL = direct)
+  countries: Slice[];     // top countries (ISO alpha-2)
+  languages: Slice[];     // top browser languages (primary subtag)
+  followedReaders: Identity[];  // people YOU follow who read your site in the last 7 days
   recent: ViewerVisit[];
 };
 export type Comment = {
@@ -783,11 +803,16 @@ const sinceOf = (range: Range): string | null =>
 export async function recordView(v: {
   target: string; viewer?: string | null; session: string;
   path?: string | null; referrer?: string | null;
+  country?: string | null; device?: string | null; lang?: string | null;
 }): Promise<number> {
+  // revisit is decided inside the INSERT itself: has this browser (its persistent
+  // session id) ever viewed this site before? One statement, no read-then-write race.
   await pool.query(
-    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, started)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null, v.referrer ?? null, now()]
+    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, country, device, lang, revisit, started)
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            EXISTS (SELECT 1 FROM page_views WHERE target_id = $2 AND session = $4), $10`,
+    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null, v.referrer ?? null,
+     v.country ?? null, v.device ?? null, v.lang ?? null, now()]
   );
   const r = await pool.query("UPDATE members SET views = views + 1 WHERE id = $1 RETURNING views", [v.target]);
   return r.rows[0]?.views ?? 0;
@@ -817,12 +842,16 @@ export async function recordDuration(target: string, session: string, ms: number
 export async function importView(v: {
   target: string; viewer?: string | null; session: string;
   path?: string | null; referrer?: string | null; durationMs?: number | null; at?: string;
+  country?: string | null; device?: string | null; lang?: string | null;
 }): Promise<void> {
+  // revisit is derived the same way recordView does it (a prior row for this
+  // session), so seeded repeat visits read exactly like production ones.
   await pool.query(
-    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, duration_ms, started)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null,
-     v.referrer ?? null, v.durationMs ?? null, v.at ?? now()]
+    `INSERT INTO page_views (id, target_id, viewer_id, session, path, referrer, country, device, lang, revisit, duration_ms, started)
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            EXISTS (SELECT 1 FROM page_views WHERE target_id = $2 AND session = $4), $10, $11`,
+    ["pv_" + token(8), v.target, v.viewer ?? null, v.session, v.path ?? null, v.referrer ?? null,
+     v.country ?? null, v.device ?? null, v.lang ?? null, v.durationMs ?? null, v.at ?? now()]
   );
 }
 
@@ -835,18 +864,52 @@ export async function importView(v: {
 export async function analytics(id: string, range: Range = "all"): Promise<Analytics> {
   const since = sinceOf(range);                                   // null ⇒ all-time
   const weekSince = new Date(Date.now() - 7 * 864e5).toISOString();
-  const [totals, recent] = await Promise.all([
+  // The range window as a SQL fragment ($2 = since; NULL ⇒ no lower bound). Every
+  // aggregate below scopes through this one predicate.
+  const WIN = "($2::text IS NULL OR started > $2)";
+  // Top values of one dimension column, counted in distinct sessions. One shape for
+  // referrer / country / lang — a future dimension (path, city…) is just another call.
+  const slice = (col: "referrer" | "country" | "lang") =>
+    pool.query(
+      `SELECT ${col} AS key, COUNT(DISTINCT session)::int AS count
+         FROM page_views
+        WHERE target_id = $1 AND ${WIN} AND ${col} IS NOT NULL
+        GROUP BY 1 ORDER BY count DESC, key ASC LIMIT 6`,
+      [id, since]
+    );
+  const [totals, refs, geo, langs, followed, recent] = await Promise.all([
     pool.query(
       `SELECT
          (SELECT views FROM members WHERE id = $1)                                          AS all_views,
-         COUNT(*) FILTER (WHERE $2::text IS NULL OR started > $2)::int                       AS win_views,
-         COUNT(DISTINCT session) FILTER (WHERE $2::text IS NULL OR started > $2)::int         AS visitors,
+         COUNT(*) FILTER (WHERE ${WIN})::int                                                 AS win_views,
+         COUNT(DISTINCT session) FILTER (WHERE ${WIN})::int                                   AS visitors,
          COUNT(DISTINCT session) FILTER (WHERE started > $3)::int                            AS visitors_week,
+         COUNT(DISTINCT session) FILTER (WHERE ${WIN} AND referrer IS NULL)::int              AS direct,
+         COUNT(DISTINCT session) FILTER (WHERE ${WIN} AND revisit)::int                       AS returning,
+         COUNT(DISTINCT session) FILTER (WHERE ${WIN} AND device = 'phone')::int              AS phone,
+         COUNT(DISTINCT session) FILTER (WHERE ${WIN} AND device = 'desktop')::int            AS desktop,
          COUNT(DISTINCT viewer_id)
-           FILTER (WHERE ($2::text IS NULL OR started > $2) AND viewer_id IS NOT NULL AND viewer_id <> $1)::int AS known,
-         AVG(duration_ms) FILTER (WHERE ($2::text IS NULL OR started > $2) AND duration_ms IS NOT NULL) AS avg_ms
+           FILTER (WHERE ${WIN} AND viewer_id IS NOT NULL AND viewer_id <> $1)::int AS known,
+         AVG(duration_ms) FILTER (WHERE ${WIN} AND duration_ms IS NOT NULL) AS avg_ms
        FROM page_views WHERE target_id = $1`,
       [id, since, weekSince]
+    ),
+    slice("referrer"),
+    slice("country"),
+    slice("lang"),
+    // "N people you follow read your site this week" — the readers of the last 7 days,
+    // intersected with the owner's own follow list, most recent first.
+    pool.query(
+      `SELECT m.id, m.handle, m.name, m.avatar, m.url
+         FROM (SELECT viewer_id, MAX(started) AS last
+                 FROM page_views
+                WHERE target_id = $1 AND viewer_id IS NOT NULL AND viewer_id <> $1 AND started > $2
+                GROUP BY viewer_id) v
+         JOIN edges e ON e.follower_id = $1 AND e.target_id = v.viewer_id
+         JOIN members m ON m.id = v.viewer_id
+        ORDER BY v.last DESC
+        LIMIT 8`,
+      [id, weekSince]
     ),
     pool.query(
       `SELECT m.id, m.handle, m.name, m.avatar, m.url,
@@ -867,12 +930,24 @@ export async function analytics(id: string, range: Range = "all"): Promise<Analy
     ),
   ]);
   const t = totals.rows[0] || {};
+  const toSlice = (r: { key: string | null; count: number }): Slice => ({ key: r.key, count: Number(r.count) });
+  // Direct visits (no referrer) are a real source, counted in the totals pass and
+  // spliced into the referrer slices so "Direct" ranks alongside "google.com".
+  const referrers = refs.rows.map(toSlice)
+    .concat(Number(t.direct) > 0 ? [{ key: null, count: Number(t.direct) }] : [])
+    .sort((a, b) => b.count - a.count);
   return {
     views: range === "all" ? Number(t.all_views || 0) : Number(t.win_views || 0),
     visitors: Number(t.visitors || 0),
     visitorsWeek: Number(t.visitors_week || 0),
     knownVisitors: Number(t.known || 0),
     avgDurationMs: t.avg_ms != null ? Math.round(Number(t.avg_ms)) : null,
+    returning: Number(t.returning || 0),
+    devices: { phone: Number(t.phone || 0), desktop: Number(t.desktop || 0) },
+    referrers,
+    countries: geo.rows.map(toSlice),
+    languages: langs.rows.map(toSlice),
+    followedReaders: followed.rows,
     recent: recent.rows.map((r) => ({
       id: r.id, handle: r.handle, name: r.name, avatar: r.avatar, url: r.url,
       views: r.views, lastSeen: r.last_seen,
@@ -1234,6 +1309,21 @@ export async function listFollowersWithEmail(targetId: string): Promise<Member[]
     `SELECT m.* FROM edges e JOIN members m ON m.id = e.follower_id
       WHERE e.target_id = $1 AND m.email IS NOT NULL`,
     [targetId]
+  )).rows;
+}
+// Recipients for the weekly views digest: members with an email whose site got at
+// least one view since `since` and who haven't been sent this week's digest yet
+// (`notifiedKey` is the per-week markNotified key — pre-filtered here so a quiet
+// week costs one indexed EXISTS per member, then re-claimed atomically on send).
+// page_views never contains self-views (the API drops them), so any row is a real
+// reader — a "0 people viewed your site" email is impossible by construction.
+export async function listViewedSince(since: string, notifiedKey: string, limit = 500): Promise<Member[]> {
+  return (await pool.query(
+    `SELECT * FROM members
+      WHERE email IS NOT NULL AND NOT (notified ? $2)
+        AND EXISTS (SELECT 1 FROM page_views v WHERE v.target_id = members.id AND v.started > $1)
+      LIMIT $3`,
+    [since, notifiedKey, limit]
   )).rows;
 }
 // Members who signed up but never verified a site (no widget yet) and haven't been

@@ -14,13 +14,22 @@ import { useMediaQuery } from "./hooks";
 export const WIDE = "(min-width: 1080px)";
 
 export function FeedLayout({
-  viewer, children, rail,
+  viewer, children, rail, railBelow = false,
 }: {
   viewer: Member | null;
   children: ReactNode;
   rail?: ReactNode;
+  // Narrow screens stack the right rail into the column. By default it rides ABOVE
+  // the content (the home's "add your site" / who-to-follow CTAs lead). Set this on
+  // pages where the rail is supplementary — e.g. a profile's pinned showcase, which
+  // must come AFTER the person's identity, not before it (else you land on an empty
+  // "Pinned" box with the actual profile pushed below the fold).
+  railBelow?: boolean;
 }) {
   const wide = useMediaQuery(WIDE);
+  const inlineRail = !wide && rail && (
+    <div className={"rail-inline" + (railBelow ? " rail-inline-below" : "")}>{rail}</div>
+  );
   return (
     <div className="feed-layout">
       {wide && (
@@ -30,8 +39,9 @@ export function FeedLayout({
       )}
 
       <main className="feed-main">
-        {!wide && rail && <div className="rail-inline">{rail}</div>}
+        {!railBelow && inlineRail}
         {children}
+        {railBelow && inlineRail}
       </main>
 
       {wide && rail && (

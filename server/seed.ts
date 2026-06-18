@@ -164,23 +164,33 @@ for (const member of [ID.maya, ID.maggie, ID.josh]) await db.addCohortMember(CRE
 
 // Page views OF `you` — the relational-analytics demo: named members (some you
 // follow, some you don't) mixed with anonymous readers, each with engaged time.
-const pageViews: Array<{ viewer: string | null; daysAgo: number; sec: number; ref?: string }> = [
-  { viewer: ID.maggie, daysAgo: 0.2, sec: 142 },
-  { viewer: ID.swyx, daysAgo: 0.5, sec: 210 },
-  { viewer: ID.dan, daysAgo: 1.1, sec: 38 },
-  { viewer: ID.lee, daysAgo: 2.3, sec: 167 },
-  { viewer: ID.cassidy, daysAgo: 3.4, sec: 76 },
-  { viewer: ID.robin, daysAgo: 4.7, sec: 51 },
-  { viewer: ID.josh, daysAgo: 5.2, sec: 188 },
-  { viewer: null, daysAgo: 0.1, sec: 64, ref: "news.ycombinator.com" },
-  { viewer: null, daysAgo: 0.8, sec: 23 },
-  { viewer: null, daysAgo: 1.9, sec: 119, ref: "google.com" },
-  { viewer: null, daysAgo: 8.0, sec: 12 },
+// Each view also carries the header-derived dimensions (country / device / language);
+// `sess` reuses a session id across rows so importView marks the later one a revisit,
+// exactly like production. Inserted oldest-first so "an earlier row exists" holds.
+const pageViews: Array<{
+  viewer: string | null; daysAgo: number; sec: number; ref?: string;
+  cc?: string; dev?: "phone" | "desktop"; lang?: string; sess?: string;
+}> = [
+  { viewer: ID.maggie, daysAgo: 0.2, sec: 142, cc: "US", dev: "phone", lang: "en", sess: "maggie" },
+  { viewer: ID.maggie, daysAgo: 6.5, sec: 95, cc: "US", dev: "phone", lang: "en", sess: "maggie" },
+  { viewer: ID.swyx, daysAgo: 0.5, sec: 210, cc: "SG", dev: "desktop", lang: "en" },
+  { viewer: ID.dan, daysAgo: 1.1, sec: 38, cc: "US", dev: "desktop", lang: "en" },
+  { viewer: ID.lee, daysAgo: 2.3, sec: 167, cc: "GB", dev: "phone", lang: "en" },
+  { viewer: ID.cassidy, daysAgo: 3.4, sec: 76, cc: "US", dev: "desktop", lang: "en" },
+  { viewer: ID.robin, daysAgo: 4.7, sec: 51, cc: "DE", dev: "desktop", lang: "de" },
+  { viewer: ID.josh, daysAgo: 5.2, sec: 188, cc: "US", dev: "phone", lang: "en" },
+  { viewer: null, daysAgo: 0.1, sec: 64, ref: "news.ycombinator.com", cc: "US", dev: "desktop", lang: "en" },
+  { viewer: null, daysAgo: 0.8, sec: 23, cc: "JP", dev: "phone", lang: "ja" },
+  { viewer: null, daysAgo: 1.9, sec: 119, ref: "google.com", cc: "BR", dev: "phone", lang: "pt", sess: "anon-br" },
+  { viewer: null, daysAgo: 0.4, sec: 41, cc: "BR", dev: "phone", lang: "pt", sess: "anon-br" },
+  { viewer: null, daysAgo: 2.6, sec: 88, ref: "x.com", cc: "FR", dev: "desktop", lang: "fr" },
+  { viewer: null, daysAgo: 8.0, sec: 12, cc: "US", dev: "desktop", lang: "en" },
 ];
-for (const [i, v] of pageViews.entries()) {
+for (const [i, v] of [...pageViews.entries()].sort((a, b) => b[1].daysAgo - a[1].daysAgo)) {
   await db.importView({
-    target: ID.you, viewer: v.viewer, session: `seed-${v.viewer || "anon"}-${i}`,
+    target: ID.you, viewer: v.viewer, session: `seed-${v.sess || `${v.viewer || "anon"}-${i}`}`,
     path: "/", referrer: v.ref ?? null, durationMs: v.sec * 1000,
+    country: v.cc ?? null, device: v.dev ?? null, lang: v.lang ?? null,
     at: new Date(Date.now() - v.daysAgo * 864e5).toISOString(),
   });
 }

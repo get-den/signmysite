@@ -28,7 +28,7 @@
 .rail-nav { display: flex; flex-direction: column; gap: 2px; }
 .rail-link {
   display: flex; align-items: center; gap: 14px;
-  padding: 11px 14px; border-radius: 12px;
+  padding: 11px 16px; border-radius: 999px;
   color: var(--muted); font-weight: var(--w-semibold); font-size: 15px;
   transition: background 117ms ease, color 117ms ease;
 }
@@ -46,7 +46,7 @@
 
 .loggedout-chip {
   display: flex; align-items: center; gap: 11px; width: 100%;
-  padding: 8px; border-radius: 14px; color: var(--ink);
+  padding: 8px; border-radius: 999px; color: var(--ink);
   transition: background 117ms ease;
 }
 .loggedout-chip:hover { background: var(--surface-2); text-decoration: none; }
@@ -63,7 +63,7 @@
 .who-trigger {
   display: flex; align-items: center; gap: 11px; width: 100%;
   appearance: none; border: 0; background: transparent; cursor: pointer; text-align: left;
-  padding: 8px; border-radius: 14px; color: var(--ink);
+  padding: 8px; border-radius: 999px; color: var(--ink);
   transition: background 117ms ease;
 }
 .who-trigger:hover, .who-trigger.on { background: var(--surface-2); }
@@ -186,29 +186,55 @@ a.feed-quote:hover { filter: brightness(0.96); }
 .rail-r { display: flex; flex-direction: column; gap: 12px; }
 /* When the rail rides atop the feed on narrow screens, cap its width to the column. */
 .rail-inline { margin-bottom: 4px; }
+/* On a profile, the rail (pinned showcase) is supplementary, so it stacks BELOW the
+   profile instead — give it air above to part it from the comments it follows. */
+.rail-inline-below { margin-bottom: 0; margin-top: 24px; }
 
 .rail-block { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); }
+/* The pinned showcase carries its own structure (heading + cards / dashed empty box),
+   so it drops the outer card chrome and sits flush like the comments section beside it. */
+.pins-block { border: 0; background: transparent; padding: 0; }
 .rail-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rail-block-head h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
 
-/* analytics block */
-.analytics { gap: 14px; }
-.analytics .rail-block-head { align-items: center; }
-.analytics-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-/* a minimal native dropdown for the time range (replaces the segmented control) */
-.rail-select {
-  appearance: none; -webkit-appearance: none; -moz-appearance: none;
-  border: 1px solid var(--line); border-radius: 999px; color: var(--ink);
-  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center;
-  padding: 7px 30px 7px 13px;
-  font: var(--w-semibold) 13px/1 'Sohne', system-ui, sans-serif; cursor: pointer;
-  transition: border-color .15s ease, box-shadow .15s ease;
-}
-.rail-select:hover { border-color: var(--muted); }
-.rail-select:focus { outline: none; box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
-.metric { display: flex; flex-direction: column; gap: 3px; }
-.metric-val { color: var(--ink); font-size: 24px; line-height: 1; letter-spacing: -0.02em; font-weight: var(--w-semibold); }
-.metric-label { color: var(--muted); font-size: 12.5px; }
+/* "Your site" — two LinkedIn-style cards. First the identity card: the og:image
+   banner up top, the pfp overlapping it, name + host. Then a separate stats card
+   of label/value rows (last 30 days). */
+.sitecard { padding: 0; gap: 0; overflow: hidden; }
+.sitecard-id { display: flex; flex-direction: column; align-items: flex-start; padding: 0 18px 16px; color: inherit; }
+.sitecard-id:hover { text-decoration: none; }
+.sitecard-banner { display: block; align-self: stretch; height: 72px; margin: 0 -18px; background: var(--surface-2); }
+.sitecard-banner .site-thumb { height: 100%; aspect-ratio: auto; }
+.sitecard-id .avatar { width: 64px; height: 64px; font-size: 24px; margin-top: -30px; box-shadow: 0 0 0 3px var(--surface); }
+.sitecard-name { margin-top: 10px; color: var(--ink); font-size: 17px; line-height: 1.2; font-weight: var(--w-semibold); }
+.sitecard-id:hover .sitecard-name { text-decoration: underline; text-underline-offset: 2px; }
+.sitecard-sub { margin-top: 3px; color: var(--muted); font-size: 13.5px; }
+.sitecard-range { margin: 0; color: var(--muted); font-size: 12.5px; font-weight: var(--w-semibold); }
+.sitecard-rows { display: flex; flex-direction: column; gap: 11px; margin: 0; }
+.sitecard-stat { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sitecard-stat dt { color: var(--muted); font-size: 13.5px; }
+.sitecard-stat dd { margin: 0; color: var(--ink); font-size: 14.5px; font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
+
+/* the social-proof line: facepile of readers you follow + sentence */
+.sitecard-social { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font-size: 13px; line-height: 1.45; }
+.sitecard-faces { display: flex; flex-shrink: 0; }
+.sitecard-faces .avatar { width: 26px; height: 26px; font-size: 11px; box-shadow: 0 0 0 2px var(--surface-2); }
+.sitecard-faces .avatar + .avatar { margin-left: -8px; }
+
+/* phone vs desktop: one split bar with a legend */
+.sitecard-devices { display: flex; flex-direction: column; gap: 6px; }
+.sitecard-split { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--line); }
+.sitecard-split span { background: var(--accent); border-radius: 999px 0 0 999px; }
+.sitecard-split-legend { display: flex; justify-content: space-between; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* a breakdown section (sources / countries / languages): label + visitor count
+   over a faint proportional bar */
+.sitecard-break { display: flex; flex-direction: column; gap: 5px; }
+.sitecard-break h3 { margin: 0 0 2px; color: var(--muted); font-size: 11.5px; font-weight: var(--w-semibold); text-transform: uppercase; letter-spacing: 0.05em; }
+.sitecard-bar { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 3px 8px; border-radius: 6px; overflow: hidden; font-size: 13px; }
+.sitecard-bar-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--surface-2); border-radius: 6px; }
+.sitecard-bar-label { position: relative; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitecard-bar-n { position: relative; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* social blocks: follow back + who to follow */
 .person-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -368,6 +394,8 @@ a.feed-quote:hover { filter: brightness(0.96); }
   /* The inline rail trims to the essentials — its compact form (see rail-r-compact). */
   .rail-r-compact { gap: 10px; }
   .rail-r-compact .rail-block { padding: 14px 16px; }
+  /* The site card keeps its full-bleed banner; its sections pad themselves. */
+  .rail-r-compact .sitecard { padding: 0; }
 }
 @media (max-width: 560px) {
   .wall-grid { grid-template-columns: 1fr; }

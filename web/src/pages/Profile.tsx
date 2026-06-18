@@ -1,14 +1,14 @@
 /*
- * The profile page, in-app — for ANYONE, inside the feed shell (nav rail + center + right
- * rail). Your own (/profile, or /u/<your-handle>) is the owner view: Edit profile, the
- * add/verify-site CTA + your pinned showcase in the rail, and the notes left on your site.
- * Someone else's (/u/<handle>) is the visitor view: Follow + Message, their site preview,
- * their public notes, and their pinned showcase. Both share the same presentational
- * pieces below. The public, server-rendered /@<handle> page stays for logged-out
- * visitors + crawlers.
+ * The profile page — for ANYONE, signed in or not, inside the feed shell (nav rail +
+ * center + right rail). This is the ONE profile layout: /@<handle> (the shareable URL)
+ * and /profile both land here. Your own (/profile, or /@<your-handle>) is the owner
+ * view: Edit profile, the add/verify-site CTA + your pinned showcase in the rail, and
+ * the notes left on your site. Someone else's (/@<handle>) is the visitor view: Follow +
+ * Message, their site preview, their public notes, and their pinned showcase. Both
+ * share the same presentational pieces below.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ApiError, follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
   save as apiSave, togglePin,
@@ -16,16 +16,18 @@ import {
 } from "../api";
 import { useToast, useViewer } from "../providers";
 import { host, isReaction, profilePath, relTime, socialLabel } from "../lib";
-import { Avatar, CommentBody, EmptyState, IdentityLink, PageHead, PinIcon, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, CommentBody, EmptyState, IdentityLink, Loading, PageHead, PinIcon, SiteThumbnail, Spinner } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
 import { FollowButton, SiteCTA } from "../home/parts";
 
-export function Profile() {
-  const { handle } = useParams();
-  const { viewer } = useViewer();
-  if (!viewer) return null; // both /profile and /u/:handle are Protected; this is just a type guard
-  const own = !handle || handle.toLowerCase() === (viewer.handle || "").toLowerCase();
-  return own ? <OwnerProfile viewer={viewer} /> : <MemberProfile handle={handle!} viewer={viewer} />;
+/** `handle` comes from the /@<handle> route (AtRoute in App.tsx); /profile passes none. */
+export function Profile({ handle }: { handle?: string }) {
+  const { viewer, loading } = useViewer();
+  if (loading) return <Loading />;
+  const own = viewer && (!handle || handle.toLowerCase() === (viewer.handle || "").toLowerCase());
+  if (own) return <OwnerProfile viewer={viewer} />;
+  if (!handle) return null; // /profile is Protected; signed-out never reaches here
+  return <MemberProfile handle={handle} viewer={viewer ?? null} />;
 }
 
 /* ---- your own profile ---------------------------------------------------- */
@@ -45,7 +47,7 @@ function OwnerProfile({ viewer }: { viewer: Member }) {
 
   const publicNotes = notes.filter((n) => n.visibility === "public");
   return (
-    <FeedLayout viewer={viewer} rail={<OwnerRail viewer={viewer} pinned={pinned} />}>
+    <FeedLayout viewer={viewer} rail={<OwnerRail viewer={viewer} pinned={pinned} />} railBelow>
       <div className="profile-page">
         <PageHead title="Profile" />
         <ProfileHero member={viewer} unverified={!!viewer.url && !viewer.verified}>
@@ -123,7 +125,7 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | nu
   };
 
   return (
-    <FeedLayout viewer={viewer} rail={<MemberRail member={m} pinned={data.pinned} />}>
+    <FeedLayout viewer={viewer} rail={<MemberRail member={m} pinned={data.pinned} />} railBelow>
       <div className="profile-page">
         <PageHead title={m.name || `@${m.handle}`} />
         <ProfileHero member={m}>
@@ -294,11 +296,11 @@ function SitePreviewImg({ member, label }: { member: Member; label: string }) {
         <SiteThumbnail site={member} className="psite-img" />
         <span className="psite-open" aria-hidden="true"><ExternalLinkIcon /></span>
       </a>
+      {/* Just the button — the hero already shows the site's host under the name. */}
       <div className="psite-actions">
         <a className="btn psite-view" href={member.url} target="_blank" rel="noopener">
           View site <ExternalLinkIcon />
         </a>
-        <span className="psite-host">{host(member.url)}</span>
       </div>
     </div>
   );
@@ -402,7 +404,7 @@ function MemberRail({ member, pinned }: { member: Member; pinned: PinnedSite[] }
 
 function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string }) {
   return (
-    <section className="rail-block">
+    <section className="rail-block pins-block">
       <div className="rail-block-head"><h2>Pinned</h2></div>
       {pinned.length ? (
         <div className="pins pins-col">
