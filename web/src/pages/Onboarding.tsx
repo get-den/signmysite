@@ -3,7 +3,7 @@ import { ApiError, checkHandle, claimHandle, onboard, scrapeSite } from "../api"
 import { useToast, useViewer } from "../providers";
 import { host, handleFromSite, normHandle, validateSite, JOIN_SITE_KEY, SIGNUP_HANDLE_KEY } from "../lib";
 import { Button, IconButton, Spinner } from "../ui";
-import { WidgetSetup } from "../components/WidgetSetup";
+import { EmbedSetup } from "../components/EmbedSetup";
 
 // Username candidates for the picker: a pre-auth username draft wins, then any
 // legacy site prefill, then their display name, broken into useful variants.
@@ -154,7 +154,7 @@ export function Onboarding() {
       await scrapeSite(siteCheck.url!);
       setStep(3);
     } catch {
-      toast("Couldn't reach that site. Check the address.");
+      toast("Couldn't reach that site. Check the URL.");
     } finally {
       setScraping(false);
     }
@@ -280,9 +280,9 @@ export function Onboarding() {
           <div className="onb-step onb-widget" key="step3">
             <h1>Add signmysite to your site</h1>
 
-            {/* Verify + Skip live in WidgetSetup's footer (shared with /verify), so
+            {/* Verify + Skip live in EmbedSetup's footer (shared with /verify), so
                 there's one clear pair of bottom actions — no separate "Done". */}
-            <WidgetSetup viewer={viewer} onVerified={finish} onSkip={finish} />
+            <EmbedSetup viewer={viewer} onVerified={finish} onSkip={finish} />
           </div>
         )}
 

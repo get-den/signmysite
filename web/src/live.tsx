@@ -40,11 +40,14 @@ export const LIVE_VARIANTS: Array<[LiveVariant, string]> = [
 ];
 
 const VARIANT_KEY = "signmysite:live-ui";
+// The shipped look. All five stay in code — the dev-only LiveSwitcher flips
+// between them — but production renders this one unless a dev has overridden it.
+const DEFAULT_VARIANT: LiveVariant = "rail";
 const loadVariant = (): LiveVariant => {
   try {
     const v = localStorage.getItem(VARIANT_KEY);
-    return LIVE_VARIANTS.some(([k]) => k === v) ? (v as LiveVariant) : "toast";
-  } catch { return "toast"; }
+    return LIVE_VARIANTS.some(([k]) => k === v) ? (v as LiveVariant) : DEFAULT_VARIANT;
+  } catch { return DEFAULT_VARIANT; }
 };
 
 type LiveCtx = {
@@ -263,7 +266,7 @@ export function LiveBell() {
               </div>
             ))
           ) : (
-            <div className="live-pop-empty">Quiet for now — activity shows up here live.</div>
+            <div className="live-pop-empty">Quiet for now. Activity shows up live.</div>
           )}
         </div>
       )}
@@ -332,7 +335,9 @@ export function LiveSwitcher() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  if (!viewer) return null;
+  // The variant picker + demo trigger is a dev affordance, not a production one:
+  // shipped builds render the chosen default (DEFAULT_VARIANT) with no chrome.
+  if (!viewer || !import.meta.env.DEV) return null;
   const label = LIVE_VARIANTS.find(([k]) => k === variant)?.[1] ?? "Toast";
   return (
     <div className="live-switcher" ref={wrap}>

@@ -198,7 +198,7 @@ function SignInToSend({ isNote, emoji, name }: { isNote: boolean; emoji: string;
     <>
       <h1 className="confirm-title">{isNote ? "Almost there" : "One more step"}</h1>
       <p className="confirm-sub">
-        Sign in to add your {isNote ? "comment" : emoji} to <b>{name}</b>. It posts as you, never anonymously.
+        Sign in to add your {isNote ? "comment" : emoji} to <b>{name}</b>. It posts as you, never anonymous.
       </p>
       <div className="confirm-signin">
         <SignIn returnTo={location.href} />

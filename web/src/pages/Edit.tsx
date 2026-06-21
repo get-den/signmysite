@@ -1,9 +1,8 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, updateProfile, uploadAvatar } from "../api";
+import { ApiError, logout, updateProfile, uploadAvatar } from "../api";
 import { ownProfilePath, squareImage } from "../lib";
 import { Avatar, Button, PageHead } from "../ui";
-import { LinksEditor } from "../components/LinksEditor";
 import { FeedLayout } from "../home/FeedLayout";
 import { useToast, useViewer } from "../providers";
 
@@ -44,7 +43,7 @@ export function Edit() {
       setViewer({ ...viewer, avatar: updated.avatar ?? null });
       toast("Photo updated");
     } catch {
-      setStatus("Couldn't upload that image. Try a JPEG, PNG, or WebP.");
+      setStatus("Couldn't upload that. Try a JPEG, PNG, or WebP.");
     } finally {
       setUploading(false);
     }
@@ -65,6 +64,16 @@ export function Edit() {
     }
   }
 
+  // Clear local state and leave even if the network logout fails — never strand the
+  // user looking signed-in on a page they just tried to sign out of.
+  async function signOut() {
+    try { await logout(); } finally { setViewer(null); navigate("/"); }
+  }
+
+  // Only warn about re-verification when it's actually true: the server drops `verified`
+  // exactly when a *currently verified* site's (trimmed) URL changes (server/app.ts).
+  const reverifyNeeded = !!viewer.verified && form.url.trim() !== (viewer.url ?? "").trim();
+
   return (
     <FeedLayout viewer={viewer}>
     <div className="settings-page">
@@ -79,7 +88,7 @@ export function Edit() {
               <Button className="sm" loading={uploading} onClick={() => fileRef.current?.click()}>
                 {form.avatar ? "Change photo" : "Upload photo"}
               </Button>
-              <span className="hint">A square photo works best: JPEG, PNG, or WebP.</span>
+              <span className="hint">Square works best. JPEG, PNG, or WebP.</span>
             </div>
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pickAvatar} />
           </div>
@@ -100,30 +109,20 @@ export function Edit() {
           </div>
         </div>
         <Field
-          label="Your site URL"
+          label="Site URL"
           value={form.url}
           onChange={set("url")}
           placeholder="https://you.example"
-          hint="Change this and you'll need to re-verify your site."
+          hint={reverifyNeeded ? "Changing this means re-verifying your site." : undefined}
         />
-        <div className="field">
-          <label>Social links</label>
-          <LinksEditor value={form.links} onChange={(links) => setForm((f) => ({ ...f, links }))} />
-          <p className="field-hint">Instagram, X, LinkedIn, GitHub, wherever else you are.</p>
-        </div>
-        <div className="field">
-          <label>Account</label>
-          <div className="acct">
-            <span className="tag">{viewer.authMethod === "google" ? "Signed in with Google" : "Signed in with an email link"}</span>
-          </div>
-          <span className="hint">This is how you sign in. Your email stays private.</span>
-        </div>
         <div className="row">
           <Button className="primary" type="submit" loading={saving}>Save</Button>
           <Link className="btn" to={ownProfilePath(viewer)}>Cancel</Link>
           <span className="formerr">{status}</span>
         </div>
       </form>
+      <hr className="settings-sep" />
+      <Button className="naked signout" type="button" onClick={signOut}>Sign out</Button>
       </div>
     </div>
     </FeedLayout>

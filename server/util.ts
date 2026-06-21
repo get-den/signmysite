@@ -7,6 +7,31 @@ export function newId(): string {
   return "signmysite:" + randomBytes(8).toString("hex");
 }
 
+// Canonical-domain key for a site URL: the bare host, lowercased, without a scheme,
+// a leading "www.", a path, query, or fragment. The ONE identity a pasted link reduces
+// to — "https://nabeelqu.co/principles", "nabeelqu.co", and "www.nabeelqu.co/x?y" all
+// key to "nabeelqu.co" — so a site has at most one row. Null for anything that isn't a
+// dotted hostname. Mirrored by web/src/lib.ts domainOf so client + server agree.
+export function domainKey(url: string | null | undefined): string | null {
+  const raw = (url || "").trim();
+  if (!raw) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : "https://" + raw;
+  let h: string;
+  try { h = new URL(withScheme).hostname; } catch { return null; }
+  h = h.replace(/^www\./i, "").toLowerCase();
+  return h.includes(".") ? h : null;
+}
+
+// Tolerant canonicalization of a pasted address → { url, key }, or null if it isn't a
+// real public website. `url` is a clean "https://<host>" to store + link to; `key` is
+// its domainKey, used for dedupe and ownership matching. Rejects localhost / IPs.
+export function canonicalDomain(raw: string): { url: string; key: string } | null {
+  const key = domainKey(raw);
+  if (!key) return null;
+  if (key === "localhost" || key.endsWith(".local") || /^\d+\.\d+\.\d+\.\d+$/.test(key)) return null;
+  return { url: "https://" + key, key };
+}
+
 const ADJ = ["swift", "sunny", "brave", "clever", "tiny", "cosmic", "mellow", "zesty",
   "lucky", "fuzzy", "nimble", "quiet", "bold", "jolly", "rapid", "witty"];
 const ANIMAL = ["otter", "fox", "koala", "raven", "lynx", "panda", "heron", "gecko",

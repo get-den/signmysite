@@ -41,7 +41,11 @@
   position: absolute; top: -6px; right: -7px; min-width: 17px; height: 17px; padding: 0 4px;
   display: grid; place-items: center; border-radius: 999px; border: 2px solid var(--surface);
   background: linear-gradient(135deg, #ff6a8d, var(--accent)); color: var(--accent-ink); font: var(--w-semibold) 10px/1 'Sohne', system-ui, sans-serif;
+  transition: border-color 117ms ease;
 }
+/* The badge's ring is there to lift it off the page; on hover/active the row fills
+   with --surface-2, so the ring follows suit — no stray white outline around the dot. */
+.rail-link:hover .nav-badge, .rail-link.on .nav-badge { border-color: var(--surface-2); }
 .rail-foot { margin-top: auto; padding-top: 12px; }
 
 .loggedout-chip {
@@ -197,9 +201,10 @@ a.feed-quote:hover { filter: brightness(0.96); }
 .rail-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rail-block-head h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: var(--w-semibold); }
 
-/* "Your site" — two LinkedIn-style cards. First the identity card: the og:image
-   banner up top, the pfp overlapping it, name + host. Then a separate stats card
-   of label/value rows (last 30 days). */
+/* "Your site". The identity card: the og:image banner up top, the pfp overlapping
+   it, name + host. On the home rail it's followed by SiteStatsMini — three headline
+   figures under a plain widget header; the full label/value breakdown lives on your
+   profile (last 30 days). */
 .sitecard { padding: 0; gap: 0; overflow: hidden; }
 .sitecard-id { display: flex; flex-direction: column; align-items: flex-start; padding: 0 18px 16px; color: inherit; }
 .sitecard-id:hover { text-decoration: none; }
@@ -209,7 +214,15 @@ a.feed-quote:hover { filter: brightness(0.96); }
 .sitecard-name { margin-top: 10px; color: var(--ink); font-size: 17px; line-height: 1.2; font-weight: var(--w-semibold); }
 .sitecard-id:hover .sitecard-name { text-decoration: underline; text-underline-offset: 2px; }
 .sitecard-sub { margin-top: 3px; color: var(--muted); font-size: 13.5px; }
-.sitecard-range { margin: 0; color: var(--muted); font-size: 12.5px; font-weight: var(--w-semibold); }
+/* a widget header's quiet right-hand sidekick: the "See more" link / the date range */
+.rail-more { color: var(--muted); font-size: 13px; font-weight: var(--w-semibold); }
+.rail-more:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.rail-block-sub { color: var(--muted); font-size: 12.5px; font-weight: var(--w-semibold); }
+/* condensed "Your site": three headline figures, evenly spread */
+.sitemini-figs { display: flex; justify-content: space-between; gap: 12px; }
+.sitemini-fig { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sitemini-n { color: var(--ink); font-size: 24px; line-height: 1; letter-spacing: -0.02em; font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
+.sitemini-l { color: var(--muted); font-size: 12.5px; }
 .sitecard-rows { display: flex; flex-direction: column; gap: 11px; margin: 0; }
 .sitecard-stat { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .sitecard-stat dt { color: var(--muted); font-size: 13.5px; }
@@ -282,6 +295,23 @@ a.feed-quote:hover { filter: brightness(0.96); }
 .cta-verify-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cta-err { margin: 0; color: var(--accent); font-size: 13px; }
 
+/* The profile's "Your widget" box — a whole-card link to /verify. Sits at the top of
+   your own rail; pink while there's setup left to do, calm white once you're live. */
+.widget-box { flex-direction: row; align-items: center; gap: 14px; color: inherit; transition: transform .12s ease, border-color .15s ease; }
+.widget-box:hover { text-decoration: none; transform: translateY(-1px); }
+.widget-box .cta-head { flex: 1; min-width: 0; }
+.widget-box .cta-head h2 { display: flex; align-items: center; gap: 6px; }
+.widget-box.is-todo { background: #fff5f7; border-color: #fde3ea; }
+.widget-box.is-todo:hover { border-color: #f9cdd9; }
+.widget-tick { display: inline-flex; color: #1fc16b; }
+.widget-box-go {
+  flex: 0 0 auto; display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: 50%; background: var(--surface-2); color: var(--muted);
+  transition: background .12s ease, color .12s ease;
+}
+.widget-box-go svg { width: 16px; height: 16px; }
+.widget-box:hover .widget-box-go { background: var(--ink); color: var(--surface); }
+
 /* ---- shared atoms (saved gallery + empty states) ------------------------- */
 .home-hint { margin: 0; padding: 28px 0 6px; color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 52ch; }
 
@@ -325,27 +355,23 @@ a.feed-quote:hover { filter: brightness(0.96); }
 
 .settings-page, .messages-page, .profile-page { display: flex; flex-direction: column; min-height: 0; }
 .profile-page { gap: 18px; }
-.pmore { position: relative; flex: 0 0 auto; }
-.pmore-trigger {
-  width: 48px; height: 48px; display: grid; place-items: center;
-  border: 1px solid var(--line); border-radius: 50%;
-  background: var(--surface); color: var(--ink); cursor: pointer;
-  transition: background 117ms ease, border-color 117ms ease;
+/* "Unclaimed site" prompt on a placeholder profile (added by a reader pasting its URL,
+   no owner yet). A soft tinted band that nudges the real owner to claim + verify. */
+.profile-claim {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--ink); font-size: 14px; line-height: 1.45;
 }
-.pmore-trigger:hover, .pmore-trigger.on { background: var(--surface-2); border-color: var(--line); }
-.pmore-trigger svg { width: 22px; height: 22px; }
-.pmore-pop {
-  position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; width: 172px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  box-shadow: var(--shadow); padding: 6px; animation: who-pop-in 120ms ease;
-}
-.pmore-item {
-  display: block; width: 100%; text-align: left; appearance: none; border: 0; background: transparent;
-  padding: 10px 12px; border-radius: 10px; cursor: pointer;
-  color: var(--ink); font: var(--w-semibold) 14px/1.2 'Sohne', system-ui, sans-serif;
-}
-.pmore-item:hover { background: var(--surface-2); text-decoration: none; }
-.pmore-item:disabled { opacity: .55; cursor: default; }
+.profile-claim > span { flex: 1; min-width: 220px; color: var(--muted); }
+.profile-claim b { color: var(--ink); font-weight: var(--w-semibold); }
+.profile-claim .btn { flex: 0 0 auto; }
+/* Save + Pin sit beside Follow in the hero — quiet outline buttons that fill in
+   (accent) once active, matching Follow's 48px height. The pin glyph rides inside. */
+.psecondary { min-height: 48px; padding: 0 16px; font-size: 15px; }
+.psecondary svg { width: 17px; height: 17px; }
+.psecondary.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.psecondary.on:hover { background: #e5244f; border-color: #e5244f; }
 /* Following / followers count, up top — full numbers, underline on hover. */
 .pcounts-row { display: flex; gap: 26px; }
 .pcount { color: var(--muted); font-size: 15px; cursor: pointer; }
@@ -354,10 +380,38 @@ a.feed-quote:hover { filter: brightness(0.96); }
 /* Settings keeps a calm reading column; the page already provides the heading. */
 .settings-page .narrow { margin-inline: 0; }
 .settings-page .field { max-width: 520px; }
+/* A hairline sets the occasional, destructive Sign out apart from the Save row above
+   it; width-matched + left-aligned to the fields. */
+.settings-sep { border: 0; border-top: 1px solid var(--line); max-width: 520px; margin: 24px 0; }
+/* Sign out reuses the quiet .naked button, recolored to the destructive accent —
+   the same treatment as the avatar-menu sign out. .btn.naked:hover flips text to
+   --ink, so the :hover rule must re-assert --accent. */
+.btn.naked.signout { color: var(--accent); }
+.btn.naked.signout:hover { color: var(--accent); background: var(--surface-2); }
 
 /* The profile's site preview reuses the shared SiteThumbnail <img>; fill the frame. */
 .psite-wrap .site-thumb { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
-.profile-page .psite-actions { margin-top: -6px; }
+
+/* Inline comment composer at the foot of the comment section: an avatar + a soft
+   field that grows on focus, with the send button revealed under it. Mirrors a
+   comment row's avatar size so it reads as the next line in the thread. */
+.cmt-composer { display: flex; align-items: flex-start; gap: 14px; padding-top: 6px; }
+.cmt-composer .avatar { width: 42px; height: 42px; font-size: 16px; flex: 0 0 auto; }
+.cmt-composer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.cmt-input {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  min-height: 46px; max-height: 240px;
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 11px 14px;
+  font: var(--w-normal) 15px/1.5 'Sohne', system-ui, sans-serif;
+  color: var(--ink); background: var(--surface);
+  transition: border-color 117ms ease;
+}
+.cmt-input::placeholder { color: var(--muted); }
+.cmt-input:focus { outline: none; border-color: var(--muted); }
+.cmt-composer-actions { display: flex; justify-content: flex-end; }
+/* Signed-out: just a quiet sign-in link where the field would be. */
+.cmt-composer-out { padding-top: 10px; }
 
 /* a quiet empty line inside a rail block */
 .rail-empty { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
@@ -370,12 +424,25 @@ a.feed-quote:hover { filter: brightness(0.96); }
   border: 1px dashed var(--line); border-radius: 14px; background: var(--surface-2, #fafafa);
 }
 .pins-empty-icon {
-  display: grid; place-items: center; width: 38px; height: 38px;
-  border-radius: 50%; background: var(--bg); color: var(--faint);
-  box-shadow: inset 0 0 0 1px var(--line);
+  display: grid; place-items: center; width: 30px; height: 30px;
+  color: var(--faint);
 }
-.pins-empty-icon svg { width: 17px; height: 17px; }
+.pins-empty-icon svg { width: 22px; height: 22px; }
 .pins-empty-text { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.45; max-width: 220px; }
+
+/* Hover preview: the pinned site's og:image, fixed + portaled to <body> so the
+   rail's overflow can't clip it. It fades in beside the hovered pin and ignores the
+   pointer so it never interferes with the hover it's reacting to. */
+.pin-preview {
+  position: fixed; z-index: 60; width: 240px;
+  border-radius: var(--radius-sm); overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 12px 34px rgba(20, 20, 20, 0.16);
+  pointer-events: none;
+  animation: pin-preview-in 140ms ease both;
+}
+.pin-preview .site-thumb { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; }
+@keyframes pin-preview-in { from { opacity: 0; transform: translateY(4px) scale(.98); } }
 
 /* Chat fills the height left under the header + page-head; its panes scroll inside. */
 .messages-page { flex: 1; }

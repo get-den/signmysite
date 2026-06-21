@@ -92,7 +92,7 @@ const DEMO: Array<{ kind: LiveKind; actor: LiveEvent["actor"]; body?: string }> 
   { kind: "view", actor: cast("Someone", "DE") },
   { kind: "follow", actor: cast("Maya Chen", null, "maya") },
   { kind: "save", actor: cast("Lee Robinson", null, "lee") },
-  { kind: "comment", actor: cast("Maggie Appleton", null, "maggie"), body: "Love the new homepage — the type is gorgeous." },
+  { kind: "comment", actor: cast("Maggie Appleton", null, "maggie"), body: "Love the new homepage, the type is gorgeous." },
   { kind: "signup", actor: cast("Marcus T.", "GB") },
   { kind: "reaction", actor: cast("Josh Comeau", null, "josh"), body: "🔥" },
   { kind: "view", actor: cast("Someone", "JP") },

@@ -26,7 +26,7 @@ export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
       const r = await requestMagicLink(addr, returnTo);
       setSent({ devLink: r.dev_link });
     } catch {
-      toast("Couldn't send the link. Check the address and try again.");
+      toast("Couldn't send the link. Check the address.");
     } finally {
       setBusy(false);
     }
@@ -40,7 +40,7 @@ export function SignIn({ returnTo = location.href }: { returnTo?: string }) {
       </a>
       {sent ? (
         <div className="signin-sent">
-          <b>Check your email.</b> We sent a sign-in link to {email.trim()}.
+          <b>Check your email.</b> Sign-in link sent to {email.trim()}.
           {sent.devLink && <> <a href={sent.devLink}>Continue →</a></>}
         </div>
       ) : (

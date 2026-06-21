@@ -87,3 +87,23 @@ function toastEmoji(msg: string): string {
 export function useToast(): (msg: string) => void {
   return useCallback((msg: string) => { toast(msg, { icon: toastEmoji(msg) }); }, []);
 }
+
+// A toast that carries a single Undo action (e.g. unpinning a saved site). Tapping
+// Undo dismisses the toast and runs the handler; it lingers a little longer than a
+// plain toast so there's time to react.
+export function useUndoToast(): (msg: string, onUndo: () => void) => void {
+  return useCallback((msg, onUndo) => {
+    toast((t) => (
+      <span className="toast-undo">
+        <span>{msg}</span>
+        <button
+          type="button"
+          className="toast-undo-btn"
+          onClick={() => { toast.dismiss(t.id); onUndo(); }}
+        >
+          Undo
+        </button>
+      </span>
+    ), { icon: toastEmoji(msg), duration: 6000 });
+  }, []);
+}

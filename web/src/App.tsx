@@ -15,6 +15,7 @@ import { Reacted } from "./pages/Reacted";
 import { Troubleshoot } from "./pages/Troubleshoot";
 import { Auth } from "./pages/Auth";
 import { Verify } from "./pages/Verify";
+import { Embed } from "./pages/Embed";
 
 export function App() {
   return (
@@ -80,6 +81,15 @@ export function App() {
               </Protected>
             }
           />
+          <Route
+            path="/embed"
+            element={
+              // "All the ways to embed" — reachable mid-signup like /verify.
+              <Protected requireOnboarded={false}>
+                <Embed />
+              </Protected>
+            }
+          />
           <Route path="/auth" element={<Auth />} />
           <Route path="/compose" element={<Compose />} />
           <Route path="/reacted" element={<Reacted />} />
@@ -106,7 +116,7 @@ function TitleSync() {
     const at = pathname.match(/^\/@([^/]+)$/);
     document.title = at
       ? `@${decodeURIComponent(at[1])} · signmysite`
-      : "signmysite — your corner of the internet, connected";
+      : "signmysite: your corner of the internet, connected";
   }, [pathname]);
   return null;
 }

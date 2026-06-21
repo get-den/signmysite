@@ -20,9 +20,13 @@ import { filterFeed, useInfiniteScroll, type HomeStore } from "./hooks";
 export function Feed({ store }: { store: HomeStore }) {
   const { items, digest, feedLoading, loadMore, loadingMore, done } = store;
   const { q } = useSearch();
-  // Drop any recommendation the viewer has hidden via "Not interested".
+  // Drop any recommendation the viewer has hidden via "Not interested", or whose site
+  // they now follow — following IS the strongest "I've taken this up" signal, so the
+  // suggestion clears the moment you act and never returns (the server stops sending it
+  // on the next load too). Only recommendations are filtered; real activity stays.
   const shown = filterFeed(items, q).filter(
-    (it) => !(it.kind === "recommendation" && store.isRecommendationHidden(it.target.id)),
+    (it) => !(it.kind === "recommendation"
+      && (store.isRecommendationHidden(it.target.id) || store.isFollowing(it.target.id))),
   );
   const sentinel = useInfiniteScroll(loadMore, !done && !feedLoading && !q);
 
@@ -127,20 +131,8 @@ function FeedRow({ it, store }: { it: FeedItem; store: HomeStore }) {
             {" "}{verb()}
           </p>
           <div className="feed-aside">
-            {/* A recommendation isn't an event, so it has no meaningful "when" —
-                instead it gets a "Not interested" X to hide it. */}
-            {it.kind === "recommendation" ? (
-              <button
-                type="button" className="feed-dismiss"
-                aria-label={`Not interested in ${it.target.name || "this site"}`}
-                title="Not interested"
-                onClick={() => store.dismissRecommendation(it.target)}
-              >
-                <CloseIcon size={16} />
-              </button>
-            ) : (
-              <time className="feed-time">{relTime(it.at)}</time>
-            )}
+            {/* A recommendation isn't an event, so it has no meaningful "when". */}
+            {it.kind !== "recommendation" && <time className="feed-time">{relTime(it.at)}</time>}
             {!yours && <FollowSite site={it.target} store={store} />}
           </div>
         </div>

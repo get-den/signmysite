@@ -33,6 +33,36 @@
       .art { height: 130px; margin: 16px 0; }
       #sms-hint { right: 16px; bottom: 92px; max-width: 210px; }
     }
+
+    /* The "inline" demo: a link sitting in molly's own content. */
+    .sms-inline-demo { margin-top: 4px; }
+    .sms-inline-demo a { color: #111; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+    /* ---- style switcher (standalone demo only; hidden inside the landing iframe) ---- */
+    html.sms-experiment body { margin-top: 96px; }
+    html.sms-experiment #sms-hint { display: none; }
+    #sms-switch { position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 2147483600; max-width: calc(100vw - 24px); }
+    .sms-switch-inner { display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.4);
+      border: 1px solid rgba(0,0,0,.08); border-radius: 999px; padding: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 10px 34px rgba(0,0,0,.16);
+      font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .sms-switch-label { padding: 0 8px; color: #8a8a90; font-size: 11px; letter-spacing: .04em;
+      text-transform: uppercase; flex: 0 0 auto; }
+    .sms-chips { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+    .sms-chips::-webkit-scrollbar { display: none; }
+    .sms-chip { flex: 0 0 auto; border: 0; background: transparent; color: #44454b; cursor: pointer;
+      font: inherit; padding: 7px 12px; border-radius: 999px; text-transform: capitalize;
+      transition: background .12s ease, color .12s ease; }
+    .sms-chip:hover { background: rgba(0,0,0,.05); color: #111; }
+    .sms-chip.on { background: #111; color: #fff; }
+    .sms-nav { flex: 0 0 auto; width: 32px; height: 32px; border: 0; border-radius: 50%;
+      background: rgba(0,0,0,.05); color: #111; cursor: pointer; font-size: 18px; line-height: 1;
+      display: grid; place-items: center; }
+    .sms-nav:hover { background: rgba(0,0,0,.1); }
+    .sms-count { padding: 0 6px 0 2px; color: #b5b5ba; font-size: 11px; flex: 0 0 auto; }
+    @media (max-width: 560px) { .sms-switch-label { display: none; } }
   </style>
 </head>
 <body>
@@ -45,35 +75,97 @@
 
   <p>more soon, m</p>
 
-  <div id="sms-hint">👋 This is the signmysite widget. Give it a try.</div>
+  <div id="sms-hint">👋 The signmysite widget. Try it.</div>
 
   <script>
     const params = new URLSearchParams(location.search);
+
+    // The floating badge styles (quietest → most expressive) + "inline", which isn't a
+    // badge at all — it's a link the owner drops into their own page.
+    const STYLES = ["circle", "chip", "chip-center", "chip-corner", "peek", "peek-center", "inline"];
+    const current = params.has("launcher") ? params.get("launcher") : "circle";
+
+    // "inline" — put it in your content, like an <a> tag. We inject a normal-looking
+    // link into molly's page; the widget finds it (data-signmysite), hides the floating
+    // badge, and opens the card when it's clicked. With JS off it's just a profile link.
+    const isInline = current === "inline";
+    if (isInline) {
+      const p = document.createElement("p");
+      p.className = "sms-inline-demo";
+      p.innerHTML = 'p.s. <a href="/@molly" data-signmysite>see who\'s reading this page →</a>';
+      document.querySelector("#sms-hint").before(p);
+    }
+
     const tag = document.createElement("script");
     tag.src = "/w/7f3a9c2e8b1d4f6a.js";
-    if (params.has("launcher")) tag.dataset.launcher = params.get("launcher");
+    if (!isInline && params.has("launcher")) tag.dataset.launcher = params.get("launcher");
     if (params.has("collapsed")) tag.dataset.collapsed = params.get("collapsed");
     // ?pins=stack|thumbs|ring — preview each pinned-sites presentation.
     if (params.has("pins")) tag.dataset.pins = params.get("pins");
     document.body.append(tag);
 
-    // Point first-time visitors at the widget badge, then get out of the way: the hint
-    // disappears as soon as you click it (or tap the widget itself).
-    let hint = document.getElementById("sms-hint");
-    const dismissHint = () => {
-      if (!hint) return;
-      const el = hint; hint = null;
-      el.classList.replace("in", "out");
-      setTimeout(() => el.remove(), 320);
-    };
-    setTimeout(() => hint && hint.classList.add("in"), 900); // reveal once the badge has rendered
-    hint.addEventListener("click", dismissHint);
-    // Tapping the widget itself (it lives in a shadow root) also counts as "found it".
-    document.addEventListener("click", (e) => {
-      if (!hint) return;
-      const path = e.composedPath ? e.composedPath() : [];
-      if (path.some((n) => n.nodeType === 1 && n.hasAttribute && n.hasAttribute("data-signmysite-widget"))) dismissHint();
-    }, true);
+    // The style switcher only shows on the standalone demo page — never inside the
+    // landing page's iframe (where this same file is the marketing demo). ?styles=0
+    // force-hides it; ?styles=1 force-shows it.
+    const framed = window.self !== window.top;
+    const showSwitcher = params.get("styles") === "1" || (!framed && params.get("styles") !== "0");
+
+    if (showSwitcher) {
+      document.documentElement.classList.add("sms-experiment");
+      // Switching reloads with the new ?launcher= so every style renders fresh and
+      // correct (each has its own markup + CSS) — no half-applied live swaps.
+      const go = (style) => { const u = new URL(location.href); u.searchParams.set("launcher", style); location.href = u.toString(); };
+      const cycle = (d) => { const i = STYLES.indexOf(current); go(STYLES[(i + d + STYLES.length) % STYLES.length]); };
+
+      const bar = document.createElement("div");
+      bar.id = "sms-switch";
+      bar.innerHTML =
+        '<div class="sms-switch-inner">' +
+          '<span class="sms-switch-label">Badge style</span>' +
+          '<button class="sms-nav" data-d="-1" aria-label="Previous style">‹</button>' +
+          '<div class="sms-chips"></div>' +
+          '<button class="sms-nav" data-d="1" aria-label="Next style">›</button>' +
+          '<span class="sms-count"></span>' +
+        '</div>';
+      const chips = bar.querySelector(".sms-chips");
+      STYLES.forEach((s) => {
+        const b = document.createElement("button");
+        b.className = "sms-chip" + (s === current ? " on" : "");
+        b.textContent = s;
+        b.setAttribute("aria-pressed", String(s === current));
+        b.addEventListener("click", () => go(s));
+        chips.append(b);
+      });
+      bar.querySelectorAll(".sms-nav").forEach((n) => n.addEventListener("click", () => cycle(+n.dataset.d)));
+      bar.querySelector(".sms-count").textContent = (STYLES.indexOf(current) + 1) + " / " + STYLES.length;
+      document.body.append(bar);
+
+      // Arrow keys cycle through styles. Keep the selected chip in view.
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") cycle(1);
+        else if (e.key === "ArrowLeft") cycle(-1);
+      });
+      const on = chips.querySelector(".sms-chip.on");
+      if (on) on.scrollIntoView({ inline: "nearest", block: "nearest" });
+    } else {
+      // Landing/iframe mode: point first-time visitors at the badge, then get out of
+      // the way — the hint disappears as soon as you click it (or tap the widget).
+      let hint = document.getElementById("sms-hint");
+      const dismissHint = () => {
+        if (!hint) return;
+        const el = hint; hint = null;
+        el.classList.replace("in", "out");
+        setTimeout(() => el.remove(), 320);
+      };
+      setTimeout(() => hint && hint.classList.add("in"), 900); // reveal once the badge has rendered
+      hint.addEventListener("click", dismissHint);
+      // Tapping the widget itself (it lives in a shadow root) also counts as "found it".
+      document.addEventListener("click", (e) => {
+        if (!hint) return;
+        const path = e.composedPath ? e.composedPath() : [];
+        if (path.some((n) => n.nodeType === 1 && n.hasAttribute && n.hasAttribute("data-signmysite-widget"))) dismissHint();
+      }, true);
+    }
   </script>
 </body>
 </html>

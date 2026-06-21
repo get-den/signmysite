@@ -5,7 +5,7 @@
  * engine stays swappable. Raw SQL, no ORM: minimal and transparent.
  */
 import pg from "pg";
-import { now, token, isReaction } from "./util.ts";
+import { now, token, isReaction, domainKey } from "./util.ts";
 import { CURATED } from "./curated.ts";
 
 const SCHEMA = `
@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS members (
   links       JSONB NOT NULL DEFAULT '[]',
   created     TEXT NOT NULL
 );
+-- Canonical-domain identity + provenance, added in place. url_key is the bare host a
+-- site URL reduces to (domainKey) — the dedupe key AND the key a verifying owner is
+-- matched against to fold in a placeholder. source is how the row was born
+-- ('signup' | 'curated' | 'crawl' | 'pasted'); created_by is the member who pasted a
+-- placeholder into existence (NULL otherwise). The unique guard + backfill run after
+-- SCHEMA (a CREATE TABLE IF NOT EXISTS can't add columns to an existing table).
+ALTER TABLE members ADD COLUMN IF NOT EXISTS url_key    TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS source     TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS created_by TEXT;
 
 -- Per-viewer "last seen this site" — powers the "new"/"updated" badge. (Distinct
 -- from page_views below: this is one row per (viewer, site) tracking recency for
@@ -219,6 +228,21 @@ CREATE TABLE IF NOT EXISTS cohort_members (
 );
 CREATE INDEX IF NOT EXISTS cohort_members_member ON cohort_members (member_id);
 CREATE INDEX IF NOT EXISTS cohort_members_cohort ON cohort_members (cohort_id, created);
+-- The signed-out landing experiment (web/src/pages/landing/ab.ts): an append-only,
+-- anonymous event log. vid is a random per-browser id, view a per-pageview id.
+-- Events: 'view' (the exposure), 'dwell' (cumulative visible ms, re-sent on every
+-- tab-hide — aggregate with MAX per view), 'copy' and 'signin' (the CTA clicks).
+-- Read only by landingSummary() for the /admin dashboard.
+CREATE TABLE IF NOT EXISTS landing_events (
+  id      TEXT PRIMARY KEY,
+  vid     TEXT NOT NULL,
+  view    TEXT NOT NULL,
+  variant INTEGER NOT NULL,
+  event   TEXT NOT NULL,
+  ms      INTEGER,
+  created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS landing_events_view ON landing_events (view, event);
 `;
 
 // Default to a local unix-socket connection (peer auth) so it "just works"
@@ -254,6 +278,22 @@ if (process.env.SIGNMYSITE_RESET_DB === "1") {
 }
 await pool.query(SCHEMA);
 
+// Backfill the canonical-domain key for every existing site, then enforce one
+// placeholder per domain. The SQL strips scheme / www / path to match server/util.ts's
+// domainKey for ordinary hosts. The unique index covers ONLY unclaimed rows, so a real
+// owner and a not-yet-merged placeholder can briefly coexist; it's best-effort (a
+// pre-existing duplicate would make it throw) — get-or-create also dedupes in code.
+await pool.query(
+  `UPDATE members
+      SET url_key = lower(regexp_replace(regexp_replace(regexp_replace(url, '^https?://', ''), '^www\\.', ''), '[/?#].*$', ''))
+    WHERE url IS NOT NULL AND url_key IS NULL`
+).catch((e) => console.error("[db] url_key backfill failed:", e));
+await pool.query(
+  `CREATE UNIQUE INDEX IF NOT EXISTS members_urlkey_unclaimed
+     ON members (url_key)
+     WHERE email IS NULL AND google_sub IS NULL AND url_key IS NOT NULL`
+).catch((e) => console.error("[db] members_urlkey_unclaimed index skipped:", e));
+
 // Re-insert accounts captured before a reset, passed as a JSON array in
 // SIGNMYSITE_RESTORE (so no personal data ever lives in the repo). Each entry is a
 // full members row. Paired with SIGNMYSITE_RESET_DB; remove both env vars once the
@@ -263,10 +303,10 @@ if (process.env.SIGNMYSITE_RESET_DB === "1" && process.env.SIGNMYSITE_RESTORE) {
   try { rows = JSON.parse(process.env.SIGNMYSITE_RESTORE); } catch { console.error("[db] SIGNMYSITE_RESTORE is not valid JSON; skipping"); }
   for (const a of rows) {
     await pool.query(
-      `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, verified, onboarded, links, views, last_edited, created)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
+      `INSERT INTO members (id, handle, name, email, google_sub, url, url_key, avatar, verified, onboarded, links, views, last_edited, created)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14)
        ON CONFLICT (id) DO NOTHING`,
-      [a.id, a.handle, a.name, a.email ?? null, a.google_sub ?? null, a.url ?? null, a.avatar ?? null,
+      [a.id, a.handle, a.name, a.email ?? null, a.google_sub ?? null, a.url ?? null, domainKey((a.url as string) ?? null), a.avatar ?? null,
        a.verified ?? false, a.onboarded ?? false, JSON.stringify(a.links ?? []), a.views ?? 0, a.last_edited ?? null, a.created ?? now()]
     );
   }
@@ -301,11 +341,14 @@ export type Member = {
   notify: Record<string, boolean>;    // email prefs: per-kind override ({} = all on)
   notified: Record<string, boolean>;  // one-time emails already sent (milestones, activation)
   links: string[];                    // external/social profile URLs (presentation derived per-URL)
+  url_key: string | null;             // canonical domain (domainKey of url): dedupe + ownership-match key
+  source: string | null;             // how the row was born: 'signup' | 'curated' | 'crawl' | 'pasted'
+  created_by: string | null;         // member who pasted this placeholder into existence (NULL otherwise)
   created: string;
 };
 // The email kinds a member can mute (the /notify page renders one toggle each).
 export type NotifyKind =
-  | "follow" | "save" | "comment" | "reaction" | "message"
+  | "follow" | "save" | "comment" | "reaction" | "message" | "contact"
   | "followedUpdate" | "siteUpdated" | "milestone" | "viewsDigest";
 // Does this member want `kind` emails? Default on — only an explicit false mutes.
 export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: NotifyKind): boolean =>
@@ -313,7 +356,7 @@ export const wantsNotify = (m: { notify?: Record<string, boolean> }, kind: Notif
 // The canonical list of mutable kinds (mirrors NotifyKind). Lets a global
 // one-click unsubscribe turn every stream off in one merge.
 export const ALL_NOTIFY_KINDS: NotifyKind[] = [
-  "follow", "save", "comment", "reaction", "message",
+  "follow", "save", "comment", "reaction", "message", "contact",
   "followedUpdate", "siteUpdated", "milestone", "viewsDigest",
 ];
 export type Stats = {
@@ -396,28 +439,33 @@ export async function searchMembers(query: string, limit = 8): Promise<Member[]>
 export async function createMember(m: {
   id: string; name: string; handle?: string | null; email?: string | null;
   google_sub?: string | null; url?: string | null; avatar?: string | null;
+  source?: string | null; created_by?: string | null;
 }): Promise<Member> {
   // New members start un-onboarded — the signup wizard (username + optional
   // site) flips this to true. (Crawled/indexed members never sign in, so theirs
-  // is moot.) Existing rows kept their column default of TRUE.
+  // is moot.) Existing rows kept their column default of TRUE. url_key rides along
+  // with url so dedupe + ownership matching never drift from the stored URL.
   await pool.query(
-    `INSERT INTO members (id, handle, name, email, google_sub, url, avatar, onboarded, created)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8)`,
+    `INSERT INTO members (id, handle, name, email, google_sub, url, url_key, avatar, source, created_by, onboarded, created)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, $11)`,
     [m.id, m.handle ?? null, m.name, m.email ?? null, m.google_sub ?? null,
-     m.url ?? null, m.avatar ?? null, now()]
+     m.url ?? null, domainKey(m.url ?? null), m.avatar ?? null, m.source ?? null, m.created_by ?? null, now()]
   );
   return (await getMember(m.id))!;
 }
 // Columns a patch may write (excludes id/created) — so a Partial<Member> can't
 // accidentally generate SQL against a column that doesn't exist.
 const MUTABLE_MEMBER_COLS = new Set([
-  "handle", "name", "email", "google_sub", "url", "avatar", "links",
+  "handle", "name", "email", "google_sub", "url", "url_key", "avatar", "links",
   "views", "last_edited", "thumbnail", "content_hash", "onboarded", "verified", "prominence",
+  "source", "created_by",
 ]);
 // JSONB columns need an explicit ::jsonb cast and a JSON-encoded value — pg would
 // otherwise try to coerce a JS array into a Postgres array literal.
 const JSONB_MEMBER_COLS = new Set(["links"]);
 export async function updateMember(id: string, patch: Partial<Member>): Promise<Member | undefined> {
+  // Re-derive url_key whenever url changes so the dedupe / ownership key follows it.
+  if ("url" in patch && !("url_key" in patch)) patch = { ...patch, url_key: domainKey(patch.url ?? null) };
   const keys = Object.keys(patch).filter((k) => MUTABLE_MEMBER_COLS.has(k));
   if (!keys.length) return getMember(id);
   const set = keys.map((k, i) => `${k} = $${i + 1}${JSONB_MEMBER_COLS.has(k) ? "::jsonb" : ""}`).join(", ");
@@ -438,14 +486,11 @@ export async function updateMember(id: string, patch: Partial<Member>): Promise<
 // local-first path); claimPlaceholderByUrl keeps the real account (a normal signup,
 // whose own id is installed).
 
-// Normalized site key for matching two rows to the same site: host+path, lowercased,
-// without scheme, a leading "www.", or trailing slashes. Applied identically to a
-// column or a bind param so both sides of a comparison normalize the same way.
-// (function, not const — seedCurated() calls this from the boot block above, before
-// this point in the module is evaluated; a function declaration is hoisted, a const isn't.)
-function URLKEY(col: string): string {
-  return `lower(regexp_replace(regexp_replace(${col}, '^https?://(www\\.)?', ''), '/+$', ''))`;
-}
+// Two rows are "the same site" when they share a url_key (the bare domain; see
+// util.domainKey). Matching is the stored column — written in lockstep with url by
+// createMember/updateMember — so a path on either side ("nabeelqu.co/principles" vs
+// "nabeelqu.co") never splits one site into two. seedCurated, claimPlaceholderByUrl,
+// getSiteByKey and the get-or-create endpoint all key on it identically.
 
 function isLocalUrlish(url: string): boolean {
   try {
@@ -503,22 +548,28 @@ export async function claimUnclaimedMember(placeholderId: string, claimantId: st
 export async function claimPlaceholderByUrl(keepId: string): Promise<Member | undefined> {
   const keep = await getMember(keepId);
   if (!keep || !keep.url || isLocalUrlish(keep.url)) return undefined;
+  const key = keep.url_key ?? domainKey(keep.url);
+  if (!key) return undefined;
   const merged = await withTx(async (client) => {
     const placeholder = (await client.query(
       `SELECT * FROM members
-        WHERE id <> $1 AND email IS NULL AND google_sub IS NULL
-          AND ${URLKEY("url")} = ${URLKEY("$2")}
+        WHERE id <> $1 AND email IS NULL AND google_sub IS NULL AND url_key = $2
         ORDER BY (handle IS NOT NULL) DESC, created ASC
         LIMIT 1`,
-      [keepId, keep.url]
+      [keepId, key]
     )).rows[0] as Member | undefined;
     if (!placeholder) return false;
     // Inherit the placeholder's well-known handle; take its name only if ours is still a
     // default (so a real name from Google sign-in wins). Keep our own avatar/url/login.
     // Free the placeholder's handle first so the UNIQUE constraint lets us take it.
+    // A *pasted* placeholder's handle is an auto-generated domain slug (@nabeelqu-co), so
+    // it must NOT override the handle the owner chose at signup — only a curated/crawled
+    // well-known handle (e.g. @pg) wins. A handle-less owner still inherits either.
     const keepNameIsDefault = !keep.name || keep.name === "New member" ||
       (!!keep.email && keep.name === keep.email.split("@")[0]);
-    const newHandle = placeholder.handle ?? keep.handle;
+    const newHandle = placeholder.source === "pasted"
+      ? (keep.handle ?? placeholder.handle)
+      : (placeholder.handle ?? keep.handle);
     const newName = keepNameIsDefault ? placeholder.name : keep.name;
     await client.query("UPDATE members SET handle = NULL WHERE id = $1", [placeholder.id]);
     await client.query(
@@ -535,6 +586,41 @@ export async function claimPlaceholderByUrl(keepId: string): Promise<Member | un
     return true;
   });
   return merged ? getMember(keepId) : undefined;
+}
+
+// The one account that represents a domain: a real (logged-in) owner wins over a
+// placeholder, oldest first. Backs the get-or-create paste flow — a paste resolves to
+// the real owner when there is one, otherwise the existing placeholder.
+export async function getSiteByKey(key: string): Promise<Member | undefined> {
+  return (await pool.query(
+    `SELECT * FROM members WHERE url_key = $1
+      ORDER BY (email IS NOT NULL OR google_sub IS NOT NULL) DESC, created ASC
+      LIMIT 1`,
+    [key]
+  )).rows[0];
+}
+
+// Create an UNCLAIMED placeholder for a pasted site (no login). The partial unique index
+// on url_key guarantees one per domain: if a concurrent paste wins the race, our INSERT
+// raises 23505 and we return the winner — callers always get the single canonical row.
+// `created` is false in that lost-race case so the caller skips the (now redundant) scrape.
+export async function createPlaceholder(m: {
+  id: string; url: string; key: string; name: string; handle: string | null; created_by: string;
+}): Promise<{ member: Member; created: boolean }> {
+  try {
+    await pool.query(
+      `INSERT INTO members (id, handle, name, url, url_key, source, created_by, onboarded, created)
+       VALUES ($1, $2, $3, $4, $5, 'pasted', $6, FALSE, $7)`,
+      [m.id, m.handle, m.name, m.url, m.key, m.created_by, now()]
+    );
+    return { member: (await getMember(m.id))!, created: true };
+  } catch (e: any) {
+    if (e?.code === "23505") {
+      const existing = await getSiteByKey(m.key);
+      if (existing) return { member: existing, created: false };
+    }
+    throw e;
+  }
 }
 
 // The shared merge primitive: re-point every reference from dropId onto keepId, then
@@ -1065,6 +1151,63 @@ export async function adminStats(weeks = 12): Promise<AdminStats> {
   };
 }
 
+// ---- the landing experiment ------------------------------------------------
+// Sink + summary for landing_events (see the schema note above). Append-only writes
+// from the public beacon endpoint; the summary feeds the /admin dashboard.
+export async function recordLandingEvent(e: {
+  vid: string; view: string; variant: number; event: string; ms: number | null;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO landing_events (id, vid, view, variant, event, ms, created)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [token(), e.vid, e.view, e.variant, e.event, e.ms, now()],
+  );
+}
+
+export type LandingArm = {
+  variant: number;
+  views: number;       // pageviews ('view' events)
+  visitors: number;    // distinct browsers
+  avgDwellMs: number;  // mean visible time per pageview (MAX of its dwell pings)
+  copies: number;      // pageviews that clicked Copy
+  signins: number;     // pageviews that clicked Sign in
+  clicked: number;     // pageviews that clicked either (the click-through count)
+};
+export async function landingSummary(): Promise<LandingArm[]> {
+  const { rows } = await pool.query(
+    `WITH dwell AS (
+       SELECT view, MAX(ms) AS ms FROM landing_events WHERE event = 'dwell' GROUP BY view
+     ), clicks AS (
+       SELECT view,
+              BOOL_OR(event = 'copy')   AS copied,
+              BOOL_OR(event = 'signin') AS signed
+         FROM landing_events WHERE event IN ('copy', 'signin') GROUP BY view
+     )
+     SELECT v.variant,
+            COUNT(*)::int                                      AS views,
+            COUNT(DISTINCT v.vid)::int                         AS visitors,
+            COALESCE(AVG(d.ms), 0)::int                        AS avg_dwell_ms,
+            COUNT(*) FILTER (WHERE c.copied)::int              AS copies,
+            COUNT(*) FILTER (WHERE c.signed)::int              AS signins,
+            COUNT(*) FILTER (WHERE c.copied OR c.signed)::int  AS clicked
+       FROM landing_events v
+       LEFT JOIN dwell  d ON d.view = v.view
+       LEFT JOIN clicks c ON c.view = v.view
+      WHERE v.event = 'view'
+      GROUP BY v.variant
+      ORDER BY v.variant`,
+  );
+  return rows.map((r) => ({
+    variant: Number(r.variant),
+    views: Number(r.views),
+    visitors: Number(r.visitors),
+    avgDwellMs: Number(r.avg_dwell_ms),
+    copies: Number(r.copies),
+    signins: Number(r.signins),
+    clicked: Number(r.clicked),
+  }));
+}
+
 // ---- the home feed -------------------------------------------------------
 // One reverse-chron activity stream: what your network does to sites, what happens to
 // yours, plus curated recommendations so a fresh feed is never empty. Kinds — saved /
@@ -1205,17 +1348,17 @@ export async function seedCurated(): Promise<void> {
       // URL-keyed so once the real owner claims the site (see claimPlaceholderByUrl) we
       // neither resurrect the placeholder nor point the recommendation at an empty shell.
       let owner = (await pool.query(
-        `SELECT * FROM members WHERE ${URLKEY("url")} = ${URLKEY("$1")}
+        `SELECT * FROM members WHERE url_key = $1
           ORDER BY ((email IS NOT NULL OR google_sub IS NOT NULL) AND verified) DESC, created ASC
           LIMIT 1`,
-        [c.url]
+        [domainKey(c.url)]
       )).rows[0] as Member | undefined;
       if (!owner) {
         await pool.query(
-          `INSERT INTO members (id, handle, name, url, avatar, thumbnail, views, onboarded, verified, last_edited, created)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8, $8)
+          `INSERT INTO members (id, handle, name, url, url_key, avatar, thumbnail, views, source, onboarded, verified, last_edited, created)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'curated', true, true, $9, $9)
            ON CONFLICT (id) DO NOTHING`,
-          [c.id, c.handle, c.name, c.url, c.avatar, c.thumbnail, 1200, t]
+          [c.id, c.handle, c.name, c.url, domainKey(c.url), c.avatar, c.thumbnail, 1200, t]
         );
         owner = await getMember(c.id);
       } else if (!owner.email && !owner.google_sub) {

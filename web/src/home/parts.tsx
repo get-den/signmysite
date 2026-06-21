@@ -118,7 +118,7 @@ function AddSiteForm() {
     <section className="rail-block cta cta-add">
       <div className="cta-head">
         <h2>Add your site</h2>
-        <p>Link your personal site and signmysite starts showing who reads it.</p>
+        <p>Link your site to see who reads it.</p>
       </div>
       <div className={"cta-field" + (err ? " bad" : "")}>
         <input

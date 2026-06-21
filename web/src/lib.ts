@@ -32,6 +32,29 @@ export function host(url: string): string {
   }
 }
 
+/** Does this query look like a website address (a domain or URL) rather than a name?
+ *  Drives the search bar's "Add <site>" affordance when you paste a link. */
+export function looksLikeUrl(q: string): boolean {
+  const t = q.trim();
+  if (!t || /\s/.test(t)) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+/i.test(t); // has a dot-separated host
+}
+
+/** The bare domain a pasted query points at (scheme / www / path stripped), for display
+ *  + matching against existing results. Mirrors the server's domainKey. */
+export function domainOf(q: string): string | null {
+  const t = q.trim();
+  if (!t) return null;
+  const withScheme = /^https?:\/\//i.test(t) ? t : "https://" + t;
+  try {
+    const h = new URL(withScheme).hostname.replace(/^www\./i, "").toLowerCase();
+    return h.includes(".") ? h : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Where an avatar + name links: the member's signmysite profile (/@handle) if we know
  * their handle, else their linked site, else nowhere. One source of truth so
@@ -93,26 +116,9 @@ export function isReaction(s: string | null | undefined): boolean {
   }
 }
 
-// Shown when a site has no real preview image (og:image): a flat, neutral
-// flat grayscale wireframe of a webpage, inlined as a data URI — no network
-// request, nothing to keep on disk. One canonical placeholder, no variants and no
-// text. Sized to the canonical og:image ratio (1200×630) so it drops into the same
-// box as a real preview, and deliberately plain so a real og:image stands out.
-const PLACEHOLDER_SVG =
-  `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">` +
-  `<rect width="1200" height="630" fill="#f3f3f4"/>` +
-  `<rect x="220" y="140" width="760" height="350" rx="20" fill="#ffffff"/>` +
-  `<rect x="270" y="190" width="660" height="170" rx="14" fill="#ececef"/>` +
-  `<rect x="270" y="392" width="660" height="20" rx="10" fill="#ececef"/>` +
-  `<rect x="270" y="430" width="420" height="20" rx="10" fill="#ececef"/>` +
-  `</svg>`;
-/** Canonical fallback preview, used anywhere a site has no real thumbnail. */
-export const PLACEHOLDER_THUMB = `data:image/svg+xml;utf8,${encodeURIComponent(PLACEHOLDER_SVG)}`;
-
-/** The thumbnail a site card shows: its real preview (og:image), else the canonical placeholder. */
-export function siteThumb(site: { thumbnail?: string | null }): string {
-  return site.thumbnail || PLACEHOLDER_THUMB;
-}
+// The "no og:image" placeholder is now the <SitePlaceholder> component in ui.tsx
+// (a themed SVG page-mock), rendered by <SiteThumbnail> — there's no data-URI
+// fallback string to keep here anymore.
 
 /** The Google OAuth start URL, returning to `to` after (default: this page). */
 export function signinUrl(to: string = location.href): string {

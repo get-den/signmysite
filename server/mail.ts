@@ -111,7 +111,7 @@ const mailCss = {
 // The one place we hit Resend. Returns true on a successful send; false — logged,
 // never thrown — when mail is off or the API rejects, so a fire-and-forget
 // notification can never break the request that triggered it.
-async function send(msg: { to: string; subject: string; html: string; text: string; headers?: Record<string, string> }): Promise<boolean> {
+async function send(msg: { to: string; subject: string; html: string; text: string; headers?: Record<string, string>; replyTo?: string }): Promise<boolean> {
   if (!API_KEY) {
     console.log(`[mail] (no RESEND_API_KEY) would send → ${msg.to}: ${msg.subject}`);
     return false;
@@ -122,6 +122,7 @@ async function send(msg: { to: string; subject: string; html: string; text: stri
       headers: { authorization: "Bearer " + API_KEY, "content-type": "application/json" },
       body: JSON.stringify({
         from: FROM, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+        ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
         ...(msg.headers && Object.keys(msg.headers).length ? { headers: msg.headers } : {}),
       }),
     });
@@ -224,11 +225,11 @@ export async function sendMagicLink(to: string, link: string): Promise<void> {
     subject: "Your signmysite sign-in link",
     html: layout(
       heading("Sign in to signmysite") +
-      paragraph("Click below to sign in. This link expires in 15 minutes.") +
+      paragraph("Click below to sign in. Expires in 15 minutes.") +
       button("Sign in", link) +
-      footnote("If you didn't request this, you can safely ignore it."),
+      footnote("Didn't request this? Ignore it."),
     ),
-    text: `Sign in to signmysite:\n${link}\n\nThis link expires in 15 minutes. If you didn't request it, ignore this email.`,
+    text: `Sign in to signmysite:\n${link}\n\nExpires in 15 minutes. Didn't request it? Ignore this email.`,
   });
   if (!ok) throw new Error("magic-link send failed");
 }
@@ -248,12 +249,12 @@ export async function notifySiteUpdated(
     subject: `signmysite noticed ${label} updated`,
     html: layout(
       heading(`${label} updated`) +
-      paragraph("We picked up a new version of your site. Anyone following you will see it flagged as new.") +
+      paragraph("We picked up a new version. Your followers will see it flagged as new.") +
       (member.thumbnail ? image(member.thumbnail) : "") +
-      (profile ? button("View your signmysite profile", profile) : "") +
-      manageFootnote(member.id, "You're getting this because your site is on signmysite.", "siteUpdated"),
+      (profile ? button("View your profile", profile) : "") +
+      manageFootnote(member.id, "Your site is on signmysite.", "siteUpdated"),
     ),
-    text: `signmysite detected a new version of ${label}. Your followers will see it as new.${profile ? `\n\n${profile}` : ""}`,
+    text: `signmysite picked up a new version of ${label}. Your followers will see it as new.${profile ? `\n\n${profile}` : ""}`,
     headers: unsubHeaders(member.id, "siteUpdated"),
   });
 }
@@ -300,17 +301,17 @@ export async function notifyActivation(member: Recipient & Pick<Member, "url">):
   const host = member.url ? hostOf(member.url) : "";
   const editUrl = BASE ? `${BASE}/edit` : "#";
   const intro = host
-    ? `You linked ${host}, but signmysite can't see the widget on it yet. Add this one line and your profile, followers, reactions, and analytics all switch on.`
-    : "Your signmysite profile is ready, but it isn't live yet. Add this one line to your personal site to connect it — followers, reactions, and analytics switch on.";
+    ? `You linked ${host}, but we can't see the widget yet. Add this one line to switch on your profile, followers, reactions, and analytics.`
+    : "Your profile is ready but not live yet. Add this one line to your site to switch on followers, reactions, and analytics.";
   await send({
     to: member.email,
-    subject: "One line to finish setting up your signmysite",
+    subject: "One line to finish your signmysite",
     html: layout(
       heading("Add the widget to go live") +
       paragraph(intro) +
       code(tag) +
       button("Finish setup", editUrl) +
-      manageFootnote(member.id, "You're getting this because you started a signmysite profile."),
+      manageFootnote(member.id, "You started a signmysite profile."),
     ),
     text: `Add this line to your site to go live on signmysite:\n\n${tag}\n\n${editUrl}`,
     headers: unsubHeaders(member.id),
@@ -330,7 +331,7 @@ export async function notifyMilestone(
     : `You reached ${count} ${count === 1 ? "follower" : "followers"}`;
   const note = metric === "views"
     ? "People keep finding your corner of the web."
-    : "Your updates now reach more people across signmysite.";
+    : "Your updates now reach more people on signmysite.";
   await send({
     to: member.email,
     subject: `🎉 ${headline}`,
@@ -374,7 +375,7 @@ export async function notifyViewsDigest(
       heading(subject) +
       paragraph(summary) +
       (BASE ? button("See your analytics", BASE) : "") +
-      manageFootnote(member.id, "Your weekly readership recap from signmysite.", "viewsDigest"),
+      manageFootnote(member.id, "Your weekly recap from signmysite.", "viewsDigest"),
     ),
     text: `${summary}${BASE ? `\n\nSee your analytics: ${BASE}` : ""}`,
     headers: unsubHeaders(member.id, "viewsDigest"),
@@ -419,7 +420,7 @@ export async function notifyActivity(opts: {
       actorLine(who, actor.avatar, plan.verb) +
       plan.extra +
       button(plan.cta[0], plan.cta[1]) +
-      manageFootnote(owner.id, "Someone interacted with your site on signmysite.", kind),
+      manageFootnote(owner.id, "Activity on your signmysite.", kind),
     ),
     text: `${plan.text}${BASE ? `\n\n${plan.cta[1]}` : ""}`,
     headers: unsubHeaders(owner.id, kind),
@@ -441,9 +442,36 @@ export async function notifyMessage(recipient: Recipient, sender: Actor, body: s
       actorLine(who, sender.avatar, "sent you a message:") +
       quote(body) +
       button("Reply", reply) +
-      manageFootnote(recipient.id, `You're getting this because ${who} messaged you on signmysite.`, "message"),
+      manageFootnote(recipient.id, `${who} messaged you on signmysite.`, "message"),
     ),
     text: `${who} sent you a message on signmysite:\n\n${body}\n\n${reply}`,
     headers: unsubHeaders(recipient.id, "message"),
+  });
+}
+
+// ---- contact form --------------------------------------------------------
+// A visitor (often signed-OUT, with no account) used the owner's "Contact me"
+// button. We email the owner with the message and set Reply-To to the visitor's
+// address, so a single tap of Reply in their inbox answers the visitor directly —
+// no signmysite account required on either side. Best-effort + prefs-gated.
+export async function notifyContact(
+  owner: Recipient,
+  from: { name: string; email: string; message: string },
+): Promise<void> {
+  if (!owner.email || !wantsNotify(owner, "contact")) return;
+  const who = (from.name || "").trim() || "Someone";
+  const replyTo = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from.email) ? from.email : undefined;
+  await send({
+    to: owner.email,
+    replyTo,
+    subject: `${who} contacted you via your site`,
+    html: layout(
+      actorLine(who, null, replyTo ? `wants to reach you (${escapeHtml(from.email)}):` : "wants to reach you:") +
+      quote(from.message) +
+      (replyTo ? footnote(`Reply to this email to answer ${escapeHtml(who)} directly.`) : "") +
+      manageFootnote(owner.id, "Someone used your contact button.", "contact"),
+    ),
+    text: `${who}${replyTo ? ` (${from.email})` : ""} contacted you via your site:\n\n${from.message}${replyTo ? `\n\nReply to this email to answer directly.` : ""}`,
+    headers: unsubHeaders(owner.id, "contact"),
   });
 }

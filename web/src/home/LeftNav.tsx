@@ -8,11 +8,13 @@
  * fills its icon and goes ink-black — no accent — matching iOS/Twitter-style nav.
  */
 import type { ReactNode } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import type { Member } from "../api";
 import { useViewer } from "../providers";
 import { ownProfilePath } from "../lib";
-import { AvatarMenu } from "./AvatarMenu";
+// Account chip is commented out below (redundant with the Profile + Settings items).
+// import { Link, useLocation } from "react-router-dom";
+// import { AvatarMenu } from "./AvatarMenu";
 import { useUnreadCount } from "./hooks";
 
 type IconFn = (filled: boolean) => ReactNode;
@@ -57,9 +59,12 @@ export function NavRail({ viewer }: { viewer: Member | null }) {
       <nav className="rail-nav" aria-label="Primary">
         {items.map((it) => <NavRow key={it.label} item={it} kind="rail" />)}
       </nav>
+      {/* Redundant — the rail already has Profile + Settings items, so the account
+          chip is commented out. Re-enable to bring back the bottom identity chip.
       <div className="rail-foot">
         {viewer ? <AvatarMenu viewer={viewer} /> : <LoggedOutChip />}
       </div>
+      */}
     </div>
   );
 }
@@ -76,20 +81,22 @@ export function MobileTabs() {
   );
 }
 
-function LoggedOutChip() {
-  const location = useLocation();
-  const here = location.pathname + location.search + location.hash;
-  return (
-    <Link className="loggedout-chip" to={`/auth?return=${encodeURIComponent(here)}`}>
-      <span className="loggedout-avatar" aria-hidden="true">?</span>
-      <span className="who-id">
-        <span className="who-name">Logged out</span>
-        <span className="who-sub">Sign up or sign in</span>
-      </span>
-      <span className="who-chev" aria-hidden="true">›</span>
-    </Link>
-  );
-}
+// Rendered by the (now commented-out) account chip in the rail foot. Kept here,
+// commented, so re-enabling the chip above brings it back intact.
+// function LoggedOutChip() {
+//   const location = useLocation();
+//   const here = location.pathname + location.search + location.hash;
+//   return (
+//     <Link className="loggedout-chip" to={`/auth?return=${encodeURIComponent(here)}`}>
+//       <span className="loggedout-avatar" aria-hidden="true">?</span>
+//       <span className="who-id">
+//         <span className="who-name">Logged out</span>
+//         <span className="who-sub">Sign up or sign in</span>
+//       </span>
+//       <span className="who-chev" aria-hidden="true">›</span>
+//     </Link>
+//   );
+// }
 
 /* Icons — outline (inactive) + solid (active). Inlined so the rail needs no runtime. */
 function Line({ children }: { children: ReactNode }) {

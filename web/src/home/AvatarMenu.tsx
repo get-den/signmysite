@@ -68,7 +68,7 @@ export function AvatarMenu({ viewer, compact = false }: { viewer: Member; compac
           <Link className="who-pop-item" to="/edit" role="menuitem">Settings</Link>
           <div className="who-pop-sep" />
           <button className="who-pop-item danger" type="button" role="menuitem" onClick={signOut}>
-            Log out{viewer.handle ? ` @${viewer.handle}` : ""}
+            Sign out{viewer.handle ? ` @${viewer.handle}` : ""}
           </button>
         </div>
       )}

@@ -9,10 +9,10 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { logout, searchAccounts, type Member } from "../api";
-import { authUrl, host, profilePath } from "../lib";
+import { addSite, logout, searchAccounts, type Member } from "../api";
+import { authUrl, domainOf, host, looksLikeUrl, profilePath } from "../lib";
 import { useSearch, useViewer } from "../providers";
-import { Avatar, SearchIcon } from "../ui";
+import { Avatar, SearchIcon, Spinner } from "../ui";
 import { AvatarMenu } from "../home/AvatarMenu";
 import { useMediaQuery } from "../home/hooks";
 import { WIDE } from "../home/FeedLayout";
@@ -63,6 +63,7 @@ function SearchBar() {
   const navigate = useNavigate();
   const [results, setResults] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
 
@@ -95,17 +96,39 @@ function SearchBar() {
     else if (m.url) window.open(m.url, "_blank", "noopener");
   };
 
+  // Paste a URL we don't know yet → offer to add it as a (new) site you can save. Only
+  // when the query reads like a web address AND no result already covers that domain.
+  const dom = looksLikeUrl(q) ? domainOf(q) : null;
+  const haveDomain = !!dom && results.some((r) => !!r.url && host(r.url).replace(/^www\./i, "").toLowerCase() === dom);
+  const showAdd = !!dom && !haveDomain;
+
+  const addPasted = async () => {
+    if (!dom || adding) return;
+    setAdding(true);
+    try {
+      const { member } = await addSite(dom);
+      const path = profilePath(member);
+      close();
+      if (path) navigate(path);
+      else if (member.url) window.open(member.url, "_blank", "noopener");
+    } catch {
+      /* leave the dropdown open so they can retry */
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const showDrop = open && !!q.trim();
   return (
     <div className="topbar-search-wrap" ref={wrap}>
-      <form className="topbar-search search" role="search" onSubmit={(e) => { e.preventDefault(); if (results[0]) goTo(results[0]); }}>
+      <form className="topbar-search search" role="search" onSubmit={(e) => { e.preventDefault(); if (results[0]) goTo(results[0]); else if (showAdd) addPasted(); }}>
         <SearchIcon />
         <input
           value={q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder="Search people, @handles, sites"
-          aria-label="Search people by name, handle, or site"
+          aria-label="Search people, handles, or sites"
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
@@ -117,10 +140,18 @@ function SearchBar() {
 
       {showDrop && (
         <div className="search-results" role="listbox" aria-label="People">
-          {results.length ? (
-            results.map((m) => <SearchResult key={m.id} m={m} onPick={close} />)
-          ) : (
-            <div className="search-empty">{loading ? "Searching…" : "No people found."}</div>
+          {results.map((m) => <SearchResult key={m.id} m={m} onPick={close} />)}
+          {showAdd && (
+            <button type="button" className="search-result search-add" onClick={addPasted} disabled={adding} role="option">
+              <span className="search-add-icon" aria-hidden>{adding ? <Spinner size={16} /> : "+"}</span>
+              <span className="search-result-meta">
+                <b>{adding ? `Adding ${dom}…` : `Add ${dom}`}</b>
+                <span className="search-result-sub">Save this site to your library</span>
+              </span>
+            </button>
+          )}
+          {!results.length && !showAdd && (
+            <div className="search-empty">{loading ? "Searching…" : "No one found."}</div>
           )}
         </div>
       )}

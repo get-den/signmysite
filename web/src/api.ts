@@ -20,6 +20,9 @@ export type Member = {
   onboarded?: boolean;
   /** Present only on the signed-in viewer; true once their site is proven theirs. */
   verified?: boolean;
+  /** False on an unclaimed placeholder site (added by someone pasting its URL, no owner
+   *  signed in yet) — drives the "is this you?" claim prompt. True/undefined otherwise. */
+  claimed?: boolean;
   /** Present only on the signed-in viewer: the linked email + how they sign in. */
   email?: string | null;
   authMethod?: "google" | "email";
@@ -248,6 +251,13 @@ export const getPublicProfile = (handle: string) =>
 export const searchAccounts = (q: string) =>
   req<Member[]>(`/api/search?q=${encodeURIComponent(q)}`);
 
+/** Paste any URL of someone's site → the one account for that domain, creating an
+ *  unclaimed placeholder if it didn't exist yet (so you can immediately save / pin / follow
+ *  it). Tolerant to any format — scheme, www, and path are stripped to the bare domain.
+ *  `created` is true when a new placeholder was minted. */
+export const addSite = (url: string) =>
+  req<{ member: Member; created: boolean }>("/api/sites/add", { method: "POST", ...jsonBody({ url }) });
+
 /** Relational analytics for your own site, scoped to a time range: counts, avg
  *  engaged time, named visitors. Defaults to all-time. */
 export const getAnalytics = (range: AnalyticsRange = "all") =>
@@ -258,12 +268,20 @@ export const getAnalytics = (range: AnalyticsRange = "all") =>
 export const getFeed = (before?: string | null) =>
   req<FeedPage>(`/api/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`);
 
-/** Leave a written note (postcard) on someone's site. Members only. */
+/** Leave a written note (postcard) on someone's site. Members only. Returns the
+ *  site's refreshed comment list (private notes redacted), newest handling as the
+ *  profile page expects. */
 export const postComment = (id: string, body: string, visibility: "public" | "private") =>
-  req<unknown>(`/api/profile/${encodeURIComponent(id)}/comments`, {
+  req<ProfileComment[]>(`/api/profile/${encodeURIComponent(id)}/comments`, {
     method: "POST",
     ...jsonBody({ body, visibility }),
   });
+
+/** Send the owner a message from their "Contact me" button. Anonymous-friendly:
+ *  a signed-out visitor passes name + email so the owner can reply; signed-in
+ *  callers can omit them (the server has the account). Never requires an account. */
+export const sendContact = (id: string, msg: { name?: string; email?: string; message: string }) =>
+  req<{ ok: true }>(`/api/contact/${encodeURIComponent(id)}`, { method: "POST", ...jsonBody(msg) });
 
 /** Follow / save toggles — both return the target's refreshed stats. Following a
  *  site also saves it (the server seeds a save), so a followed site shows up in

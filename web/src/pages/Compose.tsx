@@ -170,9 +170,9 @@ export function Compose() {
             {error ? (
               <span className="formerr">{error}</span>
             ) : visibility === "private" ? (
-              "Only they will see this. A comment just for them."
+              "Only they will see this."
             ) : (
-              "Public comments appear on their profile for everyone to see."
+              "Public comments show on their profile for everyone."
             )}
           </p>
         </div>

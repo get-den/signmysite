@@ -7,18 +7,20 @@
  * Message, their site preview, their public notes, and their pinned showcase. Both
  * share the same presentational pieces below.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import {
-  ApiError, follow as apiFollow, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
-  save as apiSave, togglePin,
-  type Member, type NoteAuthor, type PinnedSite, type PublicProfile, type Stats,
+  ApiError, follow as apiFollow, getAnalytics, getInbox, getPinned, getPublicProfile, getStats, orEmpty,
+  postComment, save as apiSave, togglePin,
+  type Analytics, type Member, type NoteAuthor, type PinnedSite, type ProfileComment, type PublicProfile, type Stats,
 } from "../api";
 import { useToast, useViewer } from "../providers";
 import { host, isReaction, profilePath, relTime, socialLabel } from "../lib";
-import { Avatar, CommentBody, EmptyState, IdentityLink, Loading, PageHead, PinIcon, SiteThumbnail, Spinner } from "../ui";
+import { Avatar, Button, CheckIcon, CommentBody, EmptyState, IdentityLink, Loading, PageHead, PinIcon, SiteThumbnail, Spinner } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
-import { FollowButton, SiteCTA } from "../home/parts";
+import { FollowButton } from "../home/parts";
+import { SiteStats } from "../home/SiteStats";
 
 /** `handle` comes from the /@<handle> route (AtRoute in App.tsx); /profile passes none. */
 export function Profile({ handle }: { handle?: string }) {
@@ -36,18 +38,21 @@ function OwnerProfile({ viewer }: { viewer: Member }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [notes, setNotes] = useState<NoteLike[]>([]);
   const [pinned, setPinned] = useState<PinnedSite[]>([]);
+  // The full last-30-days breakdown — only your own verified site has anything to show.
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
 
   useEffect(() => {
     let alive = true;
     getStats(viewer.id).then((s) => alive && setStats(s)).catch(() => {});
     orEmpty(getInbox()).then((n) => alive && setNotes(n));
     orEmpty(getPinned()).then((p) => alive && setPinned(p));
+    if (viewer.verified) getAnalytics("month").then((a) => alive && setAnalytics(a)).catch(() => {});
     return () => { alive = false; };
-  }, [viewer.id]);
+  }, [viewer.id, viewer.verified]);
 
   const publicNotes = notes.filter((n) => n.visibility === "public");
   return (
-    <FeedLayout viewer={viewer} rail={<OwnerRail viewer={viewer} pinned={pinned} />} railBelow>
+    <FeedLayout viewer={viewer} rail={<OwnerRail viewer={viewer} pinned={pinned} analytics={analytics} />} railBelow>
       <div className="profile-page">
         <PageHead title="Profile" />
         <ProfileHero member={viewer} unverified={!!viewer.url && !viewer.verified}>
@@ -58,7 +63,7 @@ function OwnerProfile({ viewer }: { viewer: Member }) {
         <NotesSection
           heading="Comments on your site"
           notes={publicNotes}
-          empty="No comments yet. When someone writes on your site, it shows up here."
+          empty="No comments yet. They'll show up here."
         />
       </div>
     </FeedLayout>
@@ -88,7 +93,7 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | nu
     return (
       <FeedLayout viewer={viewer}>
         <div className="profile-page"><PageHead title="Profile" />
-          <EmptyState>We couldn't find @{handle}.</EmptyState>
+          <EmptyState>No @{handle} here.</EmptyState>
         </div>
       </FeedLayout>
     );
@@ -120,7 +125,7 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | nu
     });
     apiFollow(m.id)
       .then(setStats)
-      .catch(() => { setStats(prev); toast("Couldn't update follow. Try again."); })
+      .catch(() => { setStats(prev); toast("Couldn't follow. Try again."); })
       .finally(() => setBusy(false));
   };
 
@@ -130,30 +135,51 @@ function MemberProfile({ handle, viewer }: { handle: string; viewer: Member | nu
         <PageHead title={m.name || `@${m.handle}`} />
         <ProfileHero member={m}>
           {!isSelf && (
-            <>
-              {viewer ? (
-                <>
-                  <FollowButton following={profileStats.viewerFollows} onToggle={toggleFollow} sm={false} />
-                  <ProfileMoreMenu member={m} stats={profileStats} onStats={setStats} />
-                </>
-              ) : (
-                <>
-                  <Link className="btn primary pfollow" to={authRoute}>Follow</Link>
-                  <Link className="btn" to={authRoute}>Message</Link>
-                </>
-              )}
-            </>
+            viewer ? (
+              <>
+                <FollowButton following={profileStats.viewerFollows} onToggle={toggleFollow} sm={false} />
+                <ViewerSiteActions member={m} stats={profileStats} onStats={setStats} />
+              </>
+            ) : (
+              <Link className="btn primary pfollow" to={authRoute}>Follow</Link>
+            )
           )}
         </ProfileHero>
+        {m.claimed === false && (
+          <div className="profile-claim" role="note">
+            <span>
+              This site was added by a reader and hasn’t been claimed yet.{" "}
+              <b>Is it yours?</b> Add the widget and verify to claim it — you’ll inherit
+              every save, follow, and note it’s collected.
+            </span>
+            <Link className="btn sm pink" to={viewer ? `/verify?site=${encodeURIComponent(host(m.url || ""))}` : authRoute}>Claim this site</Link>
+          </div>
+        )}
         <Counts following={profileStats.following} followers={profileStats.followers} />
         <SitePreviewImg member={m} label={`View ${m.name}'s site`} />
-        <NotesSection heading={`Comments on ${firstName}'s site`} notes={publicNotes} empty="No comments here yet." />
+        <NotesSection
+          heading={`Comments on ${firstName}'s site`}
+          notes={publicNotes}
+          empty="No comments here yet."
+          composer={
+            isSelf ? null : (
+              <CommentComposer
+                targetId={m.id}
+                viewer={viewer}
+                authRoute={authRoute}
+                onPosted={(comments) => setData((d) => (d ? { ...d, comments } : d))}
+              />
+            )
+          }
+        />
       </div>
     </FeedLayout>
   );
 }
 
-function ProfileMoreMenu({
+// Save + Pin, surfaced directly in the hero (no overflow menu). Both write through
+// to the viewer's account and refresh the target's stats so the labels flip in place.
+function ViewerSiteActions({
   member,
   stats,
   onStats,
@@ -163,21 +189,7 @@ function ProfileMoreMenu({
   onStats: (stats: Stats) => void;
 }) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"save" | "pin" | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   async function saveSite() {
     if (busy) return;
@@ -186,9 +198,8 @@ function ProfileMoreMenu({
       const next = await apiSave(member.id);
       onStats(next);
       toast(next.viewerSaved ? "Saved." : "Removed from saved.");
-      setOpen(false);
     } catch {
-      toast("Couldn't update saved. Try again.");
+      toast("Couldn't save. Try again.");
     } finally {
       setBusy(null);
     }
@@ -201,50 +212,107 @@ function ProfileMoreMenu({
       const next = await togglePin(member.id);
       onStats(next);
       toast(next.viewerPinned ? "Pinned to your profile." : "Removed from pinned.");
-      setOpen(false);
     } catch (e) {
       toast(e instanceof ApiError && e.status === 409
-        ? "You can pin up to 3 sites. Unpin one first."
-        : "Couldn't update pinned. Try again.");
+        ? "You can pin 3 sites. Unpin one first."
+        : "Couldn't pin. Try again.");
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <div className="pmore" ref={ref}>
-      <button
-        type="button"
-        className={"pmore-trigger" + (open ? " on" : "")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="More profile actions"
-        onClick={() => setOpen((v) => !v)}
+    <>
+      <Button
+        className={"psecondary" + (stats.viewerSaved ? " on" : "")}
+        loading={busy === "save"}
+        aria-pressed={stats.viewerSaved}
+        onClick={saveSite}
       >
-        <DotsIcon />
-      </button>
-      {open && (
-        <div className="pmore-pop" role="menu">
-          <Link className="pmore-item" to={`/messages/${member.id}`} role="menuitem">Message</Link>
-          <button className="pmore-item" type="button" role="menuitem" disabled={busy === "save"} onClick={saveSite}>
-            {stats.viewerSaved ? "Saved" : "Save"}
-          </button>
-          <button className="pmore-item" type="button" role="menuitem" disabled={busy === "pin"} onClick={pinSite}>
-            {stats.viewerPinned ? "Pinned" : "Pin"}
-          </button>
-        </div>
-      )}
-    </div>
+        {stats.viewerSaved ? "Saved" : "Save"}
+      </Button>
+      <Button
+        className={"psecondary" + (stats.viewerPinned ? " on" : "")}
+        loading={busy === "pin"}
+        aria-pressed={stats.viewerPinned}
+        onClick={pinSite}
+      >
+        <PinIcon filled={stats.viewerPinned} />
+        {stats.viewerPinned ? "Pinned" : "Pin"}
+      </Button>
+    </>
   );
 }
 
-function DotsIcon() {
+/**
+ * Leave a public comment on someone's site, inline at the foot of the comment
+ * section — the one way a visitor reaches out. Signed-in only (the server is the
+ * gate); a signed-out visitor sees a single sign-in link instead. On success the
+ * server hands back the refreshed list, so the new comment appears instantly with
+ * no refetch. Empty/whitespace is disabled, double-submit is guarded, and ⌘/Ctrl+↵
+ * sends.
+ */
+function CommentComposer({
+  targetId,
+  viewer,
+  authRoute,
+  onPosted,
+}: {
+  targetId: string;
+  viewer: Member | null;
+  authRoute: string;
+  onPosted: (comments: ProfileComment[]) => void;
+}) {
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  if (!viewer) {
+    return (
+      <div className="cmt-composer cmt-composer-out">
+        <Link className="btn" to={authRoute}>Sign in to comment</Link>
+      </div>
+    );
+  }
+
+  const ready = text.trim().length > 0 && !busy;
+  const submit = async () => {
+    if (!ready) return;
+    setBusy(true);
+    try {
+      const comments = await postComment(targetId, text.trim(), "public");
+      setText("");
+      onPosted(comments);
+    } catch (e) {
+      toast(e instanceof ApiError && e.status === 429
+        ? "You've commented here a lot today. Try again tomorrow."
+        : "Couldn't post comment. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="6" cy="12" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="18" cy="12" r="1.8" />
-    </svg>
+    <div className="cmt-composer">
+      <Avatar of={viewer} />
+      <div className="cmt-composer-main">
+        <textarea
+          className="cmt-input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); }
+          }}
+          placeholder="Leave a comment…"
+          rows={2}
+          maxLength={1000}
+          aria-label="Leave a comment"
+        />
+        <div className="cmt-composer-actions">
+          <Button className="primary sm" loading={busy} disabled={!ready} onClick={submit}>Comment</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -292,16 +360,11 @@ function SitePreviewImg({ member, label }: { member: Member; label: string }) {
   if (!member.url) return null;
   return (
     <div className="psite-block">
+      {/* The preview itself opens the site; the hero already shows the host under the name. */}
       <a className="psite-wrap" href={member.url} target="_blank" rel="noopener" aria-label={label}>
         <SiteThumbnail site={member} className="psite-img" />
         <span className="psite-open" aria-hidden="true"><ExternalLinkIcon /></span>
       </a>
-      {/* Just the button — the hero already shows the site's host under the name. */}
-      <div className="psite-actions">
-        <a className="btn psite-view" href={member.url} target="_blank" rel="noopener">
-          View site <ExternalLinkIcon />
-        </a>
-      </div>
     </div>
   );
 }
@@ -332,7 +395,7 @@ function useHighlightOnNavigate(ready: boolean) {
   }, [hash, ready]);
 }
 
-function NotesSection({ heading, notes, empty }: { heading: string; notes: NoteLike[]; empty: string }) {
+function NotesSection({ heading, notes, empty, composer }: { heading: string; notes: NoteLike[]; empty: string; composer?: ReactNode }) {
   useHighlightOnNavigate(notes.length > 0);
   return (
     <section className="pcomments">
@@ -340,8 +403,11 @@ function NotesSection({ heading, notes, empty }: { heading: string; notes: NoteL
       {notes.length ? (
         <div className="cmt-list">{notes.map((n) => <CommentRow key={n.id} note={n} />)}</div>
       ) : (
-        <div className="empty">{empty}</div>
+        // With a composer present, its placeholder is invitation enough — skip the
+        // empty line so the section never reads as both "no comments" and a prompt.
+        composer ? null : <div className="empty">{empty}</div>
       )}
+      {composer}
     </section>
   );
 }
@@ -382,13 +448,54 @@ function CommentRow({ note }: { note: NoteLike }) {
 
 /* ---- right rails --------------------------------------------------------- */
 
-// Your rail: add/verify-your-site CTA, then your pinned showcase.
-function OwnerRail({ viewer, pinned }: { viewer: Member; pinned: PinnedSite[] }) {
+// Your rail: the widget box (your door to /verify), then the full analytics (the home
+// feed's "See more" lands here), then your pinned showcase.
+function OwnerRail({ viewer, pinned, analytics }: { viewer: Member; pinned: PinnedSite[]; analytics: Analytics | null }) {
   return (
     <div className="rail-r">
-      <SiteCTA viewer={viewer} />
-      <PinnedBlock pinned={pinned} empty="Pin a site from anyone's page to feature it here, up to three." />
+      <WidgetBox viewer={viewer} />
+      {viewer.verified && <SiteStats analytics={analytics} />}
+      <PinnedBlock pinned={pinned} empty="Pin up to 3 sites to feature them here." />
     </div>
+  );
+}
+
+/**
+ * The widget box at the top of your own rail — one always-present door to the /verify
+ * setup page. The copy reads right in every state but the destination never changes:
+ * the single place to add, re-check, or change your widget. Pink while there's setup
+ * left to do; calm white once your widget is live.
+ */
+function WidgetBox({ viewer }: { viewer: Member }) {
+  const todo = !viewer.verified; // no site linked yet, or linked but unverified
+  const title = viewer.verified
+    ? "Your widget is live"
+    : viewer.url ? "Finish your setup" : "Add signmysite to your site";
+  const sub = viewer.verified
+    ? "See it, re-check it, or change how it's installed."
+    : viewer.url
+      ? `Add the one-line widget to ${host(viewer.url)} to verify and unlock analytics.`
+      : "Paste a one-line widget on your site to go live.";
+  return (
+    <Link className={"rail-block widget-box" + (todo ? " is-todo" : "")} to="/verify">
+      <div className="cta-head">
+        <h2>
+          {viewer.verified && <span className="widget-tick" aria-hidden="true"><CheckIcon size={16} /></span>}
+          {title}
+        </h2>
+        <p>{sub}</p>
+      </div>
+      <span className="widget-box-go" aria-hidden="true"><ChevronRightIcon /></span>
+    </Link>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
   );
 }
 
@@ -403,6 +510,21 @@ function MemberRail({ member, pinned }: { member: Member; pinned: PinnedSite[] }
 }
 
 function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string }) {
+  // Hovering a pin fades in that site's og:image beside it. The preview is portaled
+  // to <body> with fixed positioning so the rail's own overflow never clips it, and
+  // clamped to the viewport so it always lands on-screen, on the right.
+  const [preview, setPreview] = useState<{ site: PinnedSite; top: number; left: number } | null>(null);
+  const open = (site: PinnedSite, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const W = 240, H = 126, gap = 14, m = 12;
+    // Sit just to the right of the pin; if the viewport edge is too close, slide back
+    // in so it never clips. Vertically centered on the pin row so it reads as "this one".
+    const left = Math.min(r.right + gap, window.innerWidth - W - m);
+    const top = Math.min(Math.max(m, r.top + r.height / 2 - H / 2), window.innerHeight - H - m);
+    setPreview({ site, left, top });
+  };
+  const close = () => setPreview(null);
+
   return (
     <section className="rail-block pins-block">
       <div className="rail-block-head"><h2>Pinned</h2></div>
@@ -412,6 +534,8 @@ function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string })
             // A pin points at the real site (open it) when it has a URL; otherwise the
             // pinned member's in-app profile.
             const inApp = p.url ? null : profilePath(p);
+            // Only sites with a real og:image get the hover preview.
+            const onEnter = p.thumbnail ? (e: { currentTarget: HTMLElement }) => open(p, e.currentTarget) : undefined;
             const body = (
               <>
                 <Avatar of={p} />
@@ -427,9 +551,9 @@ function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string })
               </>
             );
             return inApp ? (
-              <Link key={p.id} className="pin" to={inApp}>{body}</Link>
+              <Link key={p.id} className="pin" to={inApp} onMouseEnter={onEnter} onMouseLeave={close}>{body}</Link>
             ) : (
-              <a key={p.id} className="pin" href={p.url || "#"} target="_blank" rel="noopener">{body}</a>
+              <a key={p.id} className="pin" href={p.url || "#"} target="_blank" rel="noopener" onMouseEnter={onEnter} onMouseLeave={close}>{body}</a>
             );
           })}
         </div>
@@ -438,6 +562,12 @@ function PinnedBlock({ pinned, empty }: { pinned: PinnedSite[]; empty: string })
           <span className="pins-empty-icon"><PinIcon /></span>
           <p className="pins-empty-text">{empty}</p>
         </div>
+      )}
+      {preview && createPortal(
+        <div className="pin-preview" style={{ top: preview.top, left: preview.left }} aria-hidden="true">
+          <SiteThumbnail site={preview.site} />
+        </div>,
+        document.body,
       )}
     </section>
   );

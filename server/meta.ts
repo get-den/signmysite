@@ -49,7 +49,11 @@ export function widgetBanner(base: string): string {
  *     (isolated from the host page), and counts visitors anonymously — it
  *     identifies a reader only when that reader is a signed-in signmysite member
  *     (that is the social graph). Add data-ui="none" for no visible UI at all.
- *   - Keep the line once, just before </body>. That is the entire install.
+ *   - This widget is ONE option. If the user just wants a "Contact me" / "Follow
+     me" button, a plain link works with no script at all and is the least
+     invasive: <a href="${base}/@<handle>?contact=1">Contact me</a>. For no
+     visible UI at all, use data-ui="none". See ${base}/skill.md.
+   - Keep the line once, just before </body>. That is the entire install.
  *   - The site's permanent signmysite id is minted on first load. The site is CLAIMED
  *     only when its owner signs in (email magic link, in their own browser).
  *   - Nothing creates an account or stores personal data before that human
@@ -79,9 +83,26 @@ export function siteManifest(base: string) {
     description:
       "Connects isolated personal websites into a traversable social graph: follow, comments, reactions, and a portable profile. One script tag to join.",
     install: {
+      // Three ways to wear signmysite — the corner widget is one option, not the
+      // only one. Pick by what the user wants; the plain link is the safest default.
+      methods: {
+        link: {
+          tag: `<a href="${base}/@<handle>?contact=1">Contact me</a>`,
+          note: 'A single anchor to the owner\'s profile. No script, works on any builder (and where scripts are blocked). "?contact=1" opens a contact form (visitors message the owner with no account); drop it for a plain profile link. <handle> comes from register, below, or ask the user.',
+        },
+        widget: {
+          tag: `<script src="${base}/w.js"></script>`,
+          placement: "once, just before </body>",
+          renders: "a small follow / comments / reactions badge in the corner",
+        },
+        headless: {
+          tag: `<script src="${base}/w.js" data-ui="none"></script>`,
+          renders: "nothing: presence + analytics only; the site stays visually the owner's",
+        },
+      },
+      // Back-compat alias: the widget tag was once the single install.
       tag: `<script src="${base}/w.js"></script>`,
       placement: "once, just before </body>",
-      renders: 'a small follow / comments / reactions widget by default. Add data-ui="none" to render nothing (presence + analytics only).',
       reversible: true,
       safe_to_add_without_asking: true,
     },

@@ -4,46 +4,30 @@ import { scrapeSite } from "../api";
 import { useToast, useViewer } from "../providers";
 import { Button, IconButton } from "../ui";
 import { validateSite } from "../lib";
-import { WidgetSetup } from "../components/WidgetSetup";
+import { EmbedSetup } from "../components/EmbedSetup";
 
 /**
- * "Add the widget" page. The whole install — copy-a-prompt-for-your-agent, the
- * platform picker, the paste-here steps, and the live check — lives in the shared
- * <WidgetSetup>, so this page and the onboarding final step are the exact same
- * layout. Reached from the dashboard nudge and from "Add to my site" after someone
- * reacts on a friend's widget — which can arrive before they've linked a site at
- * all, so we capture the address first when it's missing.
+ * "Add signmysite to your site" — the single most important page: where a new member
+ * turns their account into a live widget. It folds together what used to be two pages
+ * (/verify and /embed): pick how it looks, copy it in (prompt-first), then verify.
+ *
+ * The whole install lives in the shared <EmbedSetup>, so this page and the onboarding
+ * final step are identical. The only thing this page adds is the chrome (close + hero),
+ * a one-time "what's your site?" capture when we don't have it yet, and a calm
+ * "verified" banner once it's proven. Reached from the dashboard nudge and from "Add to
+ * my site" — which can arrive before a site is linked, hence the capture.
  */
 export function Verify() {
   const { viewer, setViewer } = useViewer();
   const toast = useToast();
   const navigate = useNavigate();
 
-  // Step 0, only when they have no site yet: ask for it, scrape + save it server-side.
-  const [siteUrl, setSiteUrl] = useState("");
+  // Pre-fill the site when arriving from an unclaimed profile's "Claim this site" link
+  // (/verify?site=their-domain), so the real owner doesn't retype what they just saw.
+  const [siteUrl, setSiteUrl] = useState(() => new URLSearchParams(window.location.search).get("site") ?? "");
   const [linking, setLinking] = useState(false);
-  // Already verified → show a calm full-screen confirmation instead of the setup.
-  // "Change the setup" drops back into the normal page (to re-check or re-paste).
-  const [editing, setEditing] = useState(false);
   const siteCheck = validateSite(siteUrl);
   if (!viewer) return null; // wrapped in <Protected>
-
-  // Done already: a full-screen "you're verified" page, modeled on the post-comment
-  // confirmation — one check, one line, one quiet way back into the setup.
-  if (viewer.verified && !editing) {
-    return (
-      <div className="sheet">
-        <div className="sheet-bar"><IconButton icon="close" to="/" /></div>
-        <div className="confirm">
-          <div className="confirm-mark" aria-hidden="true">✅</div>
-          <h1 className="confirm-title">Your site is verified!</h1>
-          <button type="button" className="confirm-skip" onClick={() => setEditing(true)}>
-            I want to change the setup
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   async function linkSite() {
     if (!siteCheck.ok || linking || !viewer) return;
@@ -58,36 +42,47 @@ export function Verify() {
     }
   }
 
-  // No site on file yet: capture it first, then this same page shows the steps.
-  if (!viewer.url) {
-    return (
-      <div className="narrow verify-page">
-        <h1>Add signmysite to your site</h1>
-        <p className="verify-lead">What's your site? We'll point your widget at it, then show you where to paste it.</p>
-        <div className={"verify-site" + (siteUrl.trim() && !siteCheck.ok ? " bad" : "")}>
-          <input
-            value={siteUrl}
-            onChange={(e) => setSiteUrl(e.target.value)}
-            placeholder="yoursite.com"
-            inputMode="url"
-            autoFocus
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            aria-label="Your website"
-            onKeyDown={(e) => { if (e.key === "Enter" && siteCheck.ok) linkSite(); }}
-          />
-        </div>
-        {siteUrl.trim() && siteCheck.error && <p className="formerr">{siteCheck.error}</p>}
-        <Button className="pink lg verify-copy" loading={linking} disabled={!siteCheck.ok} onClick={linkSite}>Continue</Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="verify-setup">
-      <h1>Add signmysite to your site</h1>
-      <WidgetSetup viewer={viewer} onVerified={() => navigate("/")} />
+    <div className="es-page">
+      <div className="sheet-bar"><IconButton icon="close" to="/" /></div>
+
+      <header className="es-hero">
+        <h1>Add signmysite to your site</h1>
+      </header>
+
+      {!viewer.url ? (
+        // No site on file yet: capture it first (we point the widget at it + verify it).
+        <section className="es-site">
+          <label htmlFor="es-site-url">First, what's your site?</label>
+          <div className={"verify-site" + (siteUrl.trim() && !siteCheck.ok ? " bad" : "")}>
+            <input
+              id="es-site-url"
+              value={siteUrl}
+              onChange={(e) => setSiteUrl(e.target.value)}
+              placeholder="yoursite.com"
+              inputMode="url"
+              autoFocus
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-label="Your website"
+              onKeyDown={(e) => { if (e.key === "Enter" && siteCheck.ok) linkSite(); }}
+            />
+          </div>
+          {siteUrl.trim() && siteCheck.error && <p className="formerr">{siteCheck.error}</p>}
+          <Button className="pink lg" loading={linking} disabled={!siteCheck.ok} onClick={linkSite}>Continue</Button>
+        </section>
+      ) : (
+        <>
+          {viewer.verified && (
+            <div className="es-done">
+              <span className="es-done-mark" aria-hidden="true">✓</span>
+              <span>Your site is verified. You're all set.</span>
+            </div>
+          )}
+          <EmbedSetup viewer={viewer} onVerified={() => navigate("/")} />
+        </>
+      )}
     </div>
   );
 }

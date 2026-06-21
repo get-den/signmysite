@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode,
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { useToast, useViewer } from "./providers";
-import { host, initials, profilePath, siteThumb, PLACEHOLDER_THUMB } from "./lib";
+import { host, initials, profilePath } from "./lib";
 import { verifySite, type Site } from "./api";
 
 /** Wrap the app once so tooltips share hover-intent timing. */
@@ -210,10 +210,36 @@ export function Loading() {
 }
 
 /**
+ * The canonical "no preview image" placeholder — a clean blank page: a light surface
+ * with a few rounded content bars, the look first used on the /verify variant cards.
+ * An inline SVG, so it scales crisply to any thumbnail size and follows the theme
+ * tokens (rather than a fixed-color raster). It carries the same `site-thumb` sizing
+ * classes an <img> would, so it drops into the exact same box. Shown anywhere a site
+ * has no real og:image. Standalone + exported so it can be used directly too.
+ */
+export function SitePlaceholder({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={("site-thumb site-mock " + className).trim()}
+      viewBox="0 0 1200 630"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label="No preview image"
+    >
+      <rect className="site-mock-bg" width="1200" height="630" />
+      <rect className="site-mock-bar" x="110" y="150" width="540" height="42" rx="21" />
+      <rect className="site-mock-bar" x="110" y="228" width="720" height="30" rx="15" opacity="0.82" />
+      <rect className="site-mock-bar" x="110" y="282" width="600" height="30" rx="15" opacity="0.82" />
+      <rect className="site-mock-bar" x="110" y="336" width="680" height="30" rx="15" opacity="0.64" />
+    </svg>
+  );
+}
+
+/**
  * A website's preview image, locked to the og:image aspect ratio (1200×630). Shows
- * the site's real og:image when we have one, otherwise the canonical wireframe
- * placeholder — and swaps to that same placeholder if a real image fails to load.
- * One component, so every site thumbnail across the app shares the shape + fallback.
+ * the site's real og:image when there is one; otherwise — or if it fails to load —
+ * the canonical <SitePlaceholder> page mock. One component, so every site thumbnail
+ * across the app shares the same shape + fallback.
  */
 export function SiteThumbnail({
   site,
@@ -222,19 +248,16 @@ export function SiteThumbnail({
   site: { thumbnail?: string | null };
   className?: string;
 }) {
+  const [failed, setFailed] = useState(false);
+  if (!site.thumbnail || failed) return <SitePlaceholder className={className} />;
   return (
     <img
       className={("site-thumb " + className).trim()}
-      src={siteThumb(site)}
+      src={site.thumbnail}
       alt=""
       loading="lazy"
       decoding="async"
-      onError={(e) => {
-        const img = e.currentTarget;
-        if (img.dataset.fallback) return; // already on the fallback — don't loop
-        img.dataset.fallback = "1";
-        img.src = PLACEHOLDER_THUMB;
-      }}
+      onError={() => setFailed(true)}
     />
   );
 }

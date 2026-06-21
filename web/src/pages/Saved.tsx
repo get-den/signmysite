@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { ApiError, getPinned, getSaved, orEmpty, togglePin, type Site } from "../api";
-import { useSearch, useToast, useViewer } from "../providers";
+import { useSearch, useToast, useUndoToast, useViewer } from "../providers";
 import { EmptyState, Loading, PageHead } from "../ui";
 import { FeedLayout } from "../home/FeedLayout";
 import { SiteTile } from "../home/parts";
@@ -14,31 +14,44 @@ export function Saved() {
   const { viewer } = useViewer();
   const { q } = useSearch();
   const toast = useToast();
+  const undoToast = useUndoToast();
   const [sites, setSites] = useState<Site[] | null>(null);
-  const [pinned, setPinned] = useState<Set<string>>(new Set());
+  const [pinned, setPinned] = useState<string[]>([]); // ids in pin priority order
 
   useEffect(() => {
     let alive = true;
     orEmpty(getSaved()).then((s) => alive && setSites(s));
-    orEmpty(getPinned()).then((p) => alive && setPinned(new Set(p.map((x) => x.id))));
+    orEmpty(getPinned()).then((p) => alive && setPinned(p.map((x) => x.id)));
     return () => { alive = false; };
   }, []);
 
   if (!viewer) return null; // the route is Protected; this is just a type guard
 
-  // Toggle a pin, then re-sync from the server (authoritative order + 3-pin limit).
-  const togglePinSite = async (s: Site) => {
+  // Flip a pin and re-sync from the server (authoritative order + 3-pin limit).
+  const flipPin = async (s: Site) => {
     try {
       await togglePin(s.id);
-      setPinned(new Set((await getPinned()).map((x) => x.id)));
+      setPinned((await getPinned()).map((x) => x.id));
+      return true;
     } catch (e) {
-      toast(e instanceof ApiError && e.status === 409 ? "Pin up to 3 — unpin one first." : "Couldn't update pin.");
+      toast(e instanceof ApiError && e.status === 409 ? "You can only pin 3" : "Couldn't pin.");
+      return false;
     }
   };
 
+  // Unpinning offers an Undo (re-pin); pinning is silent (the filled icon is feedback enough).
+  const togglePinSite = async (s: Site) => {
+    const wasPinned = rank.has(s.id);
+    if (await flipPin(s) && wasPinned) undoToast(`Unpinned ${s.name}`, () => flipPin(s));
+  };
+
   const needle = q.trim().toLowerCase();
-  const wall = (sites ?? []).filter((s) =>
-    !needle || [s.name, s.handle, s.url].some((v) => (v || "").toLowerCase().includes(needle)));
+  const rank = new Map(pinned.map((id, i) => [id, i] as const));
+  // Pinned sites lead, in pin priority order; the rest keep their server order (stable sort).
+  const wall = (sites ?? [])
+    .filter((s) =>
+      !needle || [s.name, s.handle, s.url].some((v) => (v || "").toLowerCase().includes(needle)))
+    .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
 
   return (
     <FeedLayout viewer={viewer}>
@@ -56,7 +69,7 @@ export function Saved() {
         ) : (
           <div className="wall-grid">
             {wall.map((s) => (
-              <SiteTile key={s.id} site={s} canPin={s.id !== viewer.id} pinned={pinned.has(s.id)} onPin={togglePinSite} />
+              <SiteTile key={s.id} site={s} canPin={s.id !== viewer.id} pinned={rank.has(s.id)} onPin={togglePinSite} />
             ))}
           </div>
         )}

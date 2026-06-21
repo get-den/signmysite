@@ -96,6 +96,25 @@
     root.innerHTML = style() + html(cfg);
     ui = map(root);
 
+    // Inline mode — the owner drops a normal <a> (or any element) into their OWN page
+    // markup carrying a data-signmysite attribute. When one is present we suppress the
+    // floating badge entirely and let those elements open the card in place; with JS
+    // off they stay plain links to the profile. So "put it inline, like an a tag" is:
+    //   <a href="https://signmysite.com/@you" data-signmysite>who's reading?</a>
+    // (Our own host uses data-signmysite-widget — a different attribute — so it never
+    // matches here, and neither does the <script> tag.)
+    var triggers = [].slice.call(document.querySelectorAll("[data-signmysite]"));
+    if (triggers.length) {
+      ui.wrap.classList.add("inline");
+      triggers.forEach(function (t) {
+        t.style.cursor = "pointer";
+        // stopPropagation so the document-level outside-click handler (which closes
+        // the card on any click outside the shadow host) doesn't immediately undo this
+        // open — the trigger lives in the page, i.e. "outside" the host.
+        t.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); open(true); });
+      });
+    }
+
     ui.open.onclick = function () { open(!ui.wrap.classList.contains("open")); };
     // Owner sees Edit profile (→ dashboard) and a Preview eye where guests see
     // Follow + Save.
@@ -401,7 +420,7 @@
       loadAnalytics();
     }
     // A gentle banner while previewing the signed-out view of your own widget.
-    ui.status.textContent = previewGuest ? "Preview — the signed-out view" : "";
+    ui.status.textContent = previewGuest ? "Preview: signed-out view" : "";
     if (ui.stats) ui.stats.hidden = !SHOW_STATS;
     if (SHOW_STATS) paintStats();
     paintActions();
@@ -845,7 +864,7 @@
       // Success: the permanent tag to copy, and one friendly link out. No
       // troubleshooting/log-out clutter on the happy path.
       ui.obTitle.textContent = "You're in" + (p.name ? ", " + firstName(p.name) : "");
-      ui.obBody.textContent = "Paste this line on your site to finish — it replaces the generic tag and keeps your followers attached even if your domain changes.";
+      ui.obBody.textContent = "Paste this line on your site to finish. It replaces the generic tag and keeps your followers if your domain changes.";
       ui.obCode.textContent = tagLine(card.script);
       ui.obTag.hidden = false;
       ui.obCta.hidden = true;
@@ -855,7 +874,7 @@
       ui.obFoot.hidden = true;
     } else {
       ui.obTitle.textContent = "Welcome to signmysite";
-      ui.obBody.textContent = "signmysite connects personal sites into one network — followers, comments, and a profile that's yours. This widget is now live here. Create your account to claim this site.";
+      ui.obBody.textContent = "signmysite connects personal sites: followers, comments, and a profile that's yours. The widget is live here. Create your account to claim this site.";
       ui.obCta.textContent = "Create your account";
       ui.obCta.onclick = signIn;
       ui.obCta.hidden = false;
@@ -1030,11 +1049,11 @@
           '</div>' +
           '<div class="ob-help-panel" hidden>' +
             '<ol class="ob-steps">' +
-              '<li>Hard-refresh this page — ⌘⇧R (Mac) or Ctrl-Shift-R. A cached older widget is the usual cause.</li>' +
+              '<li>Hard-refresh: ⌘⇧R (Mac) or Ctrl-Shift-R. A cached old widget is the usual cause.</li>' +
               '<li>Check the tag sits just before &lt;/body&gt; and the page fully reloaded.</li>' +
               '<li>Just signed in? Give it a moment — this card updates itself.</li>' +
             '</ol>' +
-            '<a class="ob-help-link" target="_blank" rel="noopener">Open the troubleshooting guide →</a>' +
+            '<a class="ob-help-link" target="_blank" rel="noopener">Troubleshooting guide →</a>' +
           '</div>' +
         '</div>' +
         '<div class="dev" hidden><span class="dev-tag">DEV</span><span class="dev-state"></span><button class="dev-out" type="button" hidden>Sign out</button></div>' +
@@ -1043,26 +1062,22 @@
   function launcher(kind) {
     var avatar = '<span class="pill-avatar"></span>';
     var name = '<span class="pill-name">signmysite</span>';
-    var star = '<span class="logo">✦</span>';
-    // The launcher shows the site owner's avatar (and name), never a brand logo —
-    // the wordmark lives only in the app's top-left. The "mark" variant uses a
-    // neutral glyph, not the brand. Older logo/slab configs degrade to the avatar.
+    // Each style shows the owner's avatar (plus the name on the wider shapes), never a
+    // brand logo — the wordmark lives only in the app. Unknown or retired values fall
+    // back to the avatar + name pill, so an old data-launcher never renders blank.
     var inner = {
-      avatar: avatar,
-      circle: avatar,
-      logo: avatar,
-      mark: star,
-      glass: avatar + name,
-      neon: avatar + name,
-      halo: avatar,
-      slab: avatar + name,
-      pill: avatar + name,
+      circle: avatar,                // a round avatar disc (the default)
+      chip: avatar + name,           // a small dark rectangle: image + name (floating)
+      "chip-center": avatar + name,  // the chip, flush to the bottom-center edge
+      "chip-corner": avatar + name,  // the chip, flush into the bottom-right corner
+      peek: avatar + name,           // an edge sliver that slides out on hover
+      "peek-center": avatar + name,  // the same sliver, at the vertical middle of the edge
     }[kind] || avatar + name;
     // The circle lives inside a larger, stable hit target (.launch). Only the inner
     // .launcher scales on hover, so the clickable area never shifts out from under
     // the cursor — a tap near the edge always opens the card.
     return '<button class="launch" aria-label="Toggle signmysite card" aria-expanded="false">' +
-      '<span class="launcher">' + inner + '<span class="notif" hidden></span></span></button>';
+      '<span class="launcher">' + inner + '</span></button>';
   }
   function stat(key, label) {
     return '<a class="' + key + '-link stat"><b class="' + key + '">–</b><span>' + label + "</span></a>";
@@ -1301,13 +1316,29 @@
       // initial (the circle variant bumps this to 18px). Cleaner than a flat-gray
       // chip with a too-small letter.
       '.pill-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(180deg,#eef0f3,#e1e3e9) center/cover no-repeat;display:grid;place-items:center;color:#1b1b1f;font:600 14px/1 var(--ff);letter-spacing:-.02em;flex:0 0 auto}' +
-      // A small presence dot (not a count): "there's activity here". The ring
-      // matches the badge so it reads cleanly on the avatar; dark launchers swap
-      // the ring to ink below.
-      '.notif{position:absolute;top:3px;right:3px;width:12px;height:12px;border-radius:50%;background:#ff2d55;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}.notif[hidden]{display:none}' +
-      '.logo{display:grid;place-items:center;font-weight:600;letter-spacing:-.02em}' +
-      '.launcher-avatar .launcher,.launcher-circle .launcher,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher{padding:6px;width:62px;height:62px;justify-content:center}.launcher-avatar .pill-avatar,.launcher-circle .pill-avatar,.launcher-halo .pill-avatar{width:50px;height:50px}.launcher-avatar .launcher,.launcher-avatar .pill-avatar{border-radius:18px}.launcher-circle .launcher,.launcher-circle .pill-avatar,.launcher-logo .launcher,.launcher-mark .launcher,.launcher-halo .launcher,.launcher-halo .pill-avatar{border-radius:50%}.launcher-circle .launcher{width:56px;height:56px}.launcher-circle .pill-avatar{width:42px;height:42px;font-size:18px}' +
-      '.launcher-logo .launcher,.launcher-mark .launcher{padding:0;background:#000;color:#fff;border-color:#000}.launcher-logo .logo{font-size:17px}.launcher-mark .logo{font-size:26px}.launcher-glass .launcher{background:rgba(255,255,255,.72);backdrop-filter:blur(18px);border-color:rgba(255,255,255,.7)}.launcher-neon .launcher{border-color:#ffd1ef;box-shadow:0 0 0 1px #ffd1ef,0 12px 44px rgba(255,45,133,.28),0 0 38px rgba(117,92,255,.18)}.launcher-halo .launcher{box-shadow:0 0 0 7px rgba(255,45,85,.08),0 20px 70px rgba(0,0,0,.18)}.launcher-slab .launcher{border-radius:18px;padding:9px 16px;background:#050505;color:#fff;border-color:#050505}.launcher-slab .logo{width:26px;height:26px;border-radius:8px;background:#fff;color:#000}.launcher-slab .notif,.launcher-logo .notif,.launcher-mark .notif{border-color:#050505}' +
+      // ── Badge styles ──────────────────────────────────────────────────────
+      // circle — a round avatar disc. The quiet default.
+      '.launcher-circle .launcher{width:56px;height:56px;padding:6px;justify-content:center;border-radius:50%}.launcher-circle .pill-avatar{width:42px;height:42px;font-size:18px;border-radius:50%}' +
+      // peek — a sliver tucked against the right edge: nothing but a thin nub until you
+      // hover near it, then the dark avatar pill slides out. The most subtle option.
+      // peek sits low on the edge; peek-center sits at its vertical middle (a side tab).
+      '.signmysite.launcher-peek{right:0;bottom:26px}.signmysite.launcher-peek-center{right:0;top:50%;bottom:auto;transform:translateY(-50%)}' +
+      '.launcher-peek .launcher,.launcher-peek-center .launcher{transform:translateX(calc(100% - 8px));transform-origin:right center;transition:transform .24s cubic-bezier(.2,.7,.3,1);border-radius:13px 0 0 13px;padding:8px 14px 8px 9px;gap:9px;background:#111;color:#fff;border-color:#111;box-shadow:-7px 8px 24px rgba(0,0,0,.24)}.launcher-peek .pill-avatar,.launcher-peek-center .pill-avatar{width:30px;height:30px}.launcher-peek .pill-name,.launcher-peek-center .pill-name{font-size:13px}.launcher-peek .launch:hover .launcher,.launcher-peek-center .launch:hover .launcher{transform:translateX(0)}' +
+      // chip — a small dark rounded rectangle: the avatar as a squared image on the
+      // left, the name beside it, on a near-black fill with a soft shadow. Three
+      // placements share the look: floating (chip), flush to the bottom-center edge
+      // (chip-center), and tucked flush into the bottom-right corner (chip-corner).
+      '.launcher-chip .launcher,.launcher-chip-center .launcher,.launcher-chip-corner .launcher{padding:5px 13px 5px 5px;gap:9px;background:#1c1c1f;color:#fff;border-color:#1c1c1f}.launcher-chip .pill-avatar,.launcher-chip-center .pill-avatar,.launcher-chip-corner .pill-avatar{width:28px;height:28px;border-radius:8px}.launcher-chip .pill-name,.launcher-chip-center .pill-name,.launcher-chip-corner .pill-name{font-size:13.5px}' +
+      // chip (floating, bottom-right with a margin) — fully rounded, shadow beneath.
+      '.launcher-chip .launcher{border-radius:11px;box-shadow:0 1px 1px rgba(0,0,0,.22),0 6px 16px rgba(0,0,0,.30)}' +
+      // chip-center — flush to the bottom-center edge, rounded on top only, lifts on hover.
+      '.signmysite.launcher-chip-center{left:50%;right:auto;transform:translateX(-50%);bottom:0;align-items:center}.launcher-chip-center .launcher{border-radius:12px 12px 0 0;transform-origin:bottom;box-shadow:0 -2px 8px rgba(0,0,0,.18),0 -12px 30px rgba(0,0,0,.22)}.launcher-chip-center .launch:hover .launcher{transform:translateY(-3px)}' +
+      // chip-corner — tucked flush into the bottom-right corner, rounded on the inner
+      // (top-left) corner only; grows away from the corner on hover.
+      '.signmysite.launcher-chip-corner{right:0;bottom:0}.launcher-chip-corner .launcher{border-radius:12px 0 0 0;transform-origin:bottom right;box-shadow:-4px -4px 18px rgba(0,0,0,.20)}.launcher-chip-corner .launch:hover .launcher{transform:scale(1.04)}' +
+      // inline — no floating badge at all: the card is opened by the owner's own
+      // in-page link(s). The card still pops from the bottom-right corner.
+      '.signmysite.inline .launch{display:none}' +
       // Phones: full-bleed card that uses nearly the whole height (the launcher +
       // safe area is ~96px), with tighter rhythm so the profile — pins ("recs") and
       // notes ("comments") included — fits without feeling cramped. The name is sized
