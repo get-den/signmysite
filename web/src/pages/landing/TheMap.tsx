@@ -26,8 +26,7 @@ export function TheMap() {
     <div className="lv lv-wide">
       <h1>The personal web, connected</h1>
       <p className="lv-sub">
-        Every dot is someone's site. One line of HTML adds yours, shows you who
-        visits, and links you into the rest.
+        Every dot is someone's site. One line of HTML adds yours.
       </p>
       <div className="lv-map" aria-hidden="true">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">

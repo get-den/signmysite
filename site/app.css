@@ -1358,16 +1358,15 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
 .lv-cta-hint.on { visibility: visible; animation: slide-down .18s ease both; }
 
 /* The map (variant 7): the network as the hero. Kept minimal — hairline links,
-   clean uniform avatar nodes, and an accent "your site" pill with a soft pulsing
-   ring at the center. */
+   clean uniform avatar nodes, and a calm accent "your site" pill at the center. */
 .lv-map { position: relative; width: 100%; max-width: 760px; height: min(44vh, 380px); margin: 6px auto 0; }
 .lv-map svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.lv-map line { stroke: var(--line); stroke-width: 1; opacity: .85; }
+.lv-map line { stroke: var(--line); stroke-width: 1; opacity: .7; }
 .lv-map-node {
   position: absolute; transform: translate(-50%, -50%);
   width: 46px; height: 46px; border-radius: 50%; object-fit: cover;
   background: var(--surface); border: 3px solid var(--surface);
-  box-shadow: 0 2px 12px rgba(20, 20, 20, .10);
+  box-shadow: 0 1px 6px rgba(20, 20, 20, .07);
   transition: transform .18s ease;
 }
 .lv-map-node:hover { transform: translate(-50%, -50%) scale(1.07); }
@@ -1376,19 +1375,8 @@ h2.section { background: none; border: 0; padding: 0; margin: 6px 0 18px; color:
   padding: 9px 16px; border-radius: 999px;
   background: var(--accent); color: var(--accent-ink);
   font-size: 13px; font-weight: var(--w-semibold); white-space: nowrap;
-  box-shadow: 0 6px 20px rgba(254, 40, 88, .28);
+  box-shadow: 0 4px 14px rgba(254, 40, 88, .22);
 }
-.lv-map-you::before {
-  content: ""; position: absolute; inset: -5px; border-radius: 999px;
-  border: 2px solid var(--accent); opacity: .5;
-  animation: lv-map-pulse 2.4s ease-out infinite;
-}
-@keyframes lv-map-pulse {
-  0% { transform: scale(.92); opacity: .5; }
-  70% { transform: scale(1.22); opacity: 0; }
-  100% { opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) { .lv-map-you::before { animation: none; opacity: 0; } }
 
 /* The floating variant switcher — only for whoever opened ?v=.
    Doubled selector so it outranks the .shell-page child rule that would stretch it. */
